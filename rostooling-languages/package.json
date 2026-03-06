@@ -1,0 +1,82 @@
+{
+  "name": "rostooling-languages",
+  "displayName": "Rostooling Languages",
+  "description": "Plugin to support Rostooling languages",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ros",
+        "aliases": ["ROS", "ros"],
+        "extensions": [".ros"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "ros1",
+        "aliases": ["ROS1", "ros1"],
+        "extensions": [".ros1"]
+      },
+      {
+        "id": "ros2", 
+        "aliases": ["ROS2", "ros2"],
+        "extensions": [".ros2"]
+      },
+      {
+        "id": "rossystem",
+        "aliases": ["ROS System", "rossystem"],
+        "extensions": [".rossystem"]
+      }
+    ],
+    "assetResources": ["server/**/*"],
+    "configuration": {
+      "title": "ROS Tooling LSP",
+      "properties": {
+        "rostooling-languages.server.trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "scope": "window"
+        }
+      }
+    }
+  },
+  "activationEvents": [
+    "onLanguage:ros",
+    "onLanguage:ros1",
+    "onLanguage:ros2",
+    "onLanguage:rossystem"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.109.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^2.25.1",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

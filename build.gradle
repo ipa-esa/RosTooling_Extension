@@ -1,0 +1,64 @@
+plugins {
+    id 'java'
+	id 'com.gradleup.shadow' version '8.3.6'
+}
+
+ext {
+    xtextVersion = '2.39.0'
+    group = 'de.fraunhofer.ipa.ros'
+    version = '3.0.0-SNAPSHOT'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    gradlePluginPortal()
+}
+
+dependencies {
+    implementation "org.eclipse.xtext:org.eclipse.xtext:${xtextVersion}"
+    implementation "org.eclipse.xtext:org.eclipse.xtext.xbase:${xtextVersion}"
+    implementation "org.eclipse.xtext:org.eclipse.xtext.ide:${xtextVersion}"
+
+    // ecore models
+    implementation "${project.ext.group}:${project.ext.group}:${project.ext.version}"
+
+    // .ros extension
+    implementation "${project.ext.group}:${project.ext.group}.xtext:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}.xtext.ide:${project.ext.version}"
+
+    // .ros1 extension
+    implementation "${project.ext.group}:${project.ext.group}1.xtext:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}1.xtext.ide:${project.ext.version}"
+
+    // .ros2 extension
+    implementation "${project.ext.group}:${project.ext.group}2.xtext:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}2.xtext.ide:${project.ext.version}"
+
+    // // .rossystem extension
+    implementation "${project.ext.group}:${project.ext.group}system:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}system.xtext:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}system.xtext.ide:${project.ext.version}"
+}
+
+shadowJar {
+	archiveClassifier = ''
+    mergeServiceFiles()
+	manifest {
+        attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher'
+    }
+}
+
+task copyToVscode(type: Copy) {
+    from shadowJar
+    into "$rootDir/rostooling-languages/src/server"
+}
+
+copyToVscode.dependsOn(shadowJar)
