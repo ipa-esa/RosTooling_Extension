@@ -172,8 +172,8 @@ rostooling-languages/.vscode/browse.vc.db
 gradle-app.setting
 
 # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
-!gradle-wrapper.jar
 *.jar
+!gradle-wrapper.jar
 # Avoid ignore Gradle wrappper properties
 !gradle-wrapper.properties
 
