@@ -3,6 +3,16 @@
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
   "version": "0.0.1",
+  "publisher": "FraunhoferIPA",
+  "icon": "images/Fraunhofer-logo.svg.png",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ipa-esa/RosTooling_Extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ipa-esa/RosTooling_Extension/issues"
+  },
   "engines": {
     "vscode": "^1.109.0"
   },
