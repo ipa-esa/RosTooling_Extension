@@ -1,6 +1,6 @@
 # rostooling-languages README
 
-This is the README for your extension "rostooling-languages". After writing up a brief description, we recommend including the following sections.
+This is the repository hosting the VS Code extension for RosTooling language support. This extension provides features such as code completion, validation and syntax highlighting for all four RosTooling DSLs: ROS, ROS1, ROS2, and ROSSYSTEM.
 
 ## Features
 
