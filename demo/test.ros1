@@ -1,0 +1,10 @@
+teleop:
+    artifacts:
+        teleop_twist_joy_node:
+            node: teleop_twist_joy_node
+            publishers:
+                cmd_vel:
+                    type: "geometry_msgs/msg/Twist"
+            subscribers:
+                joy:
+                    type: "sensor_msgs/msg/Joy"

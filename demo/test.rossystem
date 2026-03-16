@@ -1,0 +1,22 @@
+my_awesome_system:
+    fromFile: 'pkg_name/launch/file.launch.py'
+    subSystems:
+        my_awesome_system
+    processes:
+        process1:
+            nodes: [ node1, node2 ]
+            threads: 2
+    nodes:
+        node1:
+            from: "aruco_ros.marker_publisher"
+            interfaces:
+                - markers: pub-> "marker_publisher::markers"
+            parameters:
+                - ParamName: "marker_publisher::camera_frame"
+                    value: "Label"
+        node2:
+            from: "aruco_ros.marker_publisher"
+            interfaces:
+                - image_raw: sub-> "marker_publisher::image_raw"
+    connections:
+        - [markers, image_raw]
