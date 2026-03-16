@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ros1",
+  "scopeName": "source.ros1",
+  "patterns": [
+    { "include": "#keywords" },
+    { "include": "#package" },
+    { "include": "#artifacts" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [{
+        "comment": "Keywords with optional values",
+        "match": "^\\s*((fromGitRepo|artifacts|node|publishers|subscribers|serviceclients|serviceservers|actionclients|actionservers|parameters|type|default):) ?((\"([^\"]*)\")|([a-zA-Z_\/][a-zA-Z0-9_\/]*))?$",
+        "captures": {
+            "1": {"name": "keyword.control.ros1"},
+            "4": {"name": "support.variable.ros"}
+        }
+      }]
+    },
+    "package": {
+      "patterns": [{
+        "comment": "Package: Indentation level 0, before keywords",
+        "match": "^([a-zA-Z_][a-zA-Z0-9_]*)(?=:|\\s*$):",
+        "name": "entity.name.class.ros1"
+      }]
+    },
+    "artifacts": {
+      "patterns": [{
+        "comment": "artifacts: Indentation level 2 (4 or 8 spaces)",
+        "match": "^( {4}| {8}|\\t{2})([a-zA-Z][a-zA-Z0-9_]*):",
+        "captures": {
+          "2": { "name": "markup.raw.ros1" }
+        }
+      }]
+    },
+    "constants": {
+      "patterns": [{
+        "comment": "Constants within artifacts at indentation level 4",
+        "match": "^( {8}| {16}|\\t{4})([a-zA-Z][a-zA-Z0-9_]*):",
+        "captures": {
+          "2": { "name": "constant.language.ros1"}
+        }
+      }]
+    }
+  }
+}

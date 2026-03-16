@@ -43,6 +43,28 @@
         "extensions": [".rossystem"]
       }
     ],
+    "grammars": [
+      {
+        "language": "ros",
+        "scopeName": "source.ros",
+        "path": "./syntaxes/ros.tmLanguage.json"
+      },
+      {
+        "language": "ros1",
+        "scopeName": "source.ros1",
+        "path": "./syntaxes/ros1.tmLanguage.json"
+      },
+      {
+        "language": "ros2",
+        "scopeName": "source.ros2",
+        "path": "./syntaxes/ros2.tmLanguage.json"
+      },
+      {
+        "language": "rossystem",
+        "scopeName": "source.rossystem",
+        "path": "./syntaxes/rossystem.tmLanguage.json"
+      }
+    ],
     "assetResources": ["server/**/*"],
     "configuration": {
       "title": "ROS Tooling LSP",
