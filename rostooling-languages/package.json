@@ -65,6 +65,21 @@
         "path": "./syntaxes/rossystem.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[rossystem]": {
+        "editor.tokenColorCustomizations": {
+          "textMateRules": [
+            {
+              "scope": "punctuation.bracket.yellow.ros",
+              "settings": {
+                "foreground": "#FFD700",
+                "fontStyle": "bold"
+              }
+            }
+          ]
+        }
+      }
+    },
     "assetResources": ["server/**/*"],
     "configuration": {
       "title": "ROS Tooling LSP",

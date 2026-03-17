@@ -1,0 +1,125 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ROS System",
+  "scopeName": "source.rossystem",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#root_block" }
+  ],
+  "repository": {
+    "root_block": {
+      "patterns": [
+        {
+          "comment": "Top-level identifier or primary system keywords",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections|[a-zA-Z][a-zA-Z0-9_]*):\\s*$",
+          "beginCaptures": {
+            "2": { "name": "entity.name.class.ros2" }
+          },
+          "end": "^(?=\\S)",
+          "patterns": [
+            { "include": "#nested_elements" }
+          ]
+        }
+      ]
+    },
+    "nested_elements": {
+      "patterns": [
+        {
+          "comment": "Restricted Keywords: Block starters",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections):\\s*$",
+          "beginCaptures": {
+            "2": { "name": "keyword.control.rossystem" }
+          },
+          "end": "^(?!\\1(?:\\t| {2}| {4}|\\s*$))",
+          "patterns": [
+            { "include": "#hyphen_list_logic" },
+            { "include": "#nested_elements" },
+            { "include": "#inline_values" }
+          ]
+        },
+        {
+          "comment": "Restricted Keywords: Inline values",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections):\\s*(?=\\S)",
+          "beginCaptures": {
+            "2": { "name": "keyword.control.rossystem" }
+          },
+          "end": "$",
+          "patterns": [
+            { "include": "#inline_values" }
+          ]
+        },
+        {
+          "comment": "Fallback: Custom identifiers (node1, etc.)",
+          "begin": "^(\\s*)([a-zA-Z][a-zA-Z0-9_]*):\\s*$",
+          "beginCaptures": {
+            "2": { "name": "entity.name.function.rossystem" }
+          },
+          "end": "^(?!\\1(?:\\t| {2}| {4}|\\s*$))",
+          "patterns": [
+            { "include": "#hyphen_list_logic" },
+            { "include": "#nested_elements" },
+            { "include": "#inline_values" }
+          ]
+        }
+      ]
+    },
+    "hyphen_list_logic": {
+      "patterns": [
+        {
+          "comment": "Type 1 & 2: Lists starting with '-' (brackets or pub/sub)",
+          "begin": "^(\\s*)(-)\\s*",
+          "beginCaptures": {
+            "2": { "name": "punctuation.definition.list.ros" }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "comment": "Specific keywords inside hyphenated lines",
+              "match": "\\b(pub|sub|ParamName)\\b",
+              "name": "keyword.control.rossystem"
+            },
+            { "include": "#inline_values" }
+          ]
+        },
+        {
+          "comment": "Type 3: Nested 'value' keyword under ParamName",
+          "match": "^(\\s+)(value)(:)",
+          "captures": {
+            "2": { "name": "keyword.control.rossystem" },
+            "3": { "name": "punctuation.separator.key-value.ros" }
+          }
+        }
+      ]
+    },
+    "inline_values": {
+      "patterns": [
+        { "include": "#string_vals" },
+        { "include": "#list_brackets" },
+        { "name": "constant.numeric.ros", "match": "\\b\\d+(\\.\\d+)?\\b" },
+        { "match": "->", "name": "keyword.operator.connection.ros" }
+      ]
+    },
+    "list_brackets": {
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.bracket.yellow.ros" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.bracket.yellow.ros" } },
+      "patterns": [
+        { "name": "variable.parameter.ros", "match": "[a-zA-Z0-9_]+" },
+        { "name": "punctuation.separator.ros", "match": "," }
+      ]
+    },
+    "string_vals": {
+      "match": "(['\"])([a-z](?:(?!(?:\\1)).)*)(\\1)",
+      "captures": {
+        "1": { "name": "punctuation.definition.string.begin.ros" },
+        "2": { "name": "string.quoted.ros" },
+        "3": { "name": "punctuation.definition.string.end.ros" }
+      }
+    },
+    "comments": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.ros"
+    }
+  }
+}
