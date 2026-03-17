@@ -1,7 +1,7 @@
 my_awesome_system:
     fromFile: 'pkg_name/launch/file.launch.py'
     subSystems:
-        my_awesome_system
+        random_subsystem
     processes:
         process1:
             nodes: [ node1, node2 ]
