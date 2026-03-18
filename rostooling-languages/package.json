@@ -23,24 +23,44 @@
     "languages": [
       {
         "id": "ros",
-        "aliases": ["ROS", "ros"],
-        "extensions": [".ros"],
+        "aliases": [
+          "ROS",
+          "ros"
+        ],
+        "extensions": [
+          ".ros"
+        ],
         "configuration": "./language-configuration.json"
       },
       {
         "id": "ros1",
-        "aliases": ["ROS1", "ros1"],
-        "extensions": [".ros1"]
+        "aliases": [
+          "ROS1",
+          "ros1"
+        ],
+        "extensions": [
+          ".ros1"
+        ]
       },
       {
-        "id": "ros2", 
-        "aliases": ["ROS2", "ros2"],
-        "extensions": [".ros2"]
+        "id": "ros2",
+        "aliases": [
+          "ROS2",
+          "ros2"
+        ],
+        "extensions": [
+          ".ros2"
+        ]
       },
       {
         "id": "rossystem",
-        "aliases": ["ROS System", "rossystem"],
-        "extensions": [".rossystem"]
+        "aliases": [
+          "ROS System",
+          "rossystem"
+        ],
+        "extensions": [
+          ".rossystem"
+        ]
       }
     ],
     "grammars": [
@@ -80,7 +100,9 @@
         }
       }
     },
-    "assetResources": ["server/**/*"],
+    "assetResources": [
+      "server/**/*"
+    ],
     "configuration": {
       "title": "ROS Tooling LSP",
       "properties": {
@@ -104,12 +126,17 @@
     "onLanguage:rossystem"
   ],
   "main": "./out/extension.js",
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix --max-warnings=0"
+    ]
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src",
+    "lint": "eslint \"src/**/*.{*-ts,tsx,js,jsx}\"",
     "test": "vscode-test"
   },
   "devDependencies": {
@@ -120,6 +147,7 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^2.25.1",
     "eslint": "^9.39.3",
+    "lint-staged": "^16.4.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
   },

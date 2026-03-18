@@ -3,7 +3,7 @@
 import * as path from 'path';
 
 import { window, workspace, ExtensionContext } from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions, DocumentSymbol, Trace, SymbolInformation } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, Trace } from 'vscode-languageclient/node';
 
 let lc: LanguageClient;
 
@@ -13,7 +13,7 @@ export async function activate(context: ExtensionContext) {
     outputChannel.appendLine('Initializing ROS LSP client');
 
     // The server is a locally installed in build/libs/
-    let jarPath = context.asAbsolutePath(path.join('src', 'server', 'rostooling_extension.jar'));
+    const jarPath = context.asAbsolutePath(path.join('src', 'server', 'rostooling_extension.jar'));
 
     const serverOptions: ServerOptions = {
         run : {
@@ -51,12 +51,12 @@ export async function activate(context: ExtensionContext) {
         outputChannel: outputChannel,
         outputChannelName: 'ROS LSP',
         errorHandler: {
-            error: (_error: Error, _message?: any, count?: number): any => {
+            error: (_error: Error, _message?: unknown, count?: number): unknown => {
                 console.error(`LSP Error #${count}:`, _error.message);
                 window.showErrorMessage(`ROS LSP error: ${_error.message}`);
                 return (count || 0) < 5 ? 'continue' : 'shutdown';
             },
-            closed: (): any => {
+            closed: (): unknown => {
                 console.log('ROS LSP closed');
                 window.showWarningMessage('ROS LSP server stopped');
                 return 'restart';
@@ -85,3 +85,5 @@ export function deactivate(): Thenable<void> | undefined {
     }
     return lc.stop();
 }
+
+// test line
