@@ -93,10 +93,10 @@
     },
     "inline_values": {
       "patterns": [
+        { "match": "->", "name": "keyword.operator.new.rossystem" },
         { "include": "#string_vals" },
         { "include": "#list_brackets" },
-        { "name": "constant.numeric.ros", "match": "\\b\\d+(\\.\\d+)?\\b" },
-        { "match": "->", "name": "keyword.operator.connection.ros" }
+        { "name": "constant.numeric.ros", "match": "\\b\\d+(\\.\\d+)?\\b" }
       ]
     },
     "list_brackets": {
@@ -111,11 +111,7 @@
     },
     "string_vals": {
       "match": "(['\"])([a-z](?:(?!(?:\\1)).)*)(\\1)",
-      "captures": {
-        "1": { "name": "punctuation.definition.string.begin.ros" },
-        "2": { "name": "string.quoted.ros" },
-        "3": { "name": "punctuation.definition.string.end.ros" }
-      }
+      "name": "string.quoted.ros"
     },
     "comments": {
       "match": "#.*$",
