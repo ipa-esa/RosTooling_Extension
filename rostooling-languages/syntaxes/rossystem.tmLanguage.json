@@ -11,7 +11,7 @@
       "patterns": [
         {
           "comment": "Top-level identifier or primary system keywords",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections|[a-zA-Z][a-zA-Z0-9_]*):\\s*$",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections|namespace|[a-zA-Z][a-zA-Z0-9_]*):\\s*$",
           "beginCaptures": {
             "2": { "name": "entity.name.class.ros2" }
           },
@@ -26,7 +26,7 @@
       "patterns": [
         {
           "comment": "Restricted Keywords: Block starters",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections):\\s*$",
+          "begin": "^(\\s*)(nodes|processes|subSystems|interfaces|parameters|connections):\\s*$",
           "beginCaptures": {
             "2": { "name": "keyword.control.rossystem" }
           },
@@ -39,7 +39,7 @@
         },
         {
           "comment": "Restricted Keywords: Inline values",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections):\\s*(?=\\S)",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|namespace):\\s*(?=\\S)",
           "beginCaptures": {
             "2": { "name": "keyword.control.rossystem" }
           },
@@ -75,7 +75,7 @@
           "patterns": [
             {
               "comment": "Specific keywords inside hyphenated lines",
-              "match": "\\b(pub|sub|ParamName)\\b",
+              "match": "\\b(pub|sub|ss|sc|as|ac|ParamName)\\b",
               "name": "keyword.control.rossystem"
             },
             { "include": "#inline_values" }

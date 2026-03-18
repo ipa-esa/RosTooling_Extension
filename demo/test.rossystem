@@ -9,6 +9,7 @@ my_awesome_system:
     nodes:
         node1:
             from: "aruco_ros.marker_publisher"
+            namespace: "test"
             interfaces:
                 - markers: pub-> "marker_publisher::markers"
             parameters:
