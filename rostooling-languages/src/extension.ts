@@ -13,7 +13,7 @@ export async function activate(context: ExtensionContext) {
     outputChannel.appendLine('Initializing ROS LSP client');
 
     // The server is a locally installed in build/libs/
-    const jarPath = context.asAbsolutePath(path.join('src', 'server', 'rostooling_extension.jar'));
+    const jarPath = context.asAbsolutePath(path.join('server', 'rostooling_extension-1.0.0.jar'));
 
     const serverOptions: ServerOptions = {
         run : {

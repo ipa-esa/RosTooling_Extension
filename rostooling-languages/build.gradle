@@ -2,7 +2,7 @@ task copyFatJar(type: Copy) {
     def shadowJarTask = rootProject.tasks.shadowJar
     dependsOn shadowJarTask
     from shadowJarTask.outputs
-    into "src/server"
+    into "server"
 }
 
 clean {
