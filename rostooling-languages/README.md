@@ -9,13 +9,9 @@ This is the repository hosting the VS Code extension for RosTooling language sup
 ## Requirements
 
 - VS Code (latest version recommended)
-- Ubuntu 22.04 or later
+- Java 21 or later
 
 ## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
 
 This extension contributes the following settings:
 
@@ -23,7 +19,7 @@ This extension contributes the following settings:
 
 ## Known Issues
 
-> Windows support is buggy and is being fixed.
+> Tested so far on Ubuntu 22.04 with Java 21.
 
 ## Release Notes
 

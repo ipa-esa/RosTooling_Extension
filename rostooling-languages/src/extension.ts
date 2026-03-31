@@ -12,13 +12,21 @@ export async function activate(context: ExtensionContext) {
     outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
 
-    // The server is a locally installed in build/libs/
+    
     const extensionVersion = context.extension.packageJSON.version;
     const jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
 
+    const config = workspace.getConfiguration('rostooling-languages');
+    let javaExecutable = 'java';
+
+    const javaHome = config.get<string>('java.home');
+    if (javaHome) {
+        javaExecutable = path.join(javaHome, 'bin', 'java');
+    }
+
     const serverOptions: ServerOptions = {
         run : {
-            command: 'java',
+            command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
@@ -26,7 +34,7 @@ export async function activate(context: ExtensionContext) {
             ]
         },
         debug: {
-            command: 'java',
+            command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',

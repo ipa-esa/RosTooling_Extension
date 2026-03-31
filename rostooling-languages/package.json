@@ -115,6 +115,11 @@
           ],
           "default": "off",
           "scope": "window"
+        },
+        "rostooling-languages.java.home": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the JDK 21+ installation folder. Leave empty to use system default Java."
         }
       }
     },
