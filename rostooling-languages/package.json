@@ -117,6 +117,22 @@
           "scope": "window"
         }
       }
+    },
+    "commands": [
+      {
+        "command": "rossystem.triggerCodeGeneration",
+        "title": "ROSSYSTEM: Generate Code",
+        "category": "rossystem"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "rossystem.triggerCodeGeneration",
+          "group": "ROSSYSTEM@100",
+          "when": "resourceLangId == rossystem"
+        }
+      ]
     }
   },
   "activationEvents": [

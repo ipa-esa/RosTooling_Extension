@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 
-import { window, workspace, ExtensionContext } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 
 let lc: LanguageClient;
@@ -82,6 +82,59 @@ export async function activate(context: ExtensionContext) {
     } catch (error) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
+
+    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async () => {
+        window.showInformationMessage('TypeScript: Command triggered');
+        const activeEditor = window.activeTextEditor;
+        if (!activeEditor || !lc) {
+            window.showErrorMessage('No active ROS editor or LSP not ready');
+            return;
+        }
+        
+        try {
+            const targetUri = activeEditor.document.uri.toString();
+            console.log('Sending execute Command to server...')
+            const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                command: 'rossystem.generateCode',
+                arguments: [targetUri]
+            });
+            
+            // Safe access
+            const files = result?.files || {};
+            const count = Object.keys(files).length;
+            
+            if (result?.error) {
+                window.showErrorMessage(`Generation error: ${result.error}`);
+            } else if (count > 0) {
+                window.showInformationMessage(`Generated ${count} file(s)`);
+
+                const workspaceFolder = workspace.getWorkspaceFolder(activeEditor.document.uri);
+                if (!workspaceFolder) {
+                    window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
+                    return;
+                }
+
+                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+
+                for (const [rawPath, content] of Object.entries(files)) {
+                    const cleanPath = rawPath.replace(/^DEFAULT_OUTPUT\/?/, '');
+                    const filePath = Uri.joinPath(srcGenUri, cleanPath);
+                    const encoder = new TextEncoder();
+                    await workspace.fs.writeFile(filePath, encoder.encode(content));
+                }
+                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`)
+            } else {
+                window.showInformationMessage('No files generated');
+            }
+            
+            console.log('Full result:', result);
+        } catch (error) {
+            window.showErrorMessage(`Command failed: ${error}`);
+            console.error('Command failed:', error);
+        }
+    });
+    
+    context.subscriptions.push(generateCodeCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {
