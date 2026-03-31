@@ -121,8 +121,8 @@
     "commands": [
       {
         "command": "rossystem.triggerCodeGeneration",
-        "title": "ROSSYSTEM: Generate Code",
-        "category": "rossystem"
+        "title": "Generate ROS2 Package",
+        "category": "ROSSYSTEM"
       }
     ],
     "menus": {
