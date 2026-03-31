@@ -84,7 +84,6 @@ export async function activate(context: ExtensionContext) {
     }
 
     const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async () => {
-        window.showInformationMessage('TypeScript: Command triggered');
         const activeEditor = window.activeTextEditor;
         if (!activeEditor || !lc) {
             window.showErrorMessage('No active ROS editor or LSP not ready');
