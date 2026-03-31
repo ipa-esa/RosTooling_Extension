@@ -1,9 +1,27 @@
 'use_strict';
 
 import * as path from 'path';
-
+import * as cp from 'child_process';
 import { window, workspace, ExtensionContext, commands, Uri } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
+
+function checkJavaVersion(javaExecutable:string): Promise<boolean> {
+    return new Promise((resolve) => {
+        cp.exec(`"${javaExecutable}" -version`, (error, stdout, stderr) => {
+            const output = stdout.toString() + stderr.toString();
+            const match = output.match(/version "(\d+)\./);
+
+            if (match && match[1]) {
+                const majorVersion = parseInt(match[1], 10);
+                if (majorVersion >= 17) {
+                    resolve(true);
+                    return;
+                }
+            }
+            resolve(false);
+        });
+    });
+}
 
 let lc: LanguageClient;
 
@@ -18,12 +36,32 @@ export async function activate(context: ExtensionContext) {
 
     const config = workspace.getConfiguration('rostooling-languages');
     let javaExecutable = 'java';
-
+    outputChannel.appendLine(`Using Java executable: ${javaExecutable}`);
     const javaHome = config.get<string>('java.home');
     if (javaHome) {
         javaExecutable = path.join(javaHome, 'bin', 'java');
     }
+    outputChannel.appendLine("Verifying java version");
+    const isJavaValid = await checkJavaVersion(javaExecutable);
+    if (!isJavaValid) {
+        window.showErrorMessage(
+            "ROS Tooling requires Java 17 or higher to run. Please update your Java installation or point the extension to a modern JDK.",
+            "Open Settings",
+            "Download Java"
+        ).then(selection => {
+            if (selection === "Open Settings") {
+                commands.executeCommand('workbench.action.openSettings', 'rostooling-languages.java.home');
+            } else if (selection === "Download Java") {
+                import('vscode').then(vscode => {
+                    vscode.env.openExternal(vscode.Uri.parse('https://adoptium.net/'))
+                });
+            }
+        });
 
+        outputChannel.appendLine('ABORTED: Invalid Java version detected.');
+        return;
+    }
+    outputChannel.appendLine("Java version is valid")
     const serverOptions: ServerOptions = {
         run : {
             command: javaExecutable,
