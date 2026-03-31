@@ -7,7 +7,10 @@ RosTooling_Extension is a Visual Studio Code extension designed to enhance devel
 ## Features
 
 - Code completion for ROS files
-- Syntax highlighting [TODO]
+- Syntax highlighting
+- Model validation
+- ROS 2 package generation [TODO]
+- ROS 2 node generation [TODO]
 
 ## Installation
 
@@ -15,40 +18,31 @@ RosTooling_Extension is a Visual Studio Code extension designed to enhance devel
 ```bash
 git clone -b esa/main git@github.com:ipa-esa/RosTooling.git 
 ```
-2. Build and install the RosTooling project.
+2. Open the repo and build fatjar server + client
 ```bash
-cd RosTooling/plugins/de.fraunhofer.ipa.ros.parent/
-mvn clean install
+./gradlew clean installExtension
 ```
-3. Navigate to the root of this repository and build the fatjar
-```bash
-cd RosTooling_Extension
-./gradlew clean copyToVscode
-```
-4. Navigate to the extension directory and install the extension in VS Code
-```bash
-cd rostooling-languages
-npm install
-npm run compile
-```
-5. Open the extenstion in VS Code and press `F5` to launch the extension in a new VS Code window.
-```bash
-code .
-```
-6. You can now open/start a project to model your ROS package!
 
-## Usage
+## Testing the extension
+1. Run the following command to install the extension and open the demo folder in vs code.
+```bash
+./gradlew startCode
+```
+2. Edit the `turtlesim_system.rossystem` file. Use `Ctrl+Space` to trigger content assist and explore the available options.
 
-- Open a ROS workspace in VS Code.
-- Access ROS commands from the Command Palette (`Ctrl+Shift+P`).
-- Use the sidebar for workspace and package management.
-- Configure settings in `.vscode/settings.json` for custom behaviors.
+
+## Debugging the extension
+1. Open the rostooling-languages folder in Visual Studio Code.
+2. Set breakpoints in the extension code.
+3. Press `F5` to start the extension in debug mode. This will open a new VS Code window with the extension loaded.
 
 ## Requirements
 
 - Visual Studio Code (latest version recommended)
-- ROS (Melodic, Noetic, or later)
-- Python (for some features)
+- Ubuntu 22.04 or later
+- ROS (Humble or later)
+
+**Note**: Windows support is buggy and is being fixed.
 
 ## Contributing
 
