@@ -2,8 +2,10 @@
 
 import * as path from 'path';
 import * as cp from 'child_process';
-import { window, workspace, ExtensionContext, commands, Uri } from 'vscode';
+import * as fs from 'node:fs';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
+import { spawn } from 'node:child_process';
 
 function checkJavaVersion(javaExecutable:string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -180,6 +182,18 @@ export async function activate(context: ExtensionContext) {
     });
     
     context.subscriptions.push(generateCodeCommand);
+
+    const rossdlCommand = commands.registerCommand('rossdl.buildPackage', async () => {
+        try {
+            await runRossdlWorkflow(outputChannel);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            outputChannel.appendLine(`[ROSSDL error] ${message}`);
+            outputChannel.show(true)
+            window.showErrorMessage(message)
+        }
+    });
+    context.subscriptions.push(rossdlCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -189,4 +203,87 @@ export function deactivate(): Thenable<void> | undefined {
     return lc.stop();
 }
 
-// test line
+async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
+    outputChannel.show(true);
+
+    const rossdlWorkspace = await pickFolder('Select ROSSDL Workspace', 'Select ROSSDL Workspace');
+    if (!rossdlWorkspace) {
+        window.showInformationMessage('No ROSSDL workspace selected, generation cancelled.');
+        return;
+    }
+    validateRosWorkspace(rossdlWorkspace);
+    outputChannel.appendLine(`Selected ROSSDL workspace: ${rossdlWorkspace}`);
+    
+    const buildWorkspace = await pickFolder('Select Build Workspace', 'Select Build Workspace');
+    if (!buildWorkspace) {
+        window.showInformationMessage('No build workspace selected, generation cancelled.');
+        return;
+    }
+    outputChannel.appendLine(`Selected build workspace: ${buildWorkspace}`);
+    const generationCommand = 'colcon build --symlink-install';
+
+    await runShellCommand('bash', ['-lc', `source "${path.join(rossdlWorkspace, 'install', 'setup.bash')}" && ${generationCommand}`], buildWorkspace, 'Running ROSSDL generation command', outputChannel);
+    
+    window.showInformationMessage("Generation finished successfully.");
+}
+
+async function pickFolder(title: string, openLabel: string): Promise<string | undefined> {
+    const selected = await window.showOpenDialog({
+        title,
+        openLabel,
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        defaultUri: workspace.workspaceFolders?.[0]?.uri
+    });
+
+    return selected?.[0]?.fsPath;
+}
+
+function validateRosWorkspace(folder: string): void {
+    const srcPath = path.join(folder, 'src');
+    const setupPath = path.join(folder, 'install', 'setup.bash');
+
+    if (!fs.existsSync(srcPath) || !fs.statSync(srcPath).isDirectory()) {
+        throw new Error(`Selected ROSSDL workspace does not contain src folder: ${srcPath}`)
+    }
+    if (!fs.existsSync(setupPath) || !fs.statSync(setupPath).isFile()) {
+        throw new Error(`Selected ROSSDL workspace does not contain setup script: ${setupPath}`)
+    }
+}
+
+async function runShellCommand(command: string, args: string[], cwd: string, label: string, outputChannel: OutputChannel): Promise<void> {
+    outputChannel.appendLine('');
+    outputChannel.appendLine(`==== ${label} ====`);
+    outputChannel.appendLine(`cwd: ${cwd}`);
+    outputChannel.appendLine(`command: ${command} ${args.join(' ')}`);
+    outputChannel.appendLine('');
+
+    await new Promise<void>((resolve, reject) => {
+        const child = spawn(command, args, {
+            cwd,
+            env: process.env,
+            stdio: 'pipe'
+        });
+
+        child.stdout?.on('data', (data: Buffer) => {
+            outputChannel.append(data.toString());
+        });
+
+        child.stderr?.on('data', (data: Buffer) => {
+            outputChannel.append(data.toString());
+        });
+
+        child.on('error', (error: Error) => {
+            reject(new Error(`Failed tos start command: ${error.message}`));
+        });
+
+        child.on('close', (code: number) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`Command exited with code ${code}`));
+            }
+        });
+    });
+}

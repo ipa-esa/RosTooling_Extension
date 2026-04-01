@@ -128,6 +128,11 @@
         "command": "rossystem.triggerCodeGeneration",
         "title": "Generate ROS2 Package",
         "category": "ROSSYSTEM"
+      },
+      {
+        "command": "rossdl.buildPackage",
+        "title": "Build ROS 2 Package",
+        "category": "ROSSDL"
       }
     ],
     "menus": {
@@ -136,6 +141,11 @@
           "command": "rossystem.triggerCodeGeneration",
           "group": "ROSSYSTEM@100",
           "when": "resourceLangId == rossystem"
+        },
+        {
+          "command": "rossdl.buildPackage",
+          "group": "ROSSDL@100",
+          "when": "resourceLangId == rossystem || resourceLangId == ros2"
         }
       ]
     }
