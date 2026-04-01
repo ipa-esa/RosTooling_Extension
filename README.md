@@ -9,7 +9,7 @@ RosTooling_Extension is a Visual Studio Code extension designed to enhance devel
 - Code completion for ROS files
 - Syntax highlighting
 - Model validation
-- ROS 2 package generation [TODO]
+- ROS 2 package generation
 - ROS 2 node generation [TODO]
 
 ## Installation
@@ -29,6 +29,8 @@ git clone -b esa/main git@github.com:ipa-esa/RosTooling.git
 ./gradlew startCode
 ```
 2. Edit the `turtlesim_system.rossystem` file. Use `Ctrl+Space` to trigger content assist and explore the available options.
+
+3. Once done, generate the ROS 2 package by running the command `ROSSYSTEM: Generate ROS 2 Package` from the Command Palette (`Ctrl+Shift+P`).
 
 
 ## Debugging the extension
@@ -62,3 +64,10 @@ For issues and feature requests, please use the [GitHub Issues](https://github.c
 
 ---
 Maintained by [ipa-esa](https://github.com/ipa-esa)
+
+
+## What's Changed
+* :sparkles: added custom service provider for vscode code-gen by @ipa-esa in https://github.com/ipa-esa/RosTooling/pull/3
+
+
+**Full Changelog**: https://github.com/ipa-esa/RosTooling/compare/v3.0.0-SNAPSHOT...v3.1.0-SNAPSHOT

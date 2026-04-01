@@ -2,7 +2,7 @@
   "name": "rostooling-languages",
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "FraunhoferIPA",
   "icon": "images/Fraunhofer-logo.svg.png",
   "license": "Apache-2.0",
@@ -115,8 +115,29 @@
           ],
           "default": "off",
           "scope": "window"
+        },
+        "rostooling-languages.java.home": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the JDK 21+ installation folder. Leave empty to use system default Java."
         }
       }
+    },
+    "commands": [
+      {
+        "command": "rossystem.triggerCodeGeneration",
+        "title": "Generate ROS2 Package",
+        "category": "ROSSYSTEM"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "rossystem.triggerCodeGeneration",
+          "group": "ROSSYSTEM@100",
+          "when": "resourceLangId == rossystem"
+        }
+      ]
     }
   },
   "activationEvents": [

@@ -1,9 +1,27 @@
 'use_strict';
 
 import * as path from 'path';
-
-import { window, workspace, ExtensionContext } from 'vscode';
+import * as cp from 'child_process';
+import { window, workspace, ExtensionContext, commands, Uri } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
+
+function checkJavaVersion(javaExecutable:string): Promise<boolean> {
+    return new Promise((resolve) => {
+        cp.exec(`"${javaExecutable}" -version`, (error, stdout, stderr) => {
+            const output = stdout.toString() + stderr.toString();
+            const match = output.match(/version "(\d+)\./);
+
+            if (match && match[1]) {
+                const majorVersion = parseInt(match[1], 10);
+                if (majorVersion >= 17) {
+                    resolve(true);
+                    return;
+                }
+            }
+            resolve(false);
+        });
+    });
+}
 
 let lc: LanguageClient;
 
@@ -12,12 +30,41 @@ export async function activate(context: ExtensionContext) {
     outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
 
-    // The server is a locally installed in build/libs/
-    const jarPath = context.asAbsolutePath(path.join('server', 'rostooling_extension-1.0.0.jar'));
+    
+    const extensionVersion = context.extension.packageJSON.version;
+    const jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
 
+    const config = workspace.getConfiguration('rostooling-languages');
+    let javaExecutable = 'java';
+    outputChannel.appendLine(`Using Java executable: ${javaExecutable}`);
+    const javaHome = config.get<string>('java.home');
+    if (javaHome) {
+        javaExecutable = path.join(javaHome, 'bin', 'java');
+    }
+    outputChannel.appendLine("Verifying java version");
+    const isJavaValid = await checkJavaVersion(javaExecutable);
+    if (!isJavaValid) {
+        window.showErrorMessage(
+            "ROS Tooling requires Java 17 or higher to run. Please update your Java installation or point the extension to a modern JDK.",
+            "Open Settings",
+            "Download Java"
+        ).then(selection => {
+            if (selection === "Open Settings") {
+                commands.executeCommand('workbench.action.openSettings', 'rostooling-languages.java.home');
+            } else if (selection === "Download Java") {
+                import('vscode').then(vscode => {
+                    vscode.env.openExternal(vscode.Uri.parse('https://adoptium.net/'))
+                });
+            }
+        });
+
+        outputChannel.appendLine('ABORTED: Invalid Java version detected.');
+        return;
+    }
+    outputChannel.appendLine("Java version is valid")
     const serverOptions: ServerOptions = {
         run : {
-            command: 'java',
+            command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
@@ -25,7 +72,7 @@ export async function activate(context: ExtensionContext) {
             ]
         },
         debug: {
-            command: 'java',
+            command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
@@ -81,6 +128,58 @@ export async function activate(context: ExtensionContext) {
     } catch (error) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
+
+    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async () => {
+        const activeEditor = window.activeTextEditor;
+        if (!activeEditor || !lc) {
+            window.showErrorMessage('No active ROS editor or LSP not ready');
+            return;
+        }
+        
+        try {
+            const targetUri = activeEditor.document.uri.toString();
+            console.log('Sending execute Command to server...')
+            const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                command: 'rossystem.generateCode',
+                arguments: [targetUri]
+            });
+            
+            // Safe access
+            const files = result?.files || {};
+            const count = Object.keys(files).length;
+            
+            if (result?.error) {
+                window.showErrorMessage(`Generation error: ${result.error}`);
+            } else if (count > 0) {
+                window.showInformationMessage(`Generated ${count} file(s)`);
+
+                const workspaceFolder = workspace.getWorkspaceFolder(activeEditor.document.uri);
+                if (!workspaceFolder) {
+                    window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
+                    return;
+                }
+
+                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+
+                for (const [rawPath, content] of Object.entries(files)) {
+                    const cleanPath = rawPath.replace(/^DEFAULT_OUTPUT\/?/, '');
+                    const filePath = Uri.joinPath(srcGenUri, cleanPath);
+                    const encoder = new TextEncoder();
+                    await workspace.fs.writeFile(filePath, encoder.encode(content));
+                }
+                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`)
+            } else {
+                window.showInformationMessage('No files generated');
+            }
+            
+            console.log('Full result:', result);
+        } catch (error) {
+            window.showErrorMessage(`Command failed: ${error}`);
+            console.error('Command failed:', error);
+        }
+    });
+    
+    context.subscriptions.push(generateCodeCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {
