@@ -193,5 +193,10 @@ gradle-app.setting
 
 # End of https://www.toptal.com/developers/gitignore/api/gradle,visualstudiocode,node
 
-demo/src-gen/**
-demo/.vscode/**
+demo/test_ws/src/test_system/src-gen/**
+demo/test_ws/.vscode/**
+demo/test_ws/src/test_system/.vscode/
+
+
+**/install/
+**/log/
