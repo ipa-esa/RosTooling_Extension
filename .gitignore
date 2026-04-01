@@ -146,7 +146,7 @@ dist
 .vscode/*
 rostooling-languages/.vscode/settings.json
 rostooling-languages/.vscode/c_cpp_properties.json
-rostooling-languages/.vscode/browse.vc.db
+rostooling-languages/.vscode/browse.**
 .vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
