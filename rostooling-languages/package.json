@@ -2,7 +2,7 @@
   "name": "rostooling-languages",
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "FraunhoferIPA",
   "icon": "images/Fraunhofer-logo.svg.png",
   "license": "Apache-2.0",
