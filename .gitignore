@@ -143,7 +143,7 @@ dist
 .svelte-kit
 
 ### VisualStudioCode ###
-.vscode/*
+.vscode/
 rostooling-languages/.vscode/settings.json
 rostooling-languages/.vscode/c_cpp_properties.json
 rostooling-languages/.vscode/browse.**
@@ -193,9 +193,12 @@ gradle-app.setting
 
 # End of https://www.toptal.com/developers/gitignore/api/gradle,visualstudiocode,node
 
-demo/test_ws/src/test_system/src-gen/**
+demo/test_ws/build/**
+demo/test_ws/install/**
 demo/test_ws/.vscode/**
-demo/test_ws/src/test_system/.vscode/
+demo/test_ws/log/**
+src-gen/
+demo/test_ws/src/test_system/.vscode/**
 
 
 **/install/
