@@ -19,11 +19,11 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "rossdl_simple_test/Nodes.hpp"
+#include "test_system/Nodes.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 
-namespace rossdl_simple_test
+namespace test_system
 {
 
 class ImageFilter : public ImageFilterBase
@@ -36,6 +36,6 @@ protected:
   virtual void laser_in_callback(sensor_msgs::msg::LaserScan::SharedPtr msg);
 };
 
-}  // namespace rossdl_simple_test
+}  // namespace test_system
 
 #endif  // ROSSDL_SIMPLE_TEST__IMAGEFILTER_HPP_

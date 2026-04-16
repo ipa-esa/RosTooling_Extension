@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(rossdl_simple_test)
+project(test_system)
 
 set(CMAKE_BUILD_TYPE Debug)
 
@@ -27,21 +27,20 @@ rossdl_generate_code(
   ${dependencies}
 )
 
-# rossdl_generate_system(
-#   "test_system.rossystem"
-#   "system_1"
-#   "system_2"
-# )
+rossdl_generate_system(
+  "test_system.rossystem"
+  "test_system"
+)
 
 add_library(${PROJECT_NAME} SHARED
-  src/rossdl_simple_test/ImageFilter.cpp
-  src/rossdl_simple_test/Consumer.cpp
+  src/test_system/ImageFilter.cpp
+  src/test_system/Consumer.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} ${dependencies})
 target_link_libraries(${PROJECT_NAME} ${PROJECT_NAME}_generated)
 
-rclcpp_components_register_nodes(${PROJECT_NAME} "rossdl_simple_test::ImageFilter")
-rclcpp_components_register_nodes(${PROJECT_NAME} "rossdl_simple_test::Consumer")
+rclcpp_components_register_nodes(${PROJECT_NAME} "test_system::ImageFilter")
+rclcpp_components_register_nodes(${PROJECT_NAME} "test_system::Consumer")
 
 install(TARGETS
   ${PROJECT_NAME}

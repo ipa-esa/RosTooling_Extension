@@ -16,38 +16,44 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/string.hpp"
 
-#include "rossdl_simple_test/Consumer.hpp"
+#include "test_system/ImageFilter.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 
-namespace rossdl_simple_test
+namespace test_system
 {
 
-Consumer::Consumer(const rclcpp::NodeOptions & options)
-: ConsumerBase(options)
+ImageFilter::ImageFilter(const rclcpp::NodeOptions & options)
+: ImageFilterBase(options)
 {
 }
 
 void
-Consumer::image_in_callback(sensor_msgs::msg::Image::SharedPtr msg)
-{
-  RCLCPP_INFO(get_logger(), "Image message received");
-  auto pub = get_publisher<sensor_msgs::msg::Image>("image_out");
-  pub->publish(*msg);
-}
-
-void
-Consumer::description_in_callback(std_msgs::msg::String::SharedPtr msg)
+ImageFilter::image_in_callback(sensor_msgs::msg::Image::SharedPtr msg)
 {
   (void)msg;
-  RCLCPP_INFO(get_logger(), "String message received");
+  RCLCPP_INFO(get_logger(), "Message received");
+
+  auto pub = get_publisher<sensor_msgs::msg::Image>("image_out");
+  if (pub != nullptr) {
+    pub->publish(*msg);
+  } else {
+    RCLCPP_ERROR(get_logger(), "Error getting image_out publisher");
+  }
 }
 
-}  // namespace rossdl_simple_test
+void
+ImageFilter::laser_in_callback(sensor_msgs::msg::LaserScan::SharedPtr msg)
+{
+  (void)msg;
+  RCLCPP_INFO(get_logger(), "Laser message received");
+}
+
+}  // namespace test_system
 
 #include "rclcpp_components/register_node_macro.hpp"
 
 // Register the component with class_loader.
 // This acts as a sort of entry point, allowing the component to be discoverable when its library
 // is being loaded into a running process.
-RCLCPP_COMPONENTS_REGISTER_NODE(rossdl_simple_test::Consumer)
+RCLCPP_COMPONENTS_REGISTER_NODE(test_system::ImageFilter)

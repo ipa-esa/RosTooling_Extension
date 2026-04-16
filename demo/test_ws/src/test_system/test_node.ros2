@@ -1,4 +1,4 @@
-rossdl_simple_test:
+test_system:
   fromGitRepo: "https://github.com/jane-doe/project_example.git:branch"
   artifacts:
     image_filter:
@@ -24,7 +24,7 @@ rossdl_simple_test:
             profile: sensor_qos
             reliability: reliable
       parameters:
-        description_label:
+        image_name:
           type: String
           default: "default_image"
     consumer:

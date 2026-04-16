@@ -18,8 +18,8 @@
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
-#include "rossdl_simple_test/ImageFilter.hpp"
-#include "rossdl_simple_test/Consumer.hpp"
+#include "test_system/ImageFilter.hpp"
+#include "test_system/Consumer.hpp"
 
 #include "gtest/gtest.h"
 
@@ -27,7 +27,7 @@ using namespace std::chrono_literals;
 
 TEST(rossdl_generation_test, image_filter_unit)
 {
-  auto image_filter = std::make_shared<rossdl_simple_test::ImageFilter>();
+  auto image_filter = std::make_shared<test_system::ImageFilter>();
 
   auto start = image_filter->now();
   while (image_filter->now() - start < 100ms) {rclcpp::spin_some(image_filter);}
@@ -83,7 +83,7 @@ TEST(rossdl_generation_test, image_filter_unit)
 
 TEST(rossdl_generation_test, consumer_unit)
 {
-  auto consumer = std::make_shared<rossdl_simple_test::Consumer>();
+  auto consumer = std::make_shared<test_system::Consumer>();
 
   auto start = consumer->now();
   while (consumer->now() - start < 100ms) {rclcpp::spin_some(consumer);}
