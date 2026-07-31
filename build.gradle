@@ -66,6 +66,7 @@ dependencies {
 shadowJar {
 	archiveClassifier = ''
     mergeServiceFiles()
+    append 'plugin.properties'
 	manifest {
         attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher'
     }
