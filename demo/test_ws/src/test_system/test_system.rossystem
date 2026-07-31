@@ -17,9 +17,9 @@ test_system:
         - description_sub: sub-> "consumer::description_in"
         - inferenced_image_pub: pub-> "consumer::image_out"
   connections:
-    - [ filtered_image_pub, filtered_image_sub ]
+    - [ "filtered_image_pub", "filtered_image_sub" ]
     - [ description_pub, description_sub ]
   processes:
     process1:
-      nodes: [node1, node2]
+      nodes: ["node1", node2]
       threads: 2

@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 
@@ -115,6 +115,49 @@ export async function activate(context: ExtensionContext) {
                 };
             }
         },
+        middleware: {
+            provideCompletionItem: async (document, position, context, token, next) => {
+                const result = await next(document, position, context, token);
+                if (!result) return result;
+                const lineText = document.lineAt(position.line).text;
+                const textBeforeCursor = lineText.substring(0, position.character).trim();
+                const hasStartingQuote = textBeforeCursor.endsWith('"') || textBeforeCursor.endsWith("'");
+
+                const items = Array.isArray(result) ? result : result.items;
+                for (const item of items) {
+                    const itemLabel = typeof item.label !== null ? item.label.toString() : "None";
+                    const isReferenceOrValue = item.kind === 17
+                    
+                    if (isReferenceOrValue && !hasStartingQuote) {
+                        let textToInsert = '';
+                        if (typeof item.insertText === 'string') {
+                            textToInsert = item.insertText;
+                        } else if (item.insertText instanceof SnippetString) {
+                            textToInsert = item.insertText.value;
+                        } else {
+                            textToInsert = itemLabel;
+                        }
+
+                        const isNumberOrBool = !isNaN(Number(textToInsert)) || textToInsert === 'true' || textToInsert === 'false';
+                        
+                        if (!isNumberOrBool) {
+                            textToInsert = textToInsert.replace(/^"|"$/g, '');
+                            if (!hasStartingQuote) {
+                                textToInsert = `"${textToInsert}"`;
+                            }
+                            
+                            if (item.insertText instanceof SnippetString) {
+                                item.insertText.value = textToInsert;
+                            } else {
+                                item.insertText = textToInsert;
+                            }
+                        }
+                    }
+                }
+                
+                return result;
+            }
+        }
     };
 
     lc = new LanguageClient('rostooling-languages', serverOptions, clientOptions);
