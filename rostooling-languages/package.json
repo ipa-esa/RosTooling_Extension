@@ -40,7 +40,8 @@
         ],
         "extensions": [
           ".ros1"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
       },
       {
         "id": "ros2",
@@ -50,7 +51,8 @@
         ],
         "extensions": [
           ".ros2"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
       },
       {
         "id": "rossystem",
@@ -60,7 +62,8 @@
         ],
         "extensions": [
           ".rossystem"
-        ]
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
