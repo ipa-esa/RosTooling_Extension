@@ -3,22 +3,41 @@
   "name": "ros",
   "scopeName": "source.ros",
   "patterns": [
+    { "include": "#comments" },
+    { "include": "#message_block" },
     { "include": "#keywords" },
     { "include": "#package" },
-    { "include": "#interface" },
-    { "include": "#primitives" }
+    { "include": "#interface" }
   ],
   "repository": {
+    "message_block": {
+      "begin": "^([ \\t]*)(message|request|response|goal|result|feedback):?\\b",
+      "beginCaptures": {
+        "2": { "name": "keyword.control.ros" }
+      },
+      "end": "^(?!(?:\\1)[ \\t]+)(?=[ \\t]*[^\\s])",
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "([^\\s#]+)(?:\\s+[^\\s#]+)?",
+          "captures": {
+            "1": { "name": "storage.type.primitive.ros" }
+          }
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.ros",
+          "match": "#.*$"
+        }
+      ]
+    },
     "keywords": {
       "patterns": [{
         "name": "keyword.control.ros",
-        "match": "^\\s*(msgs|srvs|actions|message|request|response|goal|result|feedback):?"
-      }]
-    },
-    "primitives": {
-      "patterns": [{
-        "name": "storage.type.primitive.ros",
-        "match": "^\\s*(bool|string|time|Header|(u?int|float)(8|16|32|64))(\\[\\])?(?=\\s|$|[\\s,])"
+        "match": "^\\s*(msgs|srvs|actions):?"
       }]
     },
     "package": {
