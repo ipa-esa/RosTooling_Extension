@@ -11,12 +11,13 @@
       "patterns": [
         {
           "comment": "Top-level identifier or primary system keywords",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections|namespace|[a-zA-Z][a-zA-Z0-9_]*):\\s*$",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|processes|subSystems|interfaces|parameters|connections|namespace|[a-zA-Z][a-zA-Z0-9_]*):\\s*(?=#|$)",
           "beginCaptures": {
             "2": { "name": "entity.name.class.ros2" }
           },
           "end": "^(?=\\S)",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#nested_elements" }
           ]
         }
@@ -26,12 +27,13 @@
       "patterns": [
         {
           "comment": "Restricted Keywords: Block starters",
-          "begin": "^(\\s*)(nodes|processes|subSystems|interfaces|parameters|connections):\\s*$",
+          "begin": "^(\\s*)((nodes|processes|subSystems|interfaces|parameters|connections):)\\s*(?=#|$)",
           "beginCaptures": {
             "2": { "name": "keyword.control.rossystem" }
           },
           "end": "^(?!\\1(?:\\t| {2}| {4}|\\s*$))",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#hyphen_list_logic" },
             { "include": "#nested_elements" },
             { "include": "#inline_values" }
@@ -39,23 +41,25 @@
         },
         {
           "comment": "Restricted Keywords: Inline values",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|namespace):\\s*(?=\\S)",
+          "begin": "^(\\s*)((fromFile|nodes|threads|from|namespace):)\\s*(?=\\S)",
           "beginCaptures": {
             "2": { "name": "keyword.control.rossystem" }
           },
           "end": "$",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#inline_values" }
           ]
         },
         {
           "comment": "Fallback: Custom identifiers (node1, etc.)",
-          "begin": "^(\\s*)([a-zA-Z][a-zA-Z0-9_]*):\\s*$",
+          "begin": "^(\\s*)(([a-zA-Z][a-zA-Z0-9_]*):)\\s*(?=#|$)",
           "beginCaptures": {
             "2": { "name": "entity.name.function.rossystem" }
           },
           "end": "^(?!\\1(?:\\t| {2}| {4}|\\s*$))",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#hyphen_list_logic" },
             { "include": "#nested_elements" },
             { "include": "#inline_values" }
@@ -73,6 +77,7 @@
           },
           "end": "$",
           "patterns": [
+            { "include": "#comments" },
             {
               "comment": "Specific keywords inside hyphenated lines",
               "match": "\\b(pub|sub|ss|sc|as|ac|ParamName)\\b",
@@ -83,7 +88,7 @@
         },
         {
           "comment": "Type 3: Nested 'value' keyword under ParamName",
-          "match": "^(\\s+)(value)(:)",
+          "match": "^(\\s+)((value):)",
           "captures": {
             "2": { "name": "keyword.control.rossystem" },
             "3": { "name": "punctuation.separator.key-value.ros" }
@@ -93,6 +98,7 @@
     },
     "inline_values": {
       "patterns": [
+        { "include": "#comments" },
         { "match": "->", "name": "keyword.operator.new.rossystem" },
         { "include": "#string_vals" },
         { "include": "#list_brackets" },
