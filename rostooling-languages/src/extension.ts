@@ -125,7 +125,7 @@ export async function activate(context: ExtensionContext) {
 
                 const items = Array.isArray(result) ? result : result.items;
                 for (const item of items) {
-                    const itemLabel = typeof item.label !== null ? item.label.toString() : "None";
+                    const itemLabel = item.label != null ? item.label.toString() : "None";
                     const isReferenceOrValue = item.kind === 17
                     
                     if (isReferenceOrValue && !hasStartingQuote) {
