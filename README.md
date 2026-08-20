@@ -1,8 +1,11 @@
 # RosTooling_Extension
 
-## Overview
+[![ESLint](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/eslint.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/eslint.yml)
+[![Gradle Package](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml)
 
 ![RosTooling Extension](rostooling-languages/images/RosTooling_Badge.png)
+
+## Overview
 
 RosTooling_Extension is a Visual Studio Code extension designed to enhance development experience for [RosTooling](https://github.com/ipa320/RosTooling.git) languages. It provides the similar content assist functionalities available in Eclipse.
 
