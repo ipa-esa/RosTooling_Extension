@@ -4,7 +4,7 @@
   "description": "Plugin to support Rostooling languages",
   "version": "1.2.1",
   "publisher": "FraunhoferIPA",
-  "icon": "images/Fraunhofer-logo.svg.png",
+  "icon": "images/RosTooling_Logo.png",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

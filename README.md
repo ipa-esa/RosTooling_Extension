@@ -2,6 +2,8 @@
 
 ## Overview
 
+![RosTooling Extension](rostooling-languages/images/RosTooling_Badge.png)
+
 RosTooling_Extension is a Visual Studio Code extension designed to enhance development experience for [RosTooling](https://github.com/ipa320/RosTooling.git) languages. It provides the similar content assist functionalities available in Eclipse.
 
 ## Features
@@ -10,7 +12,6 @@ RosTooling_Extension is a Visual Studio Code extension designed to enhance devel
 - Syntax highlighting
 - Model validation
 - ROS 2 package generation
-- ROS 2 node generation [TODO]
 
 ## Installation
 
