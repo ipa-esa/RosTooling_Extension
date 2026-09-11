@@ -40,6 +40,20 @@ export const RosLayoutManager = {
    * ${workspaceRoot}/.rostooling/layout/<model_name>.<ext>.layout.json
    */
   getLayoutFilePath(docFilePath: string, workspaceRoot?: string): string {
+    const baseName = path.basename(docFilePath);
+    // 1. Check if an existing layout file exists in parent hierarchy (e.g. demo/.rostooling/layout)
+    let cur = path.dirname(docFilePath);
+    for (let i = 0; i < 8; i++) {
+      const candidate = path.join(cur, '.rostooling', 'layout', `${baseName}.layout.json`);
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+
+    // 2. Otherwise default to workspaceRoot or document directory
     const rootDir = workspaceRoot || path.dirname(docFilePath);
     const layoutDir = path.join(rootDir, '.rostooling', 'layout');
     try {
@@ -49,7 +63,6 @@ export const RosLayoutManager = {
     } catch (e) {
       console.warn('Failed to create .rostooling/layout directory:', e);
     }
-    const baseName = path.basename(docFilePath);
     return path.join(layoutDir, `${baseName}.layout.json`);
   },
 
@@ -58,6 +71,21 @@ export const RosLayoutManager = {
    */
   loadLayoutSchematic(docFilePath: string, workspaceRoot?: string): RosLayoutSchematic | null {
     try {
+      const baseName = path.basename(docFilePath);
+      // 1. Check parent hierarchy for existing .rostooling/layout/<file>.layout.json
+      let cur = path.dirname(docFilePath);
+      for (let i = 0; i < 8; i++) {
+        const candidate = path.join(cur, '.rostooling', 'layout', `${baseName}.layout.json`);
+        if (fs.existsSync(candidate)) {
+          const raw = fs.readFileSync(candidate, 'utf-8');
+          return JSON.parse(raw) as RosLayoutSchematic;
+        }
+        const parent = path.dirname(cur);
+        if (parent === cur) break;
+        cur = parent;
+      }
+
+      // 2. Check primary path under workspaceRoot
       const primaryPath = this.getLayoutFilePath(docFilePath, workspaceRoot);
       let targetPath = primaryPath;
       if (!fs.existsSync(targetPath)) {
@@ -95,13 +123,43 @@ export const RosLayoutManager = {
     if (!project.view.nodeSize) project.view.nodeSize = {};
     if (Array.isArray(schematic.nodes)) {
       for (const sn of schematic.nodes) {
-        const node = project.nodes.find((n) => n.id === sn.id || n.label === sn.label);
+        let node = sn.id ? project.nodes.find((n) => n.id === sn.id) : undefined;
+        if (!node && sn.id) {
+          // If this node was saved in schematic as belonging to a declared subsystem, reconstruct it
+          for (const sub of project.subSystems || []) {
+            const prefix = `n_${sub.ref}_`;
+            if (sn.id.startsWith(prefix)) {
+              const nodeLabel = sn.label || sn.id.substring(prefix.length);
+              node = {
+                id: sn.id,
+                label: nodeLabel,
+                subRef: sub.ref,
+                backing: 'sub',
+                ifaces: [],
+                params: [],
+                x: sn.x,
+                y: sn.y,
+                w: sn.width,
+                h: sn.height,
+              };
+              project.nodes.push(node);
+              break;
+            }
+          }
+        }
+        if (!node && sn.label) {
+          // Fallback to label only for direct nodes (not subsystem members)
+          node = project.nodes.find((n) => n.label === sn.label && !n.subRef && n.backing !== 'sub');
+        }
         if (node) {
           if (sn.x != null) node.x = sn.x;
           if (sn.y != null) node.y = sn.y;
           if (sn.width != null) node.w = sn.width;
           if (sn.height != null) node.h = sn.height;
-          project.view.nodeSize[node.label] = { w: sn.width || node.w || 240, h: sn.height || node.h || 140 };
+          project.view.nodeSize[node.id] = { w: sn.width || node.w || 240, h: sn.height || node.h || 140 };
+          if (!node.subRef && node.backing !== 'sub') {
+            project.view.nodeSize[node.label] = { w: sn.width || node.w || 240, h: sn.height || node.h || 140 };
+          }
         }
       }
     }
@@ -195,8 +253,14 @@ export const RosLayoutManager = {
           label: n.label,
           x: n.x != null ? n.x : 0,
           y: n.y != null ? n.y : 0,
-          width: n.w || project.view?.nodeSize?.[n.label]?.w,
-          height: n.h || project.view?.nodeSize?.[n.label]?.h,
+          width:
+            n.w ||
+            project.view?.nodeSize?.[n.id]?.w ||
+            (!n.subRef && n.backing !== 'sub' ? project.view?.nodeSize?.[n.label]?.w : undefined),
+          height:
+            n.h ||
+            project.view?.nodeSize?.[n.id]?.h ||
+            (!n.subRef && n.backing !== 'sub' ? project.view?.nodeSize?.[n.label]?.h : undefined),
         })),
         subsystems: (project.subSystems || []).map((s) => ({
           ref: s.ref,

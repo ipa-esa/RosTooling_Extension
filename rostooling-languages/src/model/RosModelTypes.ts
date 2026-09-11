@@ -8,6 +8,7 @@ export interface RosInterface {
   qos?: Record<string, string>;
   label?: string;
   exposed?: boolean;
+  line?: number;
   comments?: Record<string, unknown>;
 }
 
@@ -19,6 +20,7 @@ export interface RosParameter {
   label?: string;
   exposed?: boolean;
   sysValue?: string | number | boolean;
+  line?: number;
   comments?: Record<string, unknown>;
 }
 
@@ -39,6 +41,8 @@ export interface RosNode {
   y?: number;
   w?: number;
   h?: number;
+  line?: number;
+  lineEnd?: number;
   comments?: Record<string, unknown>;
   diag?: string[];
 }
@@ -52,6 +56,7 @@ export interface RosConnection {
   connectorMode?: 'orthogonal' | 'linear' | 'spline';
   waypoints?: { x: number; y: number }[];
   midOffset?: number;
+  line?: number;
   comments?: Record<string, unknown>;
 }
 
@@ -64,6 +69,7 @@ export interface RosSubSystem {
   y?: number;
   w?: number;
   h?: number;
+  line?: number;
   comments?: Record<string, unknown>;
   graph?: {
     nodes: {
@@ -95,6 +101,7 @@ export interface RosTypeSpec {
   category: 'msg' | 'srv' | 'action';
   pkg: string;
   fields?: Record<string, RosField[]>;
+  line?: number;
   comments?: Record<string, unknown>;
 }
 
@@ -111,6 +118,61 @@ export interface RosPackage {
   comments?: Record<string, unknown>;
 }
 
+export interface RosProcess {
+  name: string;
+  nodes: string[];
+  threads?: number;
+  line?: number;
+  comments?: Record<string, unknown>;
+}
+
+export interface RosModelDiagnostic {
+  elementId?: string;
+  elementKind: 'node' | 'interface' | 'parameter' | 'connection' | 'process' | 'subsystem' | 'system';
+  targetName?: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  line?: number;
+  source?: string;
+}
+
+export interface RosCatalogueFolder {
+  id: string;
+  name: string;
+  path: string;
+  isCustom?: boolean;
+}
+
+export interface RosCatalogueIndex {
+  types: Record<string, {
+    pkg: string;
+    category: 'msg' | 'srv' | 'action';
+    file?: string;
+    source?: string;
+    domain?: string;
+    fields?: Record<string, RosField[]>;
+  }>;
+  nodes: Record<string, {
+    artifact: string;
+    from: string;
+    pkg: string;
+    file?: string;
+    source?: string;
+    domain?: string;
+    interfaces: Record<string, string | { kind: string; type?: string }>;
+    parameters?: Record<string, { type?: string; value?: string | number | boolean }>;
+  }>;
+  systems: {
+    system: string;
+    file: string;
+    source?: string;
+    domain?: string;
+    nodes: Record<string, { from?: string; interfaces?: Record<string, string> }>;
+  }[];
+  sources: string[];
+  lastSync?: number;
+}
+
 export interface RosProject {
   formatVersion: number;
   isRosSystem?: boolean;
@@ -121,10 +183,12 @@ export interface RosProject {
     comments?: Record<string, unknown>;
   };
   subSystems: RosSubSystem[];
+  processes?: RosProcess[];
   nodes: RosNode[];
   connections: RosConnection[];
   packages: Record<string, RosPackage>;
   types: Record<string, RosTypeSpec>;
+  diagnostics?: RosModelDiagnostic[];
   view?: {
     tx?: number;
     ty?: number;

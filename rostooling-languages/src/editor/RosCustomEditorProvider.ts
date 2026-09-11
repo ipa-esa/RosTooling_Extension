@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
 import { getStudioHtml } from '../webview/studioHtml';
-import { RosProject, RosInterface, RosParameter, RosLayoutSchematic } from '../model/RosModelTypes';
+import { RosProject, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic } from '../model/RosModelTypes';
 import { RosLayoutManager } from '../model/RosLayoutManager';
+import { RosCatalogueManager } from '../model/RosCatalogueManager';
 
 interface DeclaredArtifact {
   filePath: string;
@@ -19,6 +21,7 @@ interface DeclaredArtifact {
 export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'rostooling.visualStudio';
 
+  private catalogueManager: RosCatalogueManager | null = null;
   private nodeIndex: Record<string, unknown> | null = null;
   private typeIndex: Record<string, unknown> | null = null;
   private projectCache = new Map<string, RosProject>();
@@ -27,24 +30,85 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     this.loadCatalogues();
   }
 
+  private getSearchRoots(): string[] {
+    const roots = new Set<string>();
+    for (const ws of vscode.workspace.workspaceFolders || []) {
+      roots.add(ws.uri.fsPath);
+      const parent = path.dirname(ws.uri.fsPath);
+      const sibModels = path.join(parent, 'RosModelsCatalog');
+      if (fs.existsSync(sibModels)) roots.add(sibModels);
+      const sibCommon = path.join(parent, 'RosCommonObjects');
+      if (fs.existsSync(sibCommon)) roots.add(sibCommon);
+    }
+    const known1 = '/home/adm-esa/coresense-ws/src/RosModelsCatalog';
+    if (fs.existsSync(known1)) roots.add(known1);
+    const known2 = '/home/adm-esa/coresense-ws/src/RosCommonObjects';
+    if (fs.existsSync(known2)) roots.add(known2);
+    return Array.from(roots);
+  }
+
   private loadCatalogues() {
     try {
-      const nodeIndexPath = path.join(this.context.extensionPath, 'assets', 'node_index.json');
-      if (fs.existsSync(nodeIndexPath)) {
-        this.nodeIndex = JSON.parse(fs.readFileSync(nodeIndexPath, 'utf-8'));
-      }
-    } catch (e) {
-      console.warn('Failed to load node_index.json:', e);
-    }
+      const storageDir = this.context.globalStorageUri
+        ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
+        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+      this.catalogueManager = RosCatalogueManager.getInstance(storageDir);
 
-    try {
-      const typeIndexPath = path.join(this.context.extensionPath, 'assets', 'type_index.json');
-      if (fs.existsSync(typeIndexPath)) {
-        this.typeIndex = JSON.parse(fs.readFileSync(typeIndexPath, 'utf-8'));
+      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots());
+      const hasNodes = Object.keys(catIndex.nodes).length > 0;
+      const hasTypes = Object.keys(catIndex.types).length > 0;
+
+      if (hasNodes || hasTypes) {
+        this.nodeIndex = {
+          nodes: catIndex.nodes,
+          _systems: catIndex.systems,
+          sources: catIndex.sources,
+          lastSync: catIndex.lastSync,
+        };
+        this.typeIndex = {
+          types: catIndex.types,
+          sources: catIndex.sources,
+        };
+      } else {
+        const nodeIndexPath = path.join(this.context.extensionPath, 'assets', 'node_index.json');
+        if (fs.existsSync(nodeIndexPath)) {
+          this.nodeIndex = JSON.parse(fs.readFileSync(nodeIndexPath, 'utf-8'));
+        }
+        const typeIndexPath = path.join(this.context.extensionPath, 'assets', 'type_index.json');
+        if (fs.existsSync(typeIndexPath)) {
+          this.typeIndex = JSON.parse(fs.readFileSync(typeIndexPath, 'utf-8'));
+        }
       }
+
+      // Check 24-hour sync in background
+      this.catalogueManager.syncRepositories(false).then((res) => {
+        if (res.updated.length > 0) {
+          this.refreshCatalogues();
+        }
+      });
     } catch (e) {
-      console.warn('Failed to load type_index.json:', e);
+      console.warn('Failed to load dynamic catalogue:', e);
     }
+  }
+
+  public refreshCatalogues(): { nodeIndex: Record<string, unknown>; typeIndex: Record<string, unknown> } {
+    if (!this.catalogueManager) {
+      this.loadCatalogues();
+    } else {
+      this.catalogueManager.invalidateCache();
+      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots());
+      this.nodeIndex = {
+        nodes: catIndex.nodes,
+        _systems: catIndex.systems,
+        sources: catIndex.sources,
+        lastSync: catIndex.lastSync,
+      };
+      this.typeIndex = {
+        types: catIndex.types,
+        sources: catIndex.sources,
+      };
+    }
+    return { nodeIndex: this.nodeIndex || {}, typeIndex: this.typeIndex || {} };
   }
 
   private readDocumentOrFile(filePath: string): string {
@@ -91,13 +155,37 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     }
     let curDir = path.dirname(docFilePath);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       if (curDir && curDir !== '/' && !roots.includes(curDir)) {
         roots.push(curDir);
+      }
+      const sibModels = path.join(curDir, 'RosModelsCatalog');
+      if (fs.existsSync(sibModels) && !roots.includes(sibModels)) {
+        roots.push(sibModels);
+      }
+      const sibCommon = path.join(curDir, 'RosCommonObjects');
+      if (fs.existsSync(sibCommon) && !roots.includes(sibCommon)) {
+        roots.push(sibCommon);
       }
       const parent = path.dirname(curDir);
       if (parent === curDir) break;
       curDir = parent;
+    }
+    for (const sr of this.getSearchRoots()) {
+      if (sr && !roots.includes(sr)) {
+        roots.push(sr);
+      }
+    }
+    if (this.catalogueManager) {
+      const storageDir = this.catalogueManager.getStorageDir();
+      if (fs.existsSync(storageDir) && !roots.includes(storageDir)) {
+        roots.push(storageDir);
+      }
+      for (const cf of this.catalogueManager.getCustomFolders()) {
+        if (cf.path && fs.existsSync(cf.path) && !roots.includes(cf.path)) {
+          roots.push(cf.path);
+        }
+      }
     }
     return roots;
   }
@@ -120,6 +208,10 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if (fullPath.endsWith('.rossystem')) {
           const baseName = path.basename(fullPath, '.rossystem');
           subsystemMap.set(baseName, fullPath);
+          subsystemMap.set(path.basename(fullPath), fullPath);
+          subsystemMap.set(fullPath, fullPath);
+          const rel = path.relative(root, fullPath);
+          subsystemMap.set(rel, fullPath);
         } else if (fullPath.endsWith('.ros2') || fullPath.endsWith('.ros1') || fullPath.endsWith('.ros')) {
           try {
             const content = this.readDocumentOrFile(fullPath);
@@ -156,12 +248,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     const catNodes = (this.nodeIndex && (this.nodeIndex['nodes'] as Record<string, {
       from?: string;
       pkg?: string;
-      interfaces?: { name?: string; label?: string; kind?: string; type?: string }[];
+      interfaces?: unknown;
+      parameters?: Record<string, unknown>;
     }>)) || {};
 
     // 1. Resolve and load subsystems recursively into project.nodes
     for (const sub of project.subSystems || []) {
-      const subFilePath = subsystemMap.get(sub.ref);
+      const subFilePath =
+        subsystemMap.get(sub.ref) ||
+        (sub.fromFile ? subsystemMap.get(sub.fromFile) : undefined) ||
+        (sub.fromFile ? subsystemMap.get(path.basename(sub.fromFile, '.rossystem')) : undefined) ||
+        (sub.fromFile ? subsystemMap.get(path.basename(sub.fromFile)) : undefined) ||
+        subsystemMap.get(path.basename(sub.ref, '.rossystem')) ||
+        subsystemMap.get(sub.ref.replace(/_\d+$/, ''));
+
+      let loadedNodes = 0;
       if (subFilePath && fs.existsSync(subFilePath)) {
         try {
           const subContent = this.readDocumentOrFile(subFilePath);
@@ -184,7 +285,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
               if (declaredArt) {
                 if (subNode.ifaces.length === 0) {
-                  subNode.ifaces = (declaredArt.ifaces || []).map((f) => ({ ...f, exposed: true }));
+                  subNode.ifaces = (declaredArt.ifaces || []).map((f) => ({
+                    ...f,
+                    id: `i_${subNode.id}_${f.name || f.label}`,
+                    exposed: true,
+                  }));
                 } else {
                   const artIfaces = new Map(declaredArt.ifaces.map((f) => [f.name, f]));
                   for (const iface of subNode.ifaces) {
@@ -197,14 +302,134 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
                   }
                 }
                 if (subNode.params.length === 0) {
-                  subNode.params = (declaredArt.params || []).map((p) => ({ ...p, exposed: true }));
+                  subNode.params = (declaredArt.params || []).map((p) => ({
+                    ...p,
+                    id: `p_${subNode.id}_${p.name}`,
+                    exposed: true,
+                  }));
+                }
+              } else if (catNodes[fromKey] || catNodes[subNode.label] || catNodes[subNode.artifact || '']) {
+                const catEntry = catNodes[fromKey] || catNodes[subNode.label] || catNodes[subNode.artifact || ''];
+                const normalized = this.normalizeInterfaces(catEntry.interfaces);
+                if (subNode.ifaces.length === 0) {
+                  subNode.ifaces = normalized.map((f) => ({
+                    id: `i_${subNode.id}_${f.name || f.label}`,
+                    name: f.name || f.label || '',
+                    label: f.label || f.name || '',
+                    kind: (f.kind as RosInterface['kind']) || 'pub',
+                    type: f.type || '',
+                    exposed: true,
+                  }));
+                }
+                if (subNode.params.length === 0 && catEntry.parameters) {
+                  subNode.params = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
+                    id: `p_${subNode.id}_${pName}`,
+                    name: pName,
+                    ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
+                    value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
+                    exposed: true,
+                  }));
                 }
               }
               project.nodes.push(subNode);
+              loadedNodes++;
             }
           }
         } catch (e) {
           console.warn(`Failed to resolve subsystem ${sub.ref}:`, e);
+        }
+      }
+
+      // Fallback: If no member nodes loaded from file, resolve from catalogue index _systems
+      if (loadedNodes === 0) {
+        const catSystems = (this.nodeIndex && (this.nodeIndex['_systems'] as {
+          system: string;
+          file?: string;
+          nodes?: Record<string, { from?: string; interfaces?: Record<string, string> }>;
+        }[])) || [];
+        const baseRef = sub.ref.replace(/_\d+$/, '');
+        const matchSys = catSystems.find((s) =>
+          s.system === sub.ref ||
+          s.system === baseRef ||
+          (sub.fromFile && (s.file === sub.fromFile || path.basename(s.file || '') === path.basename(sub.fromFile)))
+        );
+
+        if (matchSys && matchSys.nodes) {
+          for (const [nKey, nDef] of Object.entries(matchSys.nodes)) {
+            const existingNode = project.nodes.find(
+              (n) => (n.subRef === sub.ref && n.label === nKey) || n.id === `n_${sub.ref}_${nKey}`
+            );
+            if (!existingNode) {
+              const fromKey = nDef.from || nKey;
+              const declaredArt =
+                artifactMap.get(fromKey) ||
+                artifactMap.get(nKey);
+
+              let finalIfaces: RosInterface[] = [];
+              let finalParams: RosParameter[] = [];
+
+              if (declaredArt) {
+                finalIfaces = (declaredArt.ifaces || []).map((f) => ({
+                  id: `i_${sub.ref}_${nKey}_${f.name}`,
+                  name: f.name,
+                  label: f.label || f.name,
+                  kind: f.kind,
+                  type: f.type || '',
+                  qos: f.qos,
+                  exposed: true,
+                }));
+                finalParams = (declaredArt.params || []).map((p) => ({
+                  id: `p_${sub.ref}_${nKey}_${p.name}`,
+                  name: p.name,
+                  ptype: p.ptype,
+                  value: p.value,
+                  exposed: true,
+                }));
+              } else if (catNodes[fromKey] || catNodes[nKey]) {
+                const catEntry = catNodes[fromKey] || catNodes[nKey];
+                const normalized = this.normalizeInterfaces(catEntry.interfaces);
+                finalIfaces = normalized.map((f) => ({
+                  id: `i_${sub.ref}_${nKey}_${f.name || f.label}`,
+                  name: f.name || f.label || '',
+                  label: f.label || f.name || '',
+                  kind: (f.kind as RosInterface['kind']) || 'pub',
+                  type: f.type || '',
+                  exposed: true,
+                }));
+                if (catEntry.parameters) {
+                  finalParams = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
+                    id: `p_${sub.ref}_${nKey}_${pName}`,
+                    name: pName,
+                    ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
+                    value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
+                    exposed: true,
+                  }));
+                }
+              } else if (nDef.interfaces) {
+                for (const [iName, iKind] of Object.entries(nDef.interfaces)) {
+                  finalIfaces.push({
+                    id: `i_${sub.ref}_${nKey}_${iName}`,
+                    name: iName,
+                    label: iName,
+                    kind: (iKind as RosInterface['kind']) || 'pub',
+                    type: '',
+                    exposed: true,
+                  });
+                }
+              }
+
+              project.nodes.push({
+                id: `n_${sub.ref}_${nKey}`,
+                label: nKey,
+                from: fromKey,
+                subRef: sub.ref,
+                backing: 'sub',
+                ifaces: finalIfaces,
+                params: finalParams,
+              });
+              loadedNodes++;
+            }
+          }
         }
       }
     }
@@ -391,10 +616,22 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   }
 
   private assignGridPositions(project: RosProject) {
-    const unpositioned = project.nodes.filter((n) => n.x == null || n.y == null);
-    if (unpositioned.length > 0) {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(unpositioned.length)));
-      unpositioned.forEach((n, idx) => {
+    let subIdx = 0;
+    for (const sub of project.subSystems || []) {
+      if (!project.view) project.view = {};
+      if (!project.view.subPos) project.view.subPos = {};
+      if (!project.view.subPos[sub.ref]) {
+        project.view.subPos[sub.ref] = { x: 80 + subIdx * 340, y: 380 };
+        subIdx++;
+      }
+    }
+
+    const unpositionedDirect = project.nodes.filter(
+      (n) => !n.subRef && n.backing !== 'sub' && (n.x == null || n.y == null)
+    );
+    if (unpositionedDirect.length > 0) {
+      const cols = Math.max(1, Math.ceil(Math.sqrt(unpositionedDirect.length)));
+      unpositionedDirect.forEach((n, idx) => {
         const c = idx % cols;
         const r = Math.floor(idx / cols);
         n.x = 80 + c * 300;
@@ -402,27 +639,57 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       });
     }
 
-    let subIdx = 0;
-    for (const sub of project.subSystems || []) {
-      if (!project.view) project.view = {};
-      if (!project.view.subPos) project.view.subPos = {};
-      if (!project.view.subPos[sub.ref]) {
-        project.view.subPos[sub.ref] = { x: 80 + subIdx * 320, y: 380 };
-        subIdx++;
+    const unpositionedSubMembers = project.nodes.filter(
+      (n) => (n.subRef || n.backing === 'sub') && (n.x == null || n.y == null)
+    );
+    if (unpositionedSubMembers.length > 0) {
+      const bySub = new Map<string, typeof unpositionedSubMembers>();
+      for (const sn of unpositionedSubMembers) {
+        const key = sn.subRef || 'default';
+        const list = bySub.get(key) || [];
+        list.push(sn);
+        bySub.set(key, list);
+      }
+      for (const [subRef, members] of bySub.entries()) {
+        const sPos = project.view?.subPos?.[subRef] || { x: 100, y: 100 };
+        const cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
+        members.forEach((n, idx) => {
+          const c = idx % cols;
+          const r = Math.floor(idx / cols);
+          n.x = sPos.x + 30 + c * 300;
+          n.y = sPos.y + 50 + r * 240;
+        });
       }
     }
   }
 
   private restoreCachedLayout(target: RosProject, source: RosProject) {
-    // Preserve node coordinates & dimensions
-    const nodeDataMap = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
+    // Preserve member nodes of subsystems from source (e.g. from catalogue or external systems)
     for (const n of source.nodes) {
-      nodeDataMap.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
-      nodeDataMap.set(n.label, { x: n.x, y: n.y, w: n.w, h: n.h });
+      if (n.subRef || n.backing === 'sub') {
+        const exists = target.nodes.some(
+          (tn) => tn.id === n.id || (tn.subRef === n.subRef && tn.label === n.label)
+        );
+        if (!exists) {
+          target.nodes.push({ ...n });
+        }
+      }
+    }
+
+    // Preserve node coordinates & dimensions keyed strictly by unique ID, with direct node label fallback
+    const nodeDataById = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
+    const directNodeDataByLabel = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
+    for (const n of source.nodes) {
+      nodeDataById.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
+      if (!n.subRef && n.backing !== 'sub') {
+        directNodeDataByLabel.set(n.label, { x: n.x, y: n.y, w: n.w, h: n.h });
+      }
     }
 
     for (const n of target.nodes) {
-      const data = nodeDataMap.get(n.id) || nodeDataMap.get(n.label);
+      const data =
+        nodeDataById.get(n.id) ||
+        (!n.subRef && n.backing !== 'sub' ? directNodeDataByLabel.get(n.label) : undefined);
       if (data) {
         if (data.x != null && data.y != null) {
           n.x = data.x;
@@ -530,6 +797,269 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     await RosLayoutManager.saveLayoutSchematic(docFilePath, project, rootDir);
   }
 
+  public mapDiagnosticsToElements(
+    diagnostics: readonly vscode.Diagnostic[],
+    project: RosProject,
+    docFilePath: string
+  ): RosModelDiagnostic[] {
+    void docFilePath;
+    const results: RosModelDiagnostic[] = [];
+
+    // 1. Map VS Code / LSP diagnostics (from RosTooling Xtext validator or LSP)
+    for (const diag of diagnostics || []) {
+      const line = diag.range ? diag.range.start.line + 1 : undefined;
+      const msg = diag.message || '';
+      const sev: 'error' | 'warning' | 'info' =
+        diag.severity === vscode.DiagnosticSeverity.Warning
+          ? 'warning'
+          : diag.severity === vscode.DiagnosticSeverity.Information ||
+            diag.severity === vscode.DiagnosticSeverity.Hint
+          ? 'info'
+          : 'error';
+      const source = diag.source || 'RosTooling';
+
+      let matched = false;
+
+      // Try matching interfaces or parameters first (more granular than node)
+      for (const node of project.nodes || []) {
+        for (const iface of node.ifaces || []) {
+          if (
+            (line != null && iface.line === line) ||
+            (iface.name &&
+              (msg.includes(`'${iface.name}'`) ||
+                msg.includes(`"${iface.name}"`) ||
+                msg.includes(`::${iface.name}`) ||
+                msg.includes(`.${iface.name}`) ||
+                msg.includes(` ${iface.name} `)))
+          ) {
+            results.push({
+              elementId: iface.id,
+              elementKind: 'interface',
+              targetName: iface.name,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+        if (matched) break;
+
+        for (const param of node.params || []) {
+          if (
+            (line != null && param.line === line) ||
+            (param.name &&
+              (msg.includes(`'${param.name}'`) ||
+                msg.includes(`"${param.name}"`) ||
+                msg.includes(` ${param.name} `)))
+          ) {
+            results.push({
+              elementId: param.id,
+              elementKind: 'parameter',
+              targetName: param.name,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+        if (matched) break;
+      }
+
+      if (!matched) {
+        // Try matching node
+        for (const node of project.nodes || []) {
+          const lineInRange =
+            (line != null && node.line != null && node.line === line) ||
+            (line != null && node.line != null && node.lineEnd != null && line >= node.line && line <= node.lineEnd);
+          const nameInMsg =
+            node.label &&
+            (msg.includes(`'${node.label}'`) ||
+              msg.includes(`"${node.label}"`) ||
+              msg.includes(`node ${node.label}`) ||
+              msg.includes(`Node ${node.label}`));
+          if (lineInRange || nameInMsg) {
+            results.push({
+              elementId: node.id,
+              elementKind: 'node',
+              targetName: node.label,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        // Try matching connections
+        for (const conn of project.connections || []) {
+          if (
+            (line != null && conn.line === line) ||
+            (msg.toLowerCase().includes('connection') &&
+              (msg.includes(conn.from.n) || msg.includes(conn.to.n)))
+          ) {
+            results.push({
+              elementId: conn.id,
+              elementKind: 'connection',
+              targetName: `${conn.from.n} -> ${conn.to.n}`,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        // Try matching processes
+        for (const proc of project.processes || []) {
+          if (
+            (line != null && proc.line === line) ||
+            (proc.name &&
+              (msg.includes(`'${proc.name}'`) ||
+                msg.includes(`"${proc.name}"`) ||
+                msg.includes(`process ${proc.name}`)))
+          ) {
+            results.push({
+              elementId: proc.name,
+              elementKind: 'process',
+              targetName: proc.name,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        // Try matching subsystems
+        for (const sub of project.subSystems || []) {
+          if (
+            (line != null && sub.line === line) ||
+            (sub.ref &&
+              (msg.includes(`'${sub.ref}'`) ||
+                msg.includes(`"${sub.ref}"`) ||
+                msg.includes(`subsystem ${sub.ref}`)))
+          ) {
+            results.push({
+              elementId: sub.ref,
+              elementKind: 'subsystem',
+              targetName: sub.ref,
+              severity: sev,
+              message: msg,
+              line,
+              source,
+            });
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        // Fallback to system-level
+        results.push({
+          elementId: 'system',
+          elementKind: 'system',
+          targetName: project.system?.name || 'system',
+          severity: sev,
+          message: msg,
+          line,
+          source,
+        });
+      }
+    }
+
+    // 2. Semantic model consistency validation (built-in RosTooling model checks)
+    for (const conn of project.connections || []) {
+      const fromNode = project.nodes.find((n) => n.id === conn.from.n);
+      const toNode = project.nodes.find((n) => n.id === conn.to.n);
+      const fromIface = fromNode?.ifaces.find((i) => i.id === conn.from.i);
+      const toIface = toNode?.ifaces.find((i) => i.id === conn.to.i);
+
+      if (!fromNode || !fromIface || !toNode || !toIface) {
+        results.push({
+          elementId: conn.id,
+          elementKind: 'connection',
+          targetName: conn.id,
+          severity: 'error',
+          message: `Connection references unresolvable endpoint: from='${conn.from.n}::${conn.from.i}', to='${conn.to.n}::${conn.to.i}'`,
+          line: conn.line,
+          source: 'RosSystemValidator',
+        });
+        continue;
+      }
+
+      const validKinds: Record<string, string> = {
+        pub: 'sub',
+        sub: 'pub',
+        ss: 'sc',
+        sc: 'ss',
+        as: 'ac',
+        ac: 'as',
+      };
+      if (validKinds[fromIface.kind] && validKinds[fromIface.kind] !== toIface.kind) {
+        results.push({
+          elementId: conn.id,
+          elementKind: 'connection',
+          targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
+          severity: 'error',
+          message: `Incompatible port kinds in connection: cannot connect '${fromIface.kind}' to '${toIface.kind}'`,
+          line: conn.line,
+          source: 'RosSystemValidator',
+        });
+      }
+
+      if (fromIface.type && toIface.type && fromIface.type !== '—' && toIface.type !== '—' && fromIface.type !== toIface.type) {
+        results.push({
+          elementId: conn.id,
+          elementKind: 'connection',
+          targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
+          severity: 'error',
+          message: `Port type mismatch: '${fromIface.type}' does not match '${toIface.type}'`,
+          line: conn.line,
+          source: 'RosSystemValidator',
+        });
+      }
+    }
+
+    // Validate Processes
+    for (const proc of project.processes || []) {
+      for (const nodeName of proc.nodes || []) {
+        const found = project.nodes.some((n) => n.label === nodeName);
+        if (!found) {
+          results.push({
+            elementId: proc.name,
+            elementKind: 'process',
+            targetName: proc.name,
+            severity: 'warning',
+            message: `Process '${proc.name}' references undefined node '${nodeName}'`,
+            line: proc.line,
+            source: 'RosSystemValidator',
+          });
+        }
+      }
+    }
+
+    return results;
+  }
+
   public async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
@@ -562,6 +1092,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       } else if (cached) {
         this.restoreCachedLayout(project, cached);
       }
+      const initialDiags = vscode.languages.getDiagnostics(document.uri);
+      project.diagnostics = this.mapDiagnosticsToElements(initialDiags, project, document.fileName);
       this.projectCache.set(docKey, project);
     } catch (e) {
       console.error('Failed to parse RosTooling model:', e);
@@ -583,6 +1115,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       } else if (cached) {
         this.restoreCachedLayout(project, cached);
       }
+      const initialDiags = vscode.languages.getDiagnostics(document.uri);
+      project.diagnostics = this.mapDiagnosticsToElements(initialDiags, project, document.fileName);
       this.projectCache.set(docKey, project);
     }
 
@@ -623,6 +1157,15 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
             // Save layout schematic
             await this.saveLayoutSchematic(document.fileName, updatedProject);
+
+            // Re-evaluate diagnostics and notify webview
+            const diags = vscode.languages.getDiagnostics(document.uri);
+            const mappedDiags = this.mapDiagnosticsToElements(diags, updatedProject, document.fileName);
+            updatedProject.diagnostics = mappedDiags;
+            void webviewPanel.webview.postMessage({
+              type: 'updateDiagnostics',
+              diagnostics: mappedDiags,
+            });
           } catch (err) {
             vscode.window.showErrorMessage(`Failed to apply model changes: ${err}`);
           } finally {
@@ -649,6 +1192,71 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
         case 'openCodeView': {
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+          break;
+        }
+
+        case 'pullCatalogue': {
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: 'RosTooling: Updating component models from GitHub...',
+              cancellable: false,
+            },
+            async (progress) => {
+              if (this.catalogueManager) {
+                const res = await this.catalogueManager.syncRepositories(true, (step) =>
+                  progress.report({ message: step })
+                );
+                const updated = this.refreshCatalogues();
+                webviewPanel.webview.postMessage({
+                  type: 'updateCatalogue',
+                  nodeCatalog: updated.nodeIndex,
+                  typeCatalog: updated.typeIndex,
+                });
+                if (res.success) {
+                  vscode.window.showInformationMessage('RosTooling: Catalogue updated with latest models.');
+                } else if (res.errors.length > 0) {
+                  vscode.window.showWarningMessage(`RosTooling: Catalogue updated with some notices: ${res.errors.join(', ')}`);
+                }
+              }
+            }
+          );
+          break;
+        }
+
+        case 'browseCatalogueFolder': {
+          const selected = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: true,
+            openLabel: 'Add to RosTooling Catalogue',
+          });
+          if (selected && selected.length > 0 && this.catalogueManager) {
+            for (const uri of selected) {
+              this.catalogueManager.addCustomFolder(uri.fsPath);
+            }
+            const updated = this.refreshCatalogues();
+            webviewPanel.webview.postMessage({
+              type: 'updateCatalogue',
+              nodeCatalog: updated.nodeIndex,
+              typeCatalog: updated.typeIndex,
+            });
+            vscode.window.showInformationMessage(`Added ${selected.length} folder(s) to RosTooling Catalogue.`);
+          }
+          break;
+        }
+
+        case 'removeCatalogueFolder': {
+          if (msg.folderId && this.catalogueManager) {
+            this.catalogueManager.removeCustomFolder(msg.folderId);
+            const updated = this.refreshCatalogues();
+            webviewPanel.webview.postMessage({
+              type: 'updateCatalogue',
+              nodeCatalog: updated.nodeIndex,
+              typeCatalog: updated.typeIndex,
+            });
+            vscode.window.showInformationMessage('Folder removed from RosTooling Catalogue.');
+          }
           break;
         }
       }
@@ -683,6 +1291,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           }
 
           this.assignGridPositions(freshProject);
+          const diags = vscode.languages.getDiagnostics(document.uri);
+          freshProject.diagnostics = this.mapDiagnosticsToElements(diags, freshProject, document.fileName);
           this.projectCache.set(docKey, freshProject);
 
           void webviewPanel.webview.postMessage({
@@ -695,9 +1305,25 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     });
 
+    // Sync LSP / RosTooling Xtext diagnostics changes into Webview
+    const diagSubscription = vscode.languages.onDidChangeDiagnostics((e) => {
+      const isTarget = e.uris.some((u) => u.toString() === docKey);
+      if (isTarget) {
+        const currentProject = this.projectCache.get(docKey) || project;
+        const diags = vscode.languages.getDiagnostics(document.uri);
+        const mapped = this.mapDiagnosticsToElements(diags, currentProject, document.fileName);
+        currentProject.diagnostics = mapped;
+        void webviewPanel.webview.postMessage({
+          type: 'updateDiagnostics',
+          diagnostics: mapped,
+        });
+      }
+    });
+
     webviewPanel.onDidDispose(() => {
       messageListener.dispose();
       changeDocSubscription.dispose();
+      diagSubscription.dispose();
       this.projectCache.delete(docKey);
     });
   }

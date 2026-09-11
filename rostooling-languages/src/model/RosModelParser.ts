@@ -6,6 +6,7 @@ import {
   RosSubSystem,
   RosInteractionKind,
   RosTypeSpec,
+  RosProcess,
 } from './RosModelTypes';
 
 const BLOCK_TO_KIND: Record<string, RosInteractionKind> = {
@@ -99,6 +100,7 @@ export const RosModelParser = {
       formatVersion: 4,
       system: { name: 'ros_system', fromFile: undefined, comments: {} },
       subSystems: [],
+      processes: [],
       nodes: [],
       connections: [],
       packages: {},
@@ -118,9 +120,12 @@ export const RosModelParser = {
     let leadComments: string[] = [];
     let curSection: 'subSystems' | 'nodes' | 'connections' | 'parameters' | 'processes' | null = null;
     let curNode: RosNode | null = null;
+    let curProcess: RosProcess | null = null;
     let curSubSection: 'interfaces' | 'parameters' | null = null;
 
-    for (const raw of lines) {
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const raw = lines[lineIdx];
+      const lineNo = lineIdx + 1;
       const [code, noteRaw] = this.splitComment(raw);
       const note = this.cleanNote(noteRaw);
       const body = code.trim();
@@ -148,42 +153,47 @@ export const RosModelParser = {
 
       if (!seenRoot) continue;
 
-      // System fromFile: 'fromFile:' fromFile=EString
-      if (keyMatch && kw === 'fromFile') {
+      // Top-level system fromFile: fromFile=EString (RosSystem.xtext:16)
+      if (seenRoot && keyMatch && kw === 'fromFile' && ind <= 2) {
         proj.system.fromFile = this.unquote(val);
-        leadComments = [];
         continue;
       }
 
       // Top level sections (subSystems, processes, nodes, parameters, connections)
-      if (keyMatch && !val && ind <= 2) {
+      if (seenRoot && keyMatch && !val && ind <= 2) {
         if (kw === 'subSystems') {
           curSection = 'subSystems';
           curNode = null;
+          curProcess = null;
           leadComments = [];
           continue;
         }
         if (kw === 'nodes') {
           curSection = 'nodes';
           curNode = null;
+          curProcess = null;
+          curSubSection = null;
           leadComments = [];
           continue;
         }
         if (kw === 'connections') {
           curSection = 'connections';
           curNode = null;
+          curProcess = null;
           leadComments = [];
           continue;
         }
         if (kw === 'parameters') {
           curSection = 'parameters';
           curNode = null;
+          curProcess = null;
           leadComments = [];
           continue;
         }
         if (kw === 'processes') {
           curSection = 'processes';
           curNode = null;
+          curProcess = null;
           leadComments = [];
           continue;
         }
@@ -202,6 +212,7 @@ export const RosModelParser = {
           const sub: RosSubSystem = {
             ref: subRef,
             state: 'collapsed',
+            line: lineNo,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           if (proj.view?.subStates && !proj.view.subStates[subRef]) {
@@ -210,6 +221,43 @@ export const RosModelParser = {
           proj.subSystems.push(sub);
           leadComments = [];
           continue;
+        }
+      }
+
+      // Processes entries: Process (RosSystem.xtext:51-58)
+      if (curSection === 'processes') {
+        if (!proj.processes) proj.processes = [];
+        if (keyMatch && !val && ind <= 4 && kw !== 'nodes' && kw !== 'threads') {
+          const procName = kw || 'process';
+          curProcess = {
+            name: procName,
+            nodes: [],
+            line: lineNo,
+            comments: leadComments.length ? { before: [...leadComments] } : undefined,
+          };
+          if (note) {
+            curProcess.comments = { ...(curProcess.comments || {}), line: note };
+          }
+          proj.processes.push(curProcess);
+          leadComments = [];
+          continue;
+        }
+
+        if (curProcess) {
+          if (keyMatch && kw === 'nodes') {
+            const rawNodes = val || '';
+            const stripped = rawNodes.trim().replace(/^\[/, '').replace(/\]$/, '').trim();
+            if (stripped) {
+              const parts = stripped.split(',').map((s: string) => this.unquote(s.trim())).filter(Boolean);
+              curProcess.nodes.push(...parts);
+            }
+            continue;
+          }
+          if (keyMatch && kw === 'threads') {
+            const parsedThreads = parseInt(val || '1', 10);
+            curProcess.threads = isNaN(parsedThreads) ? 1 : parsedThreads;
+            continue;
+          }
         }
       }
 
@@ -223,6 +271,8 @@ export const RosModelParser = {
             ifaces: [],
             params: [],
             backing: 'local',
+            line: lineNo,
+            lineEnd: lineNo,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           if (note) {
@@ -235,6 +285,7 @@ export const RosModelParser = {
         }
 
         if (curNode) {
+          curNode.lineEnd = lineNo;
           if (keyMatch && kw === 'from') {
             curNode.from = this.unquote(val);
             const parts = (curNode.from || '').split('.');
@@ -277,6 +328,7 @@ export const RosModelParser = {
                 label: expLabel,
                 kind: kind,
                 exposed: true,
+                line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.ifaces.push(iface);
@@ -297,6 +349,7 @@ export const RosModelParser = {
                 label: expLabel,
                 kind: guessedKind,
                 exposed: true,
+                line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.ifaces.push(iface);
@@ -318,6 +371,7 @@ export const RosModelParser = {
                 label: paramLabel,
                 exposed: true,
                 ptype: 'String',
+                line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.params.push(param);
@@ -378,6 +432,7 @@ export const RosModelParser = {
               id: `c_${fromLabel}_${toLabel}`,
               from: { n: fromNode.id, i: fromIface.id },
               to: { n: toNode.id, i: toIface.id },
+              line: lineNo,
               comments: leadComments.length ? { before: [...leadComments] } : undefined,
             });
           }
@@ -418,7 +473,9 @@ export const RosModelParser = {
     let curParam: RosParameter | null = null;
     let curQos: Record<string, string> | null = null;
 
-    for (const raw of lines) {
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const raw = lines[lineIdx];
+      const lineNo = lineIdx + 1;
       const [code, noteRaw] = this.splitComment(raw);
       const note = this.cleanNote(noteRaw);
       const body = code.trim();
@@ -478,6 +535,8 @@ export const RosModelParser = {
           ifaces: curArtifact.ifaces,
           params: curArtifact.params,
           backing: 'local',
+          line: lineNo,
+          lineEnd: lineNo,
           comments: leadComments.length ? { before: [...leadComments] } : undefined,
         };
         proj.nodes.push(nodeObj);
@@ -486,9 +545,11 @@ export const RosModelParser = {
       }
 
       if (curArtifact) {
+        const lastNode = proj.nodes[proj.nodes.length - 1];
+        if (lastNode) lastNode.lineEnd = lineNo;
+
         if (keyMatch && kw === 'node' && val) {
           curArtifact.node = this.unquote(val);
-          const lastNode = proj.nodes[proj.nodes.length - 1];
           if (lastNode) lastNode.label = curArtifact.node;
           leadComments = [];
           continue;
@@ -534,6 +595,7 @@ export const RosModelParser = {
             kind: curBlock,
             label: ifName,
             exposed: true,
+            line: lineNo,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           curArtifact.ifaces.push(curIface);
@@ -552,6 +614,7 @@ export const RosModelParser = {
             label: pName,
             ptype: 'String',
             exposed: true,
+            line: lineNo,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           curArtifact.params.push(curParam);
@@ -627,7 +690,9 @@ export const RosModelParser = {
     let curTypeSpec: RosTypeSpec | null = null;
     let gitRepo: string | undefined = undefined;
 
-    for (const raw of lines) {
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const raw = lines[lineIdx];
+      const lineNo = lineIdx + 1;
       const [lineWithoutComment] = this.splitComment(raw);
       const clean = lineWithoutComment.trim();
       if (!clean) continue;
@@ -709,6 +774,7 @@ export const RosModelParser = {
           category: cat,
           pkg: curPkg,
           fields: {},
+          line: lineNo,
         };
         proj.types[`${curPkg}.${specName}`] = curTypeSpec;
         continue;

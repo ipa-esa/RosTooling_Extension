@@ -248,6 +248,8 @@ export function getStudioHtml(
     border-radius: 8px;
     box-shadow: var(--shadow);
     min-width: 220px;
+    min-height: max-content;
+    box-sizing: border-box;
     z-index: 2;
     cursor: pointer;
     transition: box-shadow 0.15s ease, border-color 0.15s ease;
@@ -510,6 +512,8 @@ export function getStudioHtml(
     border: 2px solid var(--k-subsystem);
     background: var(--surface);
     min-width: 240px;
+    min-height: max-content;
+    box-sizing: border-box;
   }
   .node.subbox .nhead {
     background: var(--k-subsystem-bg);
@@ -531,6 +535,11 @@ export function getStudioHtml(
     background: var(--k-subsystem-bg);
     z-index: 0;
     pointer-events: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .subframe.sel {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .subframe .sfhead {
     position: absolute;
@@ -547,6 +556,174 @@ export function getStudioHtml(
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    cursor: grab;
+    user-select: none;
+    z-index: 5;
+  }
+  .subframe.sel .sfhead {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-del-sub {
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+  .btn-del-sub:hover {
+    opacity: 1 !important;
+    color: var(--dead) !important;
+  }
+
+  /* Process Grouping & Focus Halos */
+  .node.proc-focus {
+    box-shadow: 0 0 0 3px var(--proc-color, #10b981), 0 0 24px rgba(16, 185, 129, 0.35) !important;
+    transform: scale(1.02);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    z-index: 15;
+  }
+  .proc-item {
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .proc-item:hover {
+    filter: brightness(1.15);
+  }
+  .cat-source-pill {
+    font-size: 0.65rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: var(--panel-2);
+    color: var(--ink-2);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+  .cat-source-pill.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Model Diagnostics & Error Highlights */
+  .node.has-error {
+    border-color: #f85149 !important;
+    box-shadow: 0 0 0 1px #f85149, 0 0 10px rgba(248, 81, 73, 0.4) !important;
+  }
+  .node.has-warning {
+    border-color: #d29922 !important;
+    box-shadow: 0 0 0 1px #d29922, 0 0 8px rgba(210, 153, 34, 0.35) !important;
+  }
+  .subframe.has-error {
+    border-color: #f85149 !important;
+    box-shadow: 0 0 0 1px #f85149, 0 0 14px rgba(248, 81, 73, 0.3) !important;
+  }
+  .subframe.has-error .sfhead {
+    border-color: #f85149 !important;
+    color: #f85149 !important;
+  }
+  .node.subbox.has-error {
+    border-color: #f85149 !important;
+    box-shadow: 0 0 0 1px #f85149, 0 0 10px rgba(248, 81, 73, 0.4) !important;
+  }
+  .iface-row.has-error {
+    background: rgba(248, 81, 73, 0.12);
+    border-left: 2px solid #f85149;
+  }
+  .iface-row.has-warning {
+    background: rgba(210, 153, 34, 0.12);
+    border-left: 2px solid #d29922;
+  }
+  .prow.has-error {
+    background: rgba(248, 81, 73, 0.12);
+    border-left: 2px solid #f85149;
+  }
+  .diag-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 4px;
+    cursor: help;
+  }
+  .diag-badge.error {
+    background: #f85149;
+    color: #ffffff;
+  }
+  .diag-badge.warning {
+    background: #d29922;
+    color: #ffffff;
+  }
+  .diag-badge.info {
+    background: #58a6ff;
+    color: #ffffff;
+  }
+  .diag-marker {
+    font-size: 0.68rem;
+    margin-left: 3px;
+    cursor: help;
+  }
+  path.edge.edge-error {
+    stroke: #f85149 !important;
+    stroke-dasharray: 6, 3 !important;
+    filter: drop-shadow(0 0 4px rgba(248, 81, 73, 0.9));
+  }
+  path.edge.edge-warning {
+    stroke: #d29922 !important;
+    stroke-dasharray: 6, 3 !important;
+  }
+  .diag-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .diag-summary-pill.error {
+    background: rgba(248, 81, 73, 0.18);
+    color: #f85149;
+    border: 1px solid #f85149;
+  }
+  .diag-summary-pill.warning {
+    background: rgba(210, 153, 34, 0.18);
+    color: #d29922;
+    border: 1px solid #d29922;
+  }
+  .diag-summary-pill.ok {
+    background: rgba(46, 160, 67, 0.15);
+    color: #3fb950;
+    border: 1px solid rgba(46, 160, 67, 0.4);
+  }
+  .inspector-diag-item {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    border-left: 3px solid;
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+  .inspector-diag-item.error {
+    background: rgba(248, 81, 73, 0.1);
+    border-color: #f85149;
+    color: var(--ink);
+  }
+  .inspector-diag-item.warning {
+    background: rgba(210, 153, 34, 0.1);
+    border-color: #d29922;
+    color: var(--ink);
+  }
+  .inspector-diag-item.info {
+    background: rgba(88, 166, 255, 0.1);
+    border-color: #58a6ff;
+    color: var(--ink);
   }
 
   /* Edges / Connections - Boxy Orthogonal & Jump Bridges */
@@ -973,6 +1150,7 @@ export function getStudioHtml(
   <button class="btn" id="btnOpenCatalogue" title="Browse Catalogue">+ Add from Catalogue</button>
   <button class="btn primary" id="btnGenerate" title="Generate ROS 2 Package & Launch Files">⚡ Generate & Launch</button>
   <button class="btn" id="btnSwitchToCode" title="View Source Code">📝 Code</button>
+  <div id="diagPillContainer" style="margin-left:8px; display:flex; align-items:center;"></div>
 </div>
 
 <div class="workspace">
@@ -999,6 +1177,14 @@ export function getStudioHtml(
       <div class="rail-title">Subsystem Views</div>
       <button class="btn" id="btnCollapseAll" style="font-size:0.72rem; width:100%;">Collapse All Subsystems</button>
       <button class="btn" id="btnExpandAll" style="font-size:0.72rem; width:100%;">Expand All Subsystems</button>
+    </div>
+
+    <div class="rail-section" id="processSection">
+      <div class="rail-title" style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Processes (<span id="processCount">0</span>)</span>
+        <button class="btn btn-sm" id="btnAddProcess" style="padding:1px 6px; font-size:0.7rem; background:var(--accent); color:var(--accent-text);" title="Add Process">+ Add</button>
+      </div>
+      <div id="processList" style="display:flex; flex-direction:column; gap:4px; margin-top:6px;"></div>
     </div>
   </div>
 
@@ -1042,6 +1228,11 @@ export function getStudioHtml(
         <div class="drawer-title" id="catDrawerTitle">ROS Catalogue</div>
         <button class="btn" id="btnCloseCatalogue" style="padding:0.2rem 0.4rem;">✕</button>
       </div>
+      <div style="display:flex; gap:6px; margin-bottom:0.5rem;">
+        <button class="btn btn-sm" id="btnPullCatalogue" style="flex:1; font-size:0.7rem; justify-content:center; padding:3px 6px;" title="Pull latest models from GitHub repositories">🔄 Pull Models</button>
+        <button class="btn btn-sm" id="btnAddCatalogueFolder" style="flex:1; font-size:0.7rem; justify-content:center; padding:3px 6px;" title="Add local directory containing .ros models">+ Add Folder</button>
+      </div>
+      <div id="catSourceFilters" style="display:flex; gap:4px; margin-bottom:0.5rem; overflow-x:auto; padding-bottom:2px;"></div>
       <div class="cat-tabs" id="catTabs" style="display:none;">
         <button class="cat-tab-btn active" id="tabCatNodes">Nodes</button>
         <button class="cat-tab-btn" id="tabCatSubsystems">Subsystems</button>
@@ -1081,6 +1272,8 @@ export function getStudioHtml(
   var selNode = null;
   var selEdge = null;
   var selSub = null;
+  var selProcess = null;
+  var interactionSnapshot = null;
   var undoStack = [];
   var redoStack = [];
   var wireState = null;
@@ -1091,6 +1284,301 @@ export function getStudioHtml(
   var isInspectorCollapsed = false;
   var isRos = !!(project && project.isRos);
   var isRosSystem = (project.isRosSystem !== false && !isRos);
+  var activeCatSource = "all";
+
+  function joinLines(arr) {
+    return (arr || []).join(String.fromCharCode(10));
+  }
+
+  var PROCESS_COLORS = [
+    { bg: "rgba(16, 185, 129, 0.16)", border: "#10b981", text: "#34d399", name: "Emerald" },
+    { bg: "rgba(139, 92, 246, 0.16)", border: "#8b5cf6", text: "#a78bfa", name: "Violet" },
+    { bg: "rgba(245, 158, 11, 0.16)", border: "#f59e0b", text: "#fbbf24", name: "Amber" },
+    { bg: "rgba(236, 72, 153, 0.16)", border: "#ec4899", text: "#f472b6", name: "Pink" },
+    { bg: "rgba(6, 182, 212, 0.16)", border: "#06b6d4", text: "#22d3ee", name: "Cyan" },
+    { bg: "rgba(99, 102, 241, 0.16)", border: "#6366f1", text: "#818cf8", name: "Indigo" }
+  ];
+
+  function getProcessForNode(nodeLabel) {
+    if (!project || !project.processes) return null;
+    for (var i = 0; i < project.processes.length; i++) {
+      var p = project.processes[i];
+      if (p.nodes && p.nodes.indexOf(nodeLabel) !== -1) {
+        return { process: p, index: i, color: PROCESS_COLORS[i % PROCESS_COLORS.length] };
+      }
+    }
+    return null;
+  }
+
+  /* Diagnostics Query Helpers */
+  function getElementDiagnostics(elementKind, elementId, targetName) {
+    var diags = project.diagnostics || [];
+    return diags.filter(function(d) {
+      if (elementId && d.elementId === elementId) return true;
+      if (targetName && d.targetName === targetName) return true;
+      return false;
+    });
+  }
+
+  function getNodeDiagnostics(n) {
+    var diags = project.diagnostics || [];
+    return diags.filter(function(d) {
+      if (d.elementKind === 'node' && (d.elementId === n.id || d.targetName === n.label)) return true;
+      if (d.elementKind === 'interface' && (n.ifaces || []).some(function(f) { return f.id === d.elementId || f.name === d.targetName || f.label === d.targetName; })) return true;
+      if (d.elementKind === 'parameter' && (n.params || []).some(function(p) { return p.id === d.elementId || p.name === d.targetName || p.label === d.targetName; })) return true;
+      return false;
+    });
+  }
+
+  function getSubsystemDiagnostics(subRef) {
+    var diags = project.diagnostics || [];
+    return diags.filter(function(d) {
+      return d.elementKind === 'subsystem' && (d.elementId === subRef || d.targetName === subRef);
+    });
+  }
+
+  function getConnectionDiagnostics(cid) {
+    var diags = project.diagnostics || [];
+    return diags.filter(function(d) {
+      return d.elementKind === 'connection' && d.elementId === cid;
+    });
+  }
+
+  function panToNode(n) {
+    if (n && n.x != null && n.y != null) {
+      var wrapRect = canvasWrap.getBoundingClientRect();
+      view.tx = Math.round(wrapRect.width / 2 - (n.x + 120) * view.k);
+      view.ty = Math.round(wrapRect.height / 2 - (n.y + 80) * view.k);
+      applyView();
+    }
+  }
+
+  function updateDiagPill() {
+    var container = document.getElementById("diagPillContainer");
+    if (!container) return;
+    var allDiags = project.diagnostics || [];
+    var errs = allDiags.filter(function(d) { return d.severity === 'error'; }).length;
+    var warns = allDiags.filter(function(d) { return d.severity === 'warning'; }).length;
+
+    if (errs > 0) {
+      container.innerHTML = '<span class="diag-summary-pill error" id="btnShowDiags" title="' + errs + ' validation error(s). Click to view in Inspector.">❌ ' + errs + ' Error' + (errs > 1 ? 's' : '') + '</span>';
+    } else if (warns > 0) {
+      container.innerHTML = '<span class="diag-summary-pill warning" id="btnShowDiags" title="' + warns + ' validation warning(s). Click to view in Inspector.">⚠️ ' + warns + ' Warning' + (warns > 1 ? 's' : '') + '</span>';
+    } else {
+      container.innerHTML = '<span class="diag-summary-pill ok" id="btnShowDiags" title="All model validations passed">✓ Valid</span>';
+    }
+
+    var btn = document.getElementById("btnShowDiags");
+    if (btn) {
+      btn.onclick = function() {
+        selNode = null; selEdge = null; selSub = null; selProcess = null;
+        toggleInspector(false);
+        fillInspector();
+      };
+    }
+  }
+
+  function renderProcessesRail() {
+    var procSec = document.getElementById("processSection");
+    if (!procSec) return;
+    if (!isRosSystem) {
+      procSec.style.display = "none";
+      return;
+    }
+    procSec.style.display = "block";
+    var countEl = document.getElementById("processCount");
+    var listEl = document.getElementById("processList");
+    var procs = project.processes || [];
+    if (countEl) countEl.textContent = String(procs.length);
+    if (!listEl) return;
+    listEl.innerHTML = "";
+
+    if (procs.length === 0) {
+      var emptyEl = document.createElement("div");
+      emptyEl.style.fontSize = "0.72rem";
+      emptyEl.style.color = "var(--ink-3)";
+      emptyEl.style.fontStyle = "italic";
+      emptyEl.style.padding = "4px 2px";
+      emptyEl.textContent = "No processes defined. Click + Add to create one.";
+      listEl.appendChild(emptyEl);
+      return;
+    }
+
+    procs.forEach(function(p, idx) {
+      var colorObj = PROCESS_COLORS[idx % PROCESS_COLORS.length];
+      var item = document.createElement("div");
+      item.className = "proc-item" + (selProcess === p.name ? " active" : "");
+      item.style.borderLeftColor = colorObj.border;
+
+      var header = document.createElement("div");
+      header.style.display = "flex";
+      header.style.alignItems = "center";
+      header.style.justifyContent = "space-between";
+      header.style.width = "100%";
+
+      var titleSpan = document.createElement("span");
+      titleSpan.style.fontWeight = "600";
+      titleSpan.style.fontSize = "0.75rem";
+      titleSpan.style.overflow = "hidden";
+      titleSpan.style.textOverflow = "ellipsis";
+      titleSpan.style.whiteSpace = "nowrap";
+      titleSpan.textContent = p.name;
+
+      var procDiags = getElementDiagnostics('process', p.name, p.name);
+      if (procDiags.length > 0) {
+        var pBadge = document.createElement("span");
+        pBadge.className = "diag-badge " + (procDiags.some(function(d){ return d.severity === 'error'; }) ? "error" : "warning");
+        pBadge.textContent = "⚠️ " + procDiags.length;
+        pBadge.title = joinLines(procDiags.map(function(d){ return d.message; }));
+        titleSpan.appendChild(pBadge);
+      }
+
+      var badgeSpan = document.createElement("span");
+      badgeSpan.className = "badge";
+      badgeSpan.style.fontSize = "0.65rem";
+      badgeSpan.textContent = (p.threads != null ? p.threads + "🧵" : "") + " " + (p.nodes ? p.nodes.length : 0) + "n";
+
+      header.appendChild(titleSpan);
+      header.appendChild(badgeSpan);
+      item.appendChild(header);
+
+      item.onclick = function(e) {
+        e.stopPropagation();
+        if (selProcess === p.name) {
+          selProcess = null;
+          highlightProcessNodes(null);
+        } else {
+          selProcess = p.name;
+          selNode = null;
+          selSub = null;
+          selEdge = null;
+          highlightProcessNodes(p.name);
+        }
+        renderProcessesRail();
+        toggleInspector(false);
+        fillInspector();
+      };
+
+      listEl.appendChild(item);
+    });
+  }
+
+  function highlightProcessNodes(procName) {
+    if (!canvas) return;
+    var nodes = canvas.querySelectorAll(".node");
+    nodes.forEach(function(nEl) {
+      var nid = nEl.dataset.n;
+      var nObj = nodeById(nid);
+      var pInfo = nObj ? getProcessForNode(nObj.label) : null;
+      if (procName && pInfo && pInfo.process.name === procName) {
+        nEl.classList.add("proc-focus");
+      } else {
+        nEl.classList.remove("proc-focus");
+      }
+    });
+  }
+
+  function pushUndo() {
+    undoStack.push(JSON.stringify({ project: project, view: view }));
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+
+  function pushUndoSnapshot(snapStr) {
+    if (!snapStr) return;
+    undoStack.push(snapStr);
+    if (undoStack.length > 60) undoStack.shift();
+    redoStack = [];
+    updateUndoRedoButtons();
+  }
+
+  function doUndo() {
+    if (!undoStack.length) return;
+    redoStack.push(JSON.stringify({ project: project, view: view }));
+    var snap = JSON.parse(undoStack.pop());
+    project = snap.project;
+    if (snap.view) {
+      view.tx = snap.view.tx != null ? snap.view.tx : view.tx;
+      view.ty = snap.view.ty != null ? snap.view.ty : view.ty;
+      view.k = snap.view.k != null ? snap.view.k : view.k;
+    }
+    applyView();
+    ensureCanvasEncompasses();
+    render();
+    fillInspector();
+    renderProcessesRail();
+    syncDoc();
+    saveLayout(true);
+    updateUndoRedoButtons();
+  }
+
+  function doRedo() {
+    if (!redoStack.length) return;
+    undoStack.push(JSON.stringify({ project: project, view: view }));
+    var snap = JSON.parse(redoStack.pop());
+    project = snap.project;
+    if (snap.view) {
+      view.tx = snap.view.tx != null ? snap.view.tx : view.tx;
+      view.ty = snap.view.ty != null ? snap.view.ty : view.ty;
+      view.k = snap.view.k != null ? snap.view.k : view.k;
+    }
+    applyView();
+    ensureCanvasEncompasses();
+    render();
+    fillInspector();
+    renderProcessesRail();
+    syncDoc();
+    saveLayout(true);
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    var btnU = document.getElementById("btnUndo");
+    var btnR = document.getElementById("btnRedo");
+    if (btnU) {
+      btnU.style.opacity = undoStack.length > 0 ? "1" : "0.45";
+      btnU.style.pointerEvents = undoStack.length > 0 ? "auto" : "none";
+      btnU.title = "Undo (" + undoStack.length + ") [Ctrl+Z]";
+    }
+    if (btnR) {
+      btnR.style.opacity = redoStack.length > 0 ? "1" : "0.45";
+      btnR.style.pointerEvents = redoStack.length > 0 ? "auto" : "none";
+      btnR.title = "Redo (" + redoStack.length + ") [Ctrl+Y]";
+    }
+  }
+
+  function removeSubsystem(subRef) {
+    if (!subRef) return;
+    pushUndo();
+    project.subSystems = (project.subSystems || []).filter(function(s) { return s.ref !== subRef; });
+    var memberIds = {};
+    project.nodes = (project.nodes || []).filter(function(n) {
+      if (n.subRef === subRef) {
+        memberIds[n.id] = true;
+        return false;
+      }
+      return true;
+    });
+    project.connections = (project.connections || []).filter(function(c) {
+      return !memberIds[c.from.n] && !memberIds[c.to.n];
+    });
+    if (project.view) {
+      if (project.view.subStates) delete project.view.subStates[subRef];
+      if (project.view.subPos) delete project.view.subPos[subRef];
+      if (project.view.subSize) {
+        delete project.view.subSize[subRef];
+        delete project.view.subSize[subRef + "_frame"];
+      }
+    }
+    selSub = null;
+    ensureCanvasEncompasses();
+    render();
+    fillInspector();
+    syncDoc();
+    saveLayout(true);
+    showToastSuccess('Subsystem "' + subRef + '" removed');
+  }
 
   var currentConnectorMode = (project && project.view && project.view.connectorMode) || "orthogonal";
   var activeCatTab = "nodes";
@@ -1200,12 +1688,6 @@ export function getStudioHtml(
     }
   }
 
-  function pushUndo() {
-    undoStack.push(JSON.stringify(project));
-    if (undoStack.length > 50) undoStack.shift();
-    redoStack = [];
-  }
-
   function syncDoc() {
     vscode.postMessage({ type: "applyEdit", project: project });
   }
@@ -1219,7 +1701,13 @@ export function getStudioHtml(
   function nodeById(id) {
     if (!id) return null;
     for (var i = 0; i < project.nodes.length; i++) {
-      if (project.nodes[i].id === id || project.nodes[i].label === id) return project.nodes[i];
+      if (project.nodes[i].id === id) return project.nodes[i];
+    }
+    for (var j = 0; j < project.nodes.length; j++) {
+      if (project.nodes[j].label === id && !project.nodes[j].subRef && project.nodes[j].backing !== "sub") return project.nodes[j];
+    }
+    for (var k = 0; k < project.nodes.length; k++) {
+      if (project.nodes[k].label === id) return project.nodes[k];
     }
     return null;
   }
@@ -1249,12 +1737,83 @@ export function getStudioHtml(
   }
 
   function subMembers(ref) {
-    return project.nodes.filter(function(n) { return n.subRef === ref || (n.backing === "sub" && n.from && n.from.startsWith(ref)); });
+    return (project.nodes || []).filter(function(n) {
+      return n.subRef === ref ||
+        (n.backing === "sub" && n.from && n.from.startsWith(ref)) ||
+        (n.id && n.id.startsWith("n_" + ref + "_")) ||
+        (n.pkg === ref);
+    });
+  }
+
+  function ensureSubsystemMembersLoaded(targetProj) {
+    var p = targetProj || project;
+    if (!p || !p.subSystems || !p.subSystems.length) return;
+    var systemsArr = (nodeCatalog && nodeCatalog._systems) || [];
+    p.subSystems.forEach(function(sub) {
+      var members = (p.nodes || []).filter(function(n) {
+        return n.subRef === sub.ref ||
+          (n.backing === "sub" && n.from && n.from.startsWith(sub.ref)) ||
+          (n.id && n.id.startsWith("n_" + sub.ref + "_")) ||
+          (n.pkg === sub.ref);
+      });
+      if (members.length === 0) {
+        var baseRef = sub.ref.replace(/_[0-9]+$/, "");
+        var sys = systemsArr.find(function(s) {
+          return s.system === sub.ref || s.system === baseRef || (sub.fromFile && (s.file === sub.fromFile || s.file.endsWith(sub.fromFile) || sub.fromFile.endsWith(s.file)));
+        });
+        if (sys && sys.nodes) {
+          if (!p.nodes) p.nodes = [];
+          var spos = (p.view && p.view.subPos && p.view.subPos[sub.ref]) || { x: sub.x || 80, y: sub.y || 80 };
+          var nodeKeys = Object.keys(sys.nodes);
+          var cols = Math.max(1, Math.ceil(Math.sqrt(nodeKeys.length)));
+          nodeKeys.forEach(function(nKey, nIdx) {
+            var nodeDef = sys.nodes[nKey] || {};
+            var ifaces = normalizeCatalogueInterfaces(nodeDef.interfaces);
+            var nodeIfaces = ifaces.map(function(f) {
+              return {
+                id: "i_" + sub.ref + "_" + nKey + "_" + f.name,
+                name: f.name,
+                label: f.label || f.name,
+                kind: f.kind || "pub",
+                type: f.type || "",
+                exposed: true
+              };
+            });
+            var savedSize = (p.view && p.view.nodeSize && (p.view.nodeSize["n_" + sub.ref + "_" + nKey] || p.view.nodeSize[nKey])) || {};
+            var c = nIdx % cols;
+            var r = Math.floor(nIdx / cols);
+            var n = {
+              id: "n_" + sub.ref + "_" + nKey,
+              label: nKey,
+              from: nodeDef.from || nKey,
+              subRef: sub.ref,
+              backing: "sub",
+              ifaces: nodeIfaces,
+              params: [],
+              w: savedSize.w || 260,
+              h: savedSize.h || 160,
+              x: spos.x + 30 + c * 300,
+              y: spos.y + 50 + r * 240
+            };
+            p.nodes.push(n);
+          });
+        }
+      }
+    });
   }
 
   function arrangeSubsystemMembers(subRef) {
-    var pos = (project.view && project.view.subPos && project.view.subPos[subRef]) || { x: 80, y: 80 };
+    var subObj = (project.subSystems || []).find(function(s) { return s.ref === subRef; });
+    var pos = (project.view && project.view.subPos && project.view.subPos[subRef]) || { x: (subObj && subObj.x) || 80, y: (subObj && subObj.y) || 80 };
+    if (!project.view) project.view = {};
+    if (!project.view.subPos) project.view.subPos = {};
+    project.view.subPos[subRef] = pos;
+
     var members = subMembers(subRef);
+    if (members.length === 0) {
+      ensureSubsystemMembersLoaded();
+      members = subMembers(subRef);
+    }
     var cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
     members.forEach(function(m, idx) {
       if (m.x == null || m.y == null || (m.x === 100 && m.y === 100) || (m.x === 80 && m.y === 80)) {
@@ -1315,8 +1874,9 @@ export function getStudioHtml(
     (project.nodes || []).forEach(function(n) {
       var nx = n.x != null ? n.x : 100;
       var ny = n.y != null ? n.y : 100;
-      var nw = n.w || (project.view && project.view.nodeSize && project.view.nodeSize[n.label] && project.view.nodeSize[n.label].w) || 260;
-      var nh = n.h || (project.view && project.view.nodeSize && project.view.nodeSize[n.label] && project.view.nodeSize[n.label].h) || 160;
+      var nSize = (project.view && project.view.nodeSize && (project.view.nodeSize[n.id] || project.view.nodeSize[n.label])) || {};
+      var nw = n.w || nSize.w || 260;
+      var nh = n.h || nSize.h || 160;
       minX = Math.min(minX, nx);
       minY = Math.min(minY, ny);
       maxX = Math.max(maxX, nx + nw);
@@ -1325,10 +1885,14 @@ export function getStudioHtml(
 
     (project.subSystems || []).forEach(function(sub) {
       var spos = (project.view && project.view.subPos && project.view.subPos[sub.ref]) || { x: sub.x || 80, y: sub.y || 80 };
+      var isFramed = subState(sub.ref) === "framed";
+      var frameSize = (project.view && project.view.subSize && project.view.subSize[sub.ref + "_frame"]) || {};
+      var sw = (isFramed && frameSize.w) || sub.w || 320;
+      var sh = (isFramed && frameSize.h) || sub.h || 200;
       minX = Math.min(minX, spos.x);
       minY = Math.min(minY, spos.y);
-      maxX = Math.max(maxX, spos.x + (sub.w || 320));
-      maxY = Math.max(maxY, spos.y + (sub.h || 200));
+      maxX = Math.max(maxX, spos.x + sw);
+      maxY = Math.max(maxY, spos.y + sh);
     });
 
     (project.connections || []).forEach(function(c) {
@@ -1776,16 +2340,42 @@ export function getStudioHtml(
     el.className = "node" + (selNode === n.id ? " sel" : "") + (n.backing === "cat" ? " cat" : "");
     el.style.left = (n.x != null ? n.x : 100) + "px";
     el.style.top = (n.y != null ? n.y : 100) + "px";
-    var size = (project.view && project.view.nodeSize && project.view.nodeSize[n.label]) || {};
+    el.style.minHeight = "max-content";
+    el.style.minWidth = "220px";
+    el.style.boxSizing = "border-box";
+    var size = (project.view && project.view.nodeSize && (project.view.nodeSize[n.id] || project.view.nodeSize[n.label])) || {};
     var nw = n.w || size.w;
     var nh = n.h || size.h;
-    if (nw) el.style.width = nw + "px";
+    if (nw) el.style.width = Math.max(nw, 220) + "px";
     if (nh) el.style.height = nh + "px";
     el.dataset.n = n.id;
+
+    var pInfo = (isRosSystem && !n.subRef && n.backing !== "sub") ? getProcessForNode(n.label) : null;
+    if (pInfo) {
+      el.style.borderLeft = "3px solid " + pInfo.color.border;
+    }
+
+    var nodeDiags = getNodeDiagnostics(n);
+    var hasErr = nodeDiags.some(function(d) { return d.severity === 'error'; });
+    var hasWarn = !hasErr && nodeDiags.some(function(d) { return d.severity === 'warning'; });
+    if (hasErr) el.classList.add("has-error");
+    else if (hasWarn) el.classList.add("has-warning");
+
+    var diagBadgeHtml = '';
+    if (nodeDiags.length > 0) {
+      var diagTip = joinLines(nodeDiags.map(function(d) { return (d.severity === 'error' ? '❌ ' : '⚠️ ') + d.message; }));
+      diagBadgeHtml = '<span class="diag-badge ' + (hasErr ? 'error' : 'warning') + '" title="' + esc(diagTip) + '">' + (hasErr ? '❌ ' : '⚠️ ') + nodeDiags.length + '</span>';
+    }
+
+    var procBadgeHtml = pInfo
+      ? '<span class="proc-badge" style="background:' + pInfo.color.bg + '; border:1px solid ' + pInfo.color.border + '; color:' + pInfo.color.text + '; padding:1px 5px; border-radius:3px; font-size:0.65rem; font-weight:600; margin-left:4px;" title="Process: ' + esc(pInfo.process.name) + ' (' + (pInfo.process.threads || 1) + ' threads)">⚙️ ' + esc(pInfo.process.name) + ' (' + (pInfo.process.threads || 1) + '🧵)</span>'
+      : '';
 
     var html = '<div class="nhead" data-drag="' + n.id + '">'
       + '<span class="ntitle">' + esc(n.label) + '</span>'
       + (n.pkg ? '<span class="badge">' + esc(n.pkg) + '</span>' : '')
+      + procBadgeHtml
+      + diagBadgeHtml
       + '</div>'
       + '<div class="nmeta">' + esc(n.from || '(local artifact)') + (n.namespace ? ' | ' + esc(n.namespace) : '') + '</div>'
       + '<div class="ifaces">';
@@ -1793,9 +2383,16 @@ export function getStudioHtml(
     (n.ifaces || []).forEach(function(f) {
       if (!filterKind[f.kind]) return;
       var src = SRC_SIDE[f.kind];
-      html += '<div class="iface-row" data-kind="' + f.kind + '">'
+      var fDiags = getElementDiagnostics('interface', f.id, f.name);
+      var fHasErr = fDiags.some(function(d) { return d.severity === 'error'; });
+      var fHasWarn = !fHasErr && fDiags.some(function(d) { return d.severity === 'warning'; });
+      var fRowClass = 'iface-row' + (fHasErr ? ' has-error' : fHasWarn ? ' has-warning' : '');
+      var fTip = fDiags.length ? joinLines(fDiags.map(function(d) { return d.message; })) : '';
+      var fMarker = fDiags.length ? '<span class="diag-marker" title="' + esc(fTip) + '">' + (fHasErr ? '❌' : '⚠️') + '</span>' : '';
+      html += '<div class="' + fRowClass + '" data-kind="' + f.kind + '"' + (fTip ? ' title="' + esc(fTip) + '"' : '') + '>'
         + '<span class="kd ' + f.kind + '">' + f.kind + '</span>'
         + '<span class="inm">' + esc(f.label || f.name) + '</span>'
+        + fMarker
         + '<span class="ity">' + esc(f.type || '—') + '</span>'
         + '<span class="port ' + (src ? 'src' : 'snk') + ' ' + f.kind + '" data-n="' + n.id + '" data-i="' + f.id + '" data-kind="' + f.kind + '" data-type="' + esc(f.type || '') + '"></span>'
         + '</div>';
@@ -1806,9 +2403,15 @@ export function getStudioHtml(
     if (filterKind.param) {
       html += '<div class="params-band">';
       (n.params || []).forEach(function(p) {
-        html += '<div class="prow">'
+        var pDiags = getElementDiagnostics('parameter', p.id, p.name);
+        var pHasErr = pDiags.some(function(d) { return d.severity === 'error'; });
+        var pRowClass = 'prow' + (pHasErr ? ' has-error' : pDiags.length ? ' has-warning' : '');
+        var pTip = pDiags.length ? joinLines(pDiags.map(function(d) { return d.message; })) : '';
+        var pMarker = pDiags.length ? '<span class="diag-marker" title="' + esc(pTip) + '">' + (pHasErr ? '❌' : '⚠️') + '</span>' : '';
+        html += '<div class="' + pRowClass + '"' + (pTip ? ' title="' + esc(pTip) + '"' : '') + '>'
           + '<span class="pk">P</span>'
           + '<span class="pnm">' + esc(p.label || p.name) + '</span>'
+          + pMarker
           + '<span class="pvl">' + esc(p.sysValue != null ? p.sysValue : (p.value != null ? p.value : '')) + '</span>'
           + '</div>';
       });
@@ -1828,12 +2431,26 @@ export function getStudioHtml(
     el.className = "node type-card" + (selNode === n.id ? " sel" : "");
     el.style.left = (n.x != null ? n.x : 100) + "px";
     el.style.top = (n.y != null ? n.y : 100) + "px";
-    var size = (project.view && project.view.nodeSize && project.view.nodeSize[n.label]) || {};
+    el.style.minHeight = "max-content";
+    el.style.minWidth = "220px";
+    el.style.boxSizing = "border-box";
+    var size = (project.view && project.view.nodeSize && (project.view.nodeSize[n.id] || project.view.nodeSize[n.label])) || {};
     var nw = n.w || size.w;
     var nh = n.h || size.h;
-    if (nw) el.style.width = nw + "px";
+    if (nw) el.style.width = Math.max(nw, 220) + "px";
     if (nh) el.style.height = nh + "px";
     el.dataset.n = n.id;
+
+    var typeDiags = getNodeDiagnostics(n);
+    var typeHasErr = typeDiags.some(function(d) { return d.severity === 'error'; });
+    if (typeHasErr) el.classList.add("has-error");
+    else if (typeDiags.length) el.classList.add("has-warning");
+
+    var typeBadgeHtml = '';
+    if (typeDiags.length > 0) {
+      var tTip = joinLines(typeDiags.map(function(d) { return (d.severity === 'error' ? '❌ ' : '⚠️ ') + d.message; }));
+      typeBadgeHtml = '<span class="diag-badge ' + (typeHasErr ? 'error' : 'warning') + '" title="' + esc(tTip) + '">' + (typeHasErr ? '❌ ' : '⚠️ ') + typeDiags.length + '</span>';
+    }
 
     var spec = n.typeSpec || { name: n.label, category: n.typeCategory || 'msg', pkg: n.pkg, fields: {} };
     if (!spec.fields) spec.fields = {};
@@ -1844,6 +2461,7 @@ export function getStudioHtml(
       + '<span class="type-badge ' + cat + '">' + catBadge + '</span>'
       + '<span class="ntitle" style="flex:1; margin-left:6px;">' + esc(n.label) + '</span>'
       + (n.pkg ? '<span class="badge">' + esc(n.pkg) + '</span>' : '')
+      + typeBadgeHtml
       + '</div>';
 
     if (cat === 'msg') {
@@ -1945,18 +2563,34 @@ export function getStudioHtml(
     var pos = (project.view && project.view.subPos && project.view.subPos[sub.ref]) || { x: sub.x || 80, y: sub.y || 80 };
     el.style.left = pos.x + "px";
     el.style.top = pos.y + "px";
+    el.style.minHeight = "max-content";
+    el.style.minWidth = "240px";
+    el.style.boxSizing = "border-box";
     var size = (project.view && project.view.subSize && project.view.subSize[sub.ref]) || {};
     var sw = sub.w || size.w;
     var sh = sub.h || size.h;
-    if (sw) el.style.width = sw + "px";
+    if (sw) el.style.width = Math.max(sw, 240) + "px";
     if (sh) el.style.height = sh + "px";
     el.dataset.sub = sub.ref;
+
+    var subDiags = getSubsystemDiagnostics(sub.ref);
+    var subHasErr = subDiags.some(function(d) { return d.severity === 'error'; });
+    if (subHasErr) el.classList.add("has-error");
+    else if (subDiags.length) el.classList.add("has-warning");
+
+    var subBadgeHtml = '';
+    if (subDiags.length > 0) {
+      var sTip = joinLines(subDiags.map(function(d) { return (d.severity === 'error' ? '❌ ' : '⚠️ ') + d.message; }));
+      subBadgeHtml = '<span class="diag-badge ' + (subHasErr ? 'error' : 'warning') + '" title="' + esc(sTip) + '">' + (subHasErr ? '❌ ' : '⚠️ ') + subDiags.length + '</span>';
+    }
 
     var members = subMembers(sub.ref);
     var html = '<div class="nhead" data-drag-sub="' + esc(sub.ref) + '">'
       + '<span class="subtog" data-expand="' + esc(sub.ref) + '" title="Expand container">▸</span>'
       + '<span class="ntitle">' + esc(sub.ref) + '</span>'
       + '<span class="badge" style="background:var(--k-subsystem-bg); color:var(--k-subsystem);">Subsystem</span>'
+      + subBadgeHtml
+      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="margin-left:auto; padding:0 4px;">✕</span>'
       + '</div>'
       + '<div class="nmeta">' + members.length + ' node(s) collapsed | ' + esc(sub.fromFile || sub.ref + '.rossystem') + '</div>'
       + '<div class="ifaces">';
@@ -1987,34 +2621,74 @@ export function getStudioHtml(
   /* Render Framed (Expanded) Subsystem Boundary */
   function renderSubFrame(sub) {
     var members = subMembers(sub.ref);
-    if (!members.length) return;
-    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-    members.forEach(function(m) {
-      var nodeEl = canvas.querySelector('.node[data-n="' + m.id + '"]');
-      if (nodeEl) {
-        x0 = Math.min(x0, nodeEl.offsetLeft);
-        y0 = Math.min(y0, nodeEl.offsetTop);
-        x1 = Math.max(x1, nodeEl.offsetLeft + nodeEl.offsetWidth);
-        y1 = Math.max(y1, nodeEl.offsetTop + nodeEl.offsetHeight);
-      }
-    });
-    if (x0 > x1) return;
+    var pos = (project.view && project.view.subPos && project.view.subPos[sub.ref]) || { x: sub.x || 80, y: sub.y || 80 };
+    var size = (project.view && project.view.subSize && project.view.subSize[sub.ref + "_frame"]) || (project.view && project.view.subSize && project.view.subSize[sub.ref]) || {};
 
-    var PAD = 24, TOP = 28;
+    var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    var allNodes = canvas.querySelectorAll('.node');
+
+    members.forEach(function(m) {
+      var nodeEl = null;
+      for (var ni = 0; ni < allNodes.length; ni++) {
+        if (allNodes[ni].dataset.n === m.id) {
+          nodeEl = allNodes[ni];
+          break;
+        }
+      }
+      var mx = (nodeEl && nodeEl.offsetLeft) ? nodeEl.offsetLeft : (m.x != null ? m.x : pos.x + 30);
+      var mSize = (project.view && project.view.nodeSize && (project.view.nodeSize[m.id] || project.view.nodeSize[m.label])) || {};
+      var mw = (nodeEl && nodeEl.offsetWidth) ? nodeEl.offsetWidth : (m.w || mSize.w || 280);
+      var mh = (nodeEl && nodeEl.offsetHeight) ? nodeEl.offsetHeight : (m.h || mSize.h || 180);
+
+      x0 = Math.min(x0, mx);
+      y0 = Math.min(y0, my);
+      x1 = Math.max(x1, mx + mw);
+      y1 = Math.max(y1, my + mh);
+    });
+
+    if (x0 > x1 || !members.length) {
+      x0 = pos.x;
+      y0 = pos.y;
+      x1 = pos.x + (sub.w || 340);
+      y1 = pos.y + (sub.h || 200);
+    }
+
+    var PAD = 24, TOP = 36;
     var frame = document.createElement("div");
-    frame.className = "subframe";
-    frame.style.left = (x0 - PAD) + "px";
-    frame.style.top = (y0 - TOP) + "px";
-    var size = (project.view && project.view.subSize && project.view.subSize[sub.ref + "_frame"]) || {};
-    var fw = size.w || (x1 - x0 + 2 * PAD);
-    var fh = size.h || (y1 - y0 + TOP + PAD);
+    frame.className = "subframe" + (selSub === sub.ref ? " sel" : "");
+    var frameLeft = Math.max(10, Math.round(x0 - PAD));
+    var frameTop = Math.max(10, Math.round(y0 - TOP));
+    frame.style.left = frameLeft + "px";
+    frame.style.top = frameTop + "px";
+
+    var requiredW = Math.max(340, Math.round(x1 - frameLeft + PAD));
+    var requiredH = Math.max(180, Math.round(y1 - frameTop + PAD));
+    var fw = Math.max(size.w || 0, requiredW);
+    var fh = Math.max(size.h || 0, requiredH);
     frame.style.width = fw + "px";
     frame.style.height = fh + "px";
-    frame.innerHTML = '<div class="sfhead">'
+    frame.dataset.sub = sub.ref;
+
+    var frameDiags = getSubsystemDiagnostics(sub.ref);
+    var frameHasErr = frameDiags.some(function(d) { return d.severity === 'error'; });
+    if (frameHasErr) frame.classList.add("has-error");
+
+    var frameBadgeHtml = '';
+    if (frameDiags.length > 0) {
+      var fTip = joinLines(frameDiags.map(function(d) { return (d.severity === 'error' ? '❌ ' : '⚠️ ') + d.message; }));
+      frameBadgeHtml = '<span class="diag-badge ' + (frameHasErr ? 'error' : 'warning') + '" title="' + esc(fTip) + '">' + (frameHasErr ? '❌ ' : '⚠️ ') + frameDiags.length + '</span>';
+    }
+
+    frame.innerHTML = '<div class="sfhead" data-drag-sub="' + esc(sub.ref) + '">'
       + '<span class="subtog" data-collapse="' + esc(sub.ref) + '" title="Collapse container">▾</span>'
-      + esc(sub.ref) + ' (Expanded)'
+      + '<span style="font-weight:600;">' + esc(sub.ref) + ' (Expanded)</span>'
+      + '<span class="badge" style="background:var(--k-subsystem-bg); color:var(--k-subsystem); font-size:0.65rem; padding:1px 6px;">Subsystem</span>'
+      + frameBadgeHtml
+      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="margin-left:auto; padding:0 4px;">✕</span>'
       + '</div>'
+      + (!members.length ? '<div class="sf-empty-hint" style="position:absolute; inset:36px 12px 12px 12px; display:flex; align-items:center; justify-content:center; color:var(--ink-3); font-style:italic; font-size:0.75rem; border:1px dashed var(--rule); border-radius:8px; pointer-events:none;">Empty subsystem container (no nodes assigned)</div>' : '')
       + '<div class="resize-handle se" data-resize-frame="' + esc(sub.ref) + '" title="Drag to resize subsystem frame"></div>';
+
     canvas.appendChild(frame);
   }
 
@@ -2067,6 +2741,17 @@ export function getStudioHtml(
       p.dataset.cid = w.conn.id;
       p.style.pointerEvents = "stroke";
       p.style.cursor = "pointer";
+
+      var cDiagsL = getConnectionDiagnostics(w.conn.id);
+      var cHasErrL = cDiagsL.some(function(d) { return d.severity === 'error'; });
+      var cHasWarnL = !cHasErrL && cDiagsL.some(function(d) { return d.severity === 'warning'; });
+      if (cHasErrL) p.classList.add("edge-error");
+      else if (cHasWarnL) p.classList.add("edge-warning");
+      if (cDiagsL.length) {
+        var titleElL = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        titleElL.textContent = joinLines(cDiagsL.map(function(d) { return d.message; }));
+        p.appendChild(titleElL);
+      }
 
       p.addEventListener("click", function(ev) {
         ev.stopPropagation();
@@ -2144,6 +2829,17 @@ export function getStudioHtml(
       p.dataset.cid = w.conn.id;
       p.style.pointerEvents = "stroke";
       p.style.cursor = "pointer";
+
+      var cDiagsS = getConnectionDiagnostics(w.conn.id);
+      var cHasErrS = cDiagsS.some(function(d) { return d.severity === 'error'; });
+      var cHasWarnS = !cHasErrS && cDiagsS.some(function(d) { return d.severity === 'warning'; });
+      if (cHasErrS) p.classList.add("edge-error");
+      else if (cHasWarnS) p.classList.add("edge-warning");
+      if (cDiagsS.length) {
+        var titleElS = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        titleElS.textContent = joinLines(cDiagsS.map(function(d) { return d.message; }));
+        p.appendChild(titleElS);
+      }
 
       p.addEventListener("click", function(ev) {
         ev.stopPropagation();
@@ -2270,6 +2966,17 @@ export function getStudioHtml(
       p.dataset.cid = w.conn.id;
       p.style.pointerEvents = "stroke";
       p.style.cursor = "pointer";
+
+      var cDiagsO = getConnectionDiagnostics(w.conn.id);
+      var cHasErrO = cDiagsO.some(function(d) { return d.severity === 'error'; });
+      var cHasWarnO = !cHasErrO && cDiagsO.some(function(d) { return d.severity === 'warning'; });
+      if (cHasErrO) p.classList.add("edge-error");
+      else if (cHasWarnO) p.classList.add("edge-warning");
+      if (cDiagsO.length) {
+        var titleElO = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        titleElO.textContent = joinLines(cDiagsO.map(function(d) { return d.message; }));
+        p.appendChild(titleElO);
+      }
 
       p.addEventListener("click", function(ev) {
         ev.stopPropagation();
@@ -2412,6 +3119,10 @@ export function getStudioHtml(
 
     wireSubToggles();
     drawEdges();
+    renderProcessesRail();
+    if (selProcess) {
+      highlightProcessNodes(selProcess);
+    }
   }
 
   function wireSubToggles() {
@@ -2419,12 +3130,13 @@ export function getStudioHtml(
       btn.onclick = function(ev) {
         ev.stopPropagation();
         var sref = btn.dataset.expand;
+        ensureSubsystemMembersLoaded();
         setSubState(sref, "framed");
         arrangeSubsystemMembers(sref);
         pushUndo();
         render();
         fillInspector();
-        syncDoc();
+        saveLayout(false);
       };
     });
     canvas.querySelectorAll("[data-collapse]").forEach(function(btn) {
@@ -2435,7 +3147,7 @@ export function getStudioHtml(
         pushUndo();
         render();
         fillInspector();
-        syncDoc();
+        saveLayout(false);
       };
     });
 
@@ -2499,15 +3211,36 @@ export function getStudioHtml(
   /* Real-time Connection Dragging & Verification */
   function setupWireInteractions() {
     canvasWrap.addEventListener("pointerdown", function(ev) {
+      // Check Subsystem Delete Button
+      var delSubBtn = ev.target.closest(".btn-del-sub");
+      if (delSubBtn) {
+        ev.stopPropagation();
+        var subToDel = delSubBtn.dataset.delSub;
+        if (subToDel) {
+          removeSubsystem(subToDel);
+        }
+        return;
+      }
+
       // Check Resize Handles first
       var resizeHandle = ev.target.closest("[data-resize-node], [data-resize-sub], [data-resize-frame]");
       if (resizeHandle) {
         ev.stopPropagation();
+        interactionSnapshot = JSON.stringify({ project: project, view: view });
         var rNode = resizeHandle.dataset.resizeNode;
         var rSub = resizeHandle.dataset.resizeSub;
         var rFrame = resizeHandle.dataset.resizeFrame;
         var targetEl = resizeHandle.closest(".node, .subframe");
         if (targetEl) {
+          var prevW = targetEl.style.width;
+          var prevH = targetEl.style.height;
+          targetEl.style.width = "max-content";
+          targetEl.style.height = "max-content";
+          var contentMinW = Math.max(rFrame ? 260 : 220, targetEl.offsetWidth);
+          var contentMinH = Math.max(rFrame ? 160 : 90, targetEl.offsetHeight);
+          targetEl.style.width = prevW;
+          targetEl.style.height = prevH;
+
           resizeState = {
             rNode: rNode,
             rSub: rSub,
@@ -2517,8 +3250,8 @@ export function getStudioHtml(
             startY: ev.clientY,
             origW: targetEl.offsetWidth,
             origH: targetEl.offsetHeight,
-            minW: rFrame ? 260 : 200,
-            minH: rFrame ? 160 : 90
+            minW: contentMinW,
+            minH: contentMinH
           };
           return;
         }
@@ -2528,6 +3261,7 @@ export function getStudioHtml(
       var edgeHandle = ev.target.closest(".edge-handle");
       if (edgeHandle) {
         ev.stopPropagation();
+        interactionSnapshot = JSON.stringify({ project: project, view: view });
         var cid = edgeHandle.dataset.cid;
         var dir = edgeHandle.dataset.dir || (edgeHandle.classList.contains("handle-h") ? "h" : edgeHandle.classList.contains("handle-waypoint") ? "wp" : "v");
         var wpIdx = edgeHandle.dataset.wpidx != null ? parseInt(edgeHandle.dataset.wpidx, 10) : -1;
@@ -2545,6 +3279,8 @@ export function getStudioHtml(
         selEdge = cid;
         selNode = null;
         selSub = null;
+        selProcess = null;
+        highlightProcessNodes(null);
         svg.querySelectorAll(".edge-handle").forEach(function(h) { h.classList.remove("sel"); });
         edgeHandle.classList.add("sel");
         toggleInspector(false);
@@ -2605,6 +3341,7 @@ export function getStudioHtml(
         var nid = clickedNode.dataset.n;
         var nodeObj = nodeById(nid);
         if (nodeObj) {
+          interactionSnapshot = JSON.stringify({ project: project, view: view });
           dragState = {
             n: nodeObj,
             px: ev.clientX,
@@ -2616,6 +3353,8 @@ export function getStudioHtml(
           selNode = nodeObj.id;
           selEdge = null;
           selSub = null;
+          selProcess = null;
+          highlightProcessNodes(null);
           render();
           toggleInspector(false);
           fillInspector();
@@ -2624,15 +3363,22 @@ export function getStudioHtml(
       }
 
       var dragSubHead = ev.target.closest("[data-drag-sub]");
-      if (dragSubHead && !ev.target.closest(".resize-handle")) {
+      if (dragSubHead && !ev.target.closest(".resize-handle") && !ev.target.closest(".subtog") && !ev.target.closest(".btn-del-sub")) {
         var sref = dragSubHead.dataset.dragSub;
         if (!project.view) project.view = {};
         if (!project.view.subPos) project.view.subPos = {};
         var spos = project.view.subPos[sref] || { x: 80, y: 80 };
-        dragState = { subRef: sref, px: ev.clientX, py: ev.clientY, ox: spos.x, oy: spos.y, hasMoved: false };
+        interactionSnapshot = JSON.stringify({ project: project, view: view });
+        var memberInitPositions = {};
+        subMembers(sref).forEach(function(m) {
+          memberInitPositions[m.id] = { x: m.x != null ? m.x : spos.x + 30, y: m.y != null ? m.y : spos.y + 50 };
+        });
+        dragState = { subRef: sref, px: ev.clientX, py: ev.clientY, ox: spos.x, oy: spos.y, memberPositions: memberInitPositions, hasMoved: false };
         selSub = sref;
         selNode = null;
         selEdge = null;
+        selProcess = null;
+        highlightProcessNodes(null);
         render();
         toggleInspector(false);
         fillInspector();
@@ -2643,6 +3389,8 @@ export function getStudioHtml(
         selNode = null;
         selEdge = null;
         selSub = null;
+        selProcess = null;
+        highlightProcessNodes(null);
         render();
         fillInspector();
         panState = { px: ev.clientX, py: ev.clientY, ox: view.tx, oy: view.ty };
@@ -2664,8 +3412,13 @@ export function getStudioHtml(
         if (resizeState.rNode) {
           var nObj = nodeById(resizeState.rNode);
           if (nObj) { nObj.w = newW; nObj.h = newH; }
-          if (!project.view.nodeSize) project.view.nodeSize = {};
-          if (nObj) project.view.nodeSize[nObj.label] = { w: newW, h: newH };
+          if (nObj) {
+            if (!project.view.nodeSize) project.view.nodeSize = {};
+            project.view.nodeSize[nObj.id] = { w: newW, h: newH };
+            if (!nObj.subRef && nObj.backing !== "sub") {
+              project.view.nodeSize[nObj.label] = { w: newW, h: newH };
+            }
+          }
         } else if (resizeState.rSub) {
           var sObj = (project.subSystems || []).find(function(s) { return s.ref === resizeState.rSub; });
           if (sObj) { sObj.w = newW; sObj.h = newH; }
@@ -2795,6 +3548,49 @@ export function getStudioHtml(
             el.style.left = dragState.n.x + "px";
             el.style.top = dragState.n.y + "px";
           }
+          if (dragState.n.subRef) {
+            var sFrame = canvas.querySelector('.subframe[data-sub="' + dragState.n.subRef + '"]');
+            if (sFrame) {
+              var sMembers = subMembers(dragState.n.subRef);
+              var fx0 = 1e9, fy0 = 1e9, fx1 = -1e9, fy1 = -1e9;
+              sMembers.forEach(function(m) {
+                var mel = canvas.querySelector('.node[data-n="' + m.id + '"]');
+                var mx = mel ? mel.offsetLeft : (m.x != null ? m.x : 0);
+                var my = mel ? mel.offsetTop : (m.y != null ? m.y : 0);
+                var mw = mel ? mel.offsetWidth : (m.w || 280);
+                var mh = mel ? mel.offsetHeight : (m.h || 180);
+                fx0 = Math.min(fx0, mx);
+                fy0 = Math.min(fy0, my);
+                fx1 = Math.max(fx1, mx + mw);
+                fy1 = Math.max(fy1, my + mh);
+              });
+              if (fx0 <= fx1) {
+                var sPAD = 24, sTOP = 36;
+                var curLeft = sFrame.offsetLeft;
+                var curTop = sFrame.offsetTop;
+                var curW = sFrame.offsetWidth;
+                var curH = sFrame.offsetHeight;
+
+                var targetLeft = Math.min(curLeft, Math.max(10, Math.round(fx0 - sPAD)));
+                var targetTop = Math.min(curTop, Math.max(10, Math.round(fy0 - sTOP)));
+                var targetRight = Math.max(curLeft + curW, Math.round(fx1 + sPAD));
+                var targetBottom = Math.max(curTop + curH, Math.round(fy1 + sPAD));
+
+                var newFrameW = Math.max(340, targetRight - targetLeft);
+                var newFrameH = Math.max(180, targetBottom - targetTop);
+
+                sFrame.style.left = targetLeft + "px";
+                sFrame.style.top = targetTop + "px";
+                sFrame.style.width = newFrameW + "px";
+                sFrame.style.height = newFrameH + "px";
+                if (!project.view) project.view = {};
+                if (!project.view.subPos) project.view.subPos = {};
+                project.view.subPos[dragState.n.subRef] = { x: targetLeft, y: targetTop };
+                if (!project.view.subSize) project.view.subSize = {};
+                project.view.subSize[dragState.n.subRef + "_frame"] = { w: newFrameW, h: newFrameH };
+              }
+            }
+          }
         } else if (dragState.subRef) {
           var npos = { x: Math.round(dragState.ox + dx), y: Math.round(dragState.oy + dy) };
           project.view.subPos[dragState.subRef] = npos;
@@ -2802,6 +3598,28 @@ export function getStudioHtml(
           if (sel) {
             sel.style.left = npos.x + "px";
             sel.style.top = npos.y + "px";
+          }
+          var subFrame = canvas.querySelector('.subframe[data-sub="' + dragState.subRef + '"]');
+          if (subFrame) {
+            subFrame.style.left = npos.x + "px";
+            subFrame.style.top = npos.y + "px";
+            if (dragState.memberPositions) {
+              subMembers(dragState.subRef).forEach(function(m) {
+                var init = dragState.memberPositions[m.id];
+                if (init) {
+                  m.x = Math.round(init.x + dx);
+                  m.y = Math.round(init.y + dy);
+                  var allNodes = canvas.querySelectorAll('.node');
+                  for (var ni = 0; ni < allNodes.length; ni++) {
+                    if (allNodes[ni].dataset.n === m.id) {
+                      allNodes[ni].style.left = m.x + "px";
+                      allNodes[ni].style.top = m.y + "px";
+                      break;
+                    }
+                  }
+                }
+              });
+            }
           }
         }
         drawEdges();
@@ -2812,7 +3630,10 @@ export function getStudioHtml(
       if (resizeState) {
         resizeState = null;
         ensureCanvasEncompasses();
-        pushUndo();
+        if (interactionSnapshot) {
+          pushUndoSnapshot(interactionSnapshot);
+          interactionSnapshot = null;
+        }
         syncDoc();
         saveLayout(true);
       }
@@ -2821,7 +3642,10 @@ export function getStudioHtml(
         edgeDragState = null;
         ensureCanvasEncompasses();
         render();
-        pushUndo();
+        if (interactionSnapshot) {
+          pushUndoSnapshot(interactionSnapshot);
+          interactionSnapshot = null;
+        }
         saveLayout(true);
       }
 
@@ -2871,9 +3695,14 @@ export function getStudioHtml(
         if (didMove) {
           ensureCanvasEncompasses();
           render();
-          pushUndo();
+          if (interactionSnapshot) {
+            pushUndoSnapshot(interactionSnapshot);
+            interactionSnapshot = null;
+          }
           syncDoc();
           saveLayout(true);
+        } else {
+          interactionSnapshot = null;
         }
       }
     });
@@ -3020,15 +3849,185 @@ export function getStudioHtml(
   /* Inspector Form Generation with Type Content Assist */
   function fillInspector() {
     var container = document.getElementById("inspectorContent");
+    if (!container) return;
+
+    function renderDiagnosticsBannerHtml(diags) {
+      if (!diags || diags.length === 0) return "";
+      var html = '<div style="margin-bottom:0.8rem; padding:4px 0;">';
+      html += '<div style="font-size:0.75rem; font-weight:600; margin-bottom:6px; display:flex; align-items:center; gap:4px;">';
+      html += '<span>Validation Notice (' + diags.length + ')</span></div>';
+      diags.forEach(function(d) {
+        var sevClass = d.severity === 'error' ? 'error' : (d.severity === 'warning' ? 'warning' : 'info');
+        var icon = d.severity === 'error' ? '❌' : (d.severity === 'warning' ? '⚠️' : 'ℹ️');
+        html += '<div class="inspector-diag-item ' + sevClass + '">';
+        html += '<div style="font-weight:600; margin-bottom:2px;">' + icon + ' ' + esc(d.severity.toUpperCase()) + (d.line != null ? ' (line ' + d.line + ')' : '') + '</div>';
+        html += '<div>' + esc(d.message) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    if (selSub) {
+      var sObj = (project.subSystems || []).find(function(s) { return s.ref === selSub; });
+      var sState = subState(selSub);
+      var memberNodes = subMembers(selSub);
+      var subDiags = getSubsystemDiagnostics(selSub);
+      var h = renderDiagnosticsBannerHtml(subDiags)
+        + '<div class="fld"><label>Subsystem Reference</label><div class="sysname-input" style="font-weight:bold;">' + esc(selSub) + '</div></div>'
+        + '<div class="fld"><label>Display State</label>'
+        + '<select id="selSubDisplayState">'
+        + '<option value="collapsed"' + (sState === 'collapsed' ? ' selected' : '') + '>Collapsed (Block Card)</option>'
+        + '<option value="framed"' + (sState === 'framed' ? ' selected' : '') + '>Framed (Expanded Group)</option>'
+        + '</select></div>'
+        + '<div class="insec-head" style="margin-top:0.8rem;"><span class="insec-title">Member Nodes (' + memberNodes.length + ')</span></div>'
+        + '<div style="max-height:160px; overflow-y:auto; border:1px solid var(--rule-soft); border-radius:4px; padding:4px;">';
+      if (memberNodes.length === 0) {
+        h += '<div style="color:var(--ink-3); font-size:0.75rem; font-style:italic; padding:4px;">No nodes in this subsystem</div>';
+      } else {
+        memberNodes.forEach(function(m) {
+          h += '<div style="font-size:0.75rem; padding:2px 4px; display:flex; justify-content:space-between;"><span>' + esc(m.label) + '</span><span style="color:var(--ink-3); font-size:0.7rem;">' + esc(m.from || '') + '</span></div>';
+        });
+      }
+      h += '</div>'
+        + '<button class="btn" id="btnDeleteSubsystem" style="margin-top:1.2rem; width:100%; color:var(--dead); border-color:var(--dead);">🗑️ Delete Subsystem</button>';
+      container.innerHTML = h;
+
+      var selStateEl = document.getElementById("selSubDisplayState");
+      if (selStateEl) {
+        selStateEl.onchange = function(e) {
+          pushUndo();
+          var newState = e.target.value;
+          setSubState(selSub, newState);
+          if (newState === "framed") arrangeSubsystemMembers(selSub);
+          render();
+          fillInspector();
+          saveLayout(true);
+        };
+      }
+
+      var btnDelSub = document.getElementById("btnDeleteSubsystem");
+      if (btnDelSub) {
+        btnDelSub.onclick = function() {
+          var targetSub = selSub;
+          selSub = null;
+          removeSubsystem(targetSub);
+        };
+      }
+      return;
+    }
+
+    if (selProcess && isRosSystem) {
+      var proc = (project.processes || []).find(function(p) { return p.name === selProcess; });
+      if (proc) {
+        var allNodes = project.nodes || [];
+        var procDiags = getElementDiagnostics('process', proc.name, proc.name);
+        var h = renderDiagnosticsBannerHtml(procDiags)
+          + '<div class="fld"><label>Process Name</label><input type="text" id="inpProcName" value="' + esc(proc.name) + '"></div>'
+          + '<div class="fld"><label>Execution Threads</label><input type="number" id="inpProcThreads" min="1" max="128" value="' + (proc.threads != null ? proc.threads : 1) + '"></div>'
+          + '<div class="insec-head" style="margin-top:0.8rem;"><span class="insec-title">Included Nodes (' + (proc.nodes ? proc.nodes.length : 0) + ')</span></div>'
+          + '<div style="max-height:220px; overflow-y:auto; border:1px solid var(--rule-soft); border-radius:4px; padding:6px; display:flex; flex-direction:column; gap:4px;">';
+
+        if (allNodes.length === 0) {
+          h += '<div style="color:var(--ink-3); font-size:0.75rem; font-style:italic; padding:4px;">No nodes in this system</div>';
+        } else {
+          allNodes.forEach(function(node) {
+            var isMember = proc.nodes && proc.nodes.indexOf(node.label) !== -1;
+            var otherProc = getProcessForNode(node.label);
+            var otherWarning = (otherProc && otherProc.process.name !== proc.name) ? ' (in ' + otherProc.process.name + ')' : '';
+            h += '<label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; cursor:pointer;">'
+              + '<input type="checkbox" class="chk-proc-node" data-nlabel="' + esc(node.label) + '"' + (isMember ? ' checked' : '') + '>'
+              + '<span>' + esc(node.label) + '<span style="color:var(--ink-3); font-size:0.7rem;">' + esc(otherWarning) + '</span></span>'
+              + '</label>';
+          });
+        }
+
+        h += '</div>'
+          + '<button class="btn" id="btnDeleteProcess" style="margin-top:1.2rem; width:100%; color:var(--dead); border-color:var(--dead);">🗑️ Delete Process</button>';
+        container.innerHTML = h;
+
+        var inpNameEl = document.getElementById("inpProcName");
+        if (inpNameEl) {
+          inpNameEl.onchange = function(e) {
+            var newN = e.target.value.trim();
+            if (!newN || newN === proc.name) return;
+            pushUndo();
+            proc.name = newN;
+            selProcess = newN;
+            render();
+            renderProcessesRail();
+            fillInspector();
+            syncDoc();
+            saveLayout(true);
+          };
+        }
+
+        var inpThrEl = document.getElementById("inpProcThreads");
+        if (inpThrEl) {
+          inpThrEl.onchange = function(e) {
+            var val = parseInt(e.target.value, 10);
+            if (isNaN(val) || val < 1) val = 1;
+            pushUndo();
+            proc.threads = val;
+            render();
+            renderProcessesRail();
+            syncDoc();
+            saveLayout(true);
+          };
+        }
+
+        document.querySelectorAll(".chk-proc-node").forEach(function(chk) {
+          chk.onchange = function() {
+            var nl = chk.dataset.nlabel;
+            pushUndo();
+            proc.nodes = proc.nodes || [];
+            if (chk.checked) {
+              (project.processes || []).forEach(function(op) {
+                if (op !== proc && op.nodes) {
+                  op.nodes = op.nodes.filter(function(x) { return x !== nl; });
+                }
+              });
+              if (proc.nodes.indexOf(nl) === -1) proc.nodes.push(nl);
+            } else {
+              proc.nodes = proc.nodes.filter(function(x) { return x !== nl; });
+            }
+            render();
+            renderProcessesRail();
+            fillInspector();
+            syncDoc();
+            saveLayout(true);
+            highlightProcessNodes(proc.name);
+          };
+        });
+
+        var btnDelProc = document.getElementById("btnDeleteProcess");
+        if (btnDelProc) {
+          btnDelProc.onclick = function() {
+            pushUndo();
+            project.processes = (project.processes || []).filter(function(p) { return p.name !== proc.name; });
+            selProcess = null;
+            render();
+            renderProcessesRail();
+            fillInspector();
+            syncDoc();
+            saveLayout(true);
+          };
+        }
+        return;
+      }
+    }
+
     if (selNode) {
       var n = nodeById(selNode);
       if (!n) { container.innerHTML = "Select an element to inspect"; return; }
 
       // UML Type Schema Card (.ros) Inspector
       if (n.backing === "type") {
+        var typeDiags = getElementDiagnostics('type', n.label, n.label);
         var spec = n.typeSpec || { name: n.label, category: n.typeCategory || 'msg', pkg: n.pkg, fields: {} };
         if (!spec.fields) spec.fields = {};
-        var h = '<div class="fld"><label>Type Name</label><input type="text" id="inpTypeLabel" value="' + esc(n.label) + '"></div>'
+        var h = renderDiagnosticsBannerHtml(typeDiags)
+          + '<div class="fld"><label>Type Name</label><input type="text" id="inpTypeLabel" value="' + esc(n.label) + '"></div>'
           + '<div class="fld"><label>Package</label><input type="text" id="inpTypePkg" value="' + esc(n.pkg || '') + '"></div>'
           + '<div class="fld"><label>Category</label><select id="inpTypeCat">'
           + '<option value="msg"' + (spec.category === 'msg' ? ' selected' : '') + '>Message (TopicSpec)</option>'
@@ -3191,9 +4190,26 @@ export function getStudioHtml(
       }
 
       // Standard Component / RosSystem Node Inspector
-      var h = '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"></div>'
+      var procDropdownHtml = '';
+      if (isRosSystem) {
+        var currentProc = getProcessForNode(n.label);
+        var procsList = project.processes || [];
+        procDropdownHtml = '<div class="fld"><label>Assigned Process</label>'
+          + '<select id="selNodeProcess">'
+          + '<option value="">(None - Unassigned)</option>';
+        procsList.forEach(function(p) {
+          var isCur = currentProc && currentProc.process.name === p.name;
+          procDropdownHtml += '<option value="' + esc(p.name) + '"' + (isCur ? ' selected' : '') + '>' + esc(p.name) + ' (' + (p.threads || 1) + '🧵)</option>';
+        });
+        procDropdownHtml += '</select></div>';
+      }
+
+      var nodeDiags = getNodeDiagnostics(n);
+      var h = renderDiagnosticsBannerHtml(nodeDiags)
+        + '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"></div>'
         + '<div class="fld"><label>Package / Artifact</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '"></div>'
         + '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"></div>'
+        + procDropdownHtml
         + '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
         + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
         + '<button class="btn btn-sm" id="btnAddIface" style="padding:2px 8px; font-size:0.72rem; background:var(--accent); color:var(--accent-text);" title="Add Interface">+ Add Interface</button>'
@@ -3257,7 +4273,20 @@ export function getStudioHtml(
       container.innerHTML = h;
 
       document.getElementById("inpNodeLabel").onchange = function(e) {
-        pushUndo(); n.label = e.target.value; render(); fillInspector(); syncDoc();
+        var oldLabel = n.label;
+        var newLabel = e.target.value.trim();
+        if (!newLabel || newLabel === oldLabel) return;
+        pushUndo();
+        n.label = newLabel;
+        if (project.processes) {
+          project.processes.forEach(function(p) {
+            if (p.nodes) {
+              var pIdx = p.nodes.indexOf(oldLabel);
+              if (pIdx !== -1) p.nodes[pIdx] = newLabel;
+            }
+          });
+        }
+        render(); fillInspector(); syncDoc();
       };
       document.getElementById("inpNodeFrom").onchange = function(e) {
         pushUndo(); n.from = e.target.value; render(); fillInspector(); syncDoc();
@@ -3265,6 +4294,33 @@ export function getStudioHtml(
       document.getElementById("inpNodeNs").onchange = function(e) {
         pushUndo(); n.namespace = e.target.value; render(); fillInspector(); syncDoc();
       };
+
+      var selNodeProcEl = document.getElementById("selNodeProcess");
+      if (selNodeProcEl) {
+        selNodeProcEl.onchange = function(e) {
+          pushUndo();
+          var targetProcName = e.target.value;
+          (project.processes || []).forEach(function(p) {
+            if (p.nodes) {
+              p.nodes = p.nodes.filter(function(x) { return x !== n.label; });
+            }
+          });
+          if (targetProcName) {
+            var targetProc = (project.processes || []).find(function(p) { return p.name === targetProcName; });
+            if (targetProc) {
+              targetProc.nodes = targetProc.nodes || [];
+              if (targetProc.nodes.indexOf(n.label) === -1) {
+                targetProc.nodes.push(n.label);
+              }
+            }
+          }
+          render();
+          renderProcessesRail();
+          fillInspector();
+          syncDoc();
+          saveLayout(true);
+        };
+      }
 
       var btnAddIface = document.getElementById("btnAddIface");
       if (btnAddIface) {
@@ -3404,8 +4460,16 @@ export function getStudioHtml(
 
       document.getElementById("btnDeleteNode").onclick = function() {
         pushUndo();
+        var deletedLabel = n.label;
         project.nodes = project.nodes.filter(function(x) { return x.id !== n.id; });
         project.connections = project.connections.filter(function(c) { return c.from.n !== n.id && c.to.n !== n.id; });
+        if (project.processes) {
+          project.processes.forEach(function(p) {
+            if (p.nodes) {
+              p.nodes = p.nodes.filter(function(x) { return x !== deletedLabel; });
+            }
+          });
+        }
         selNode = null;
         render(); fillInspector(); syncDoc();
       };
@@ -3419,7 +4483,9 @@ export function getStudioHtml(
         var fi = ifaceById(fn, conn.from.i), ti = ifaceById(tn, conn.to.i);
         var wps = conn.waypoints || (project.view && project.view.connWaypoints && project.view.connWaypoints[conn.id]) || [];
         var hasOffset = conn.midX != null || (project.view && project.view.connMidX && project.view.connMidX[conn.id] != null);
-        var h = '<div class="fld"><label>From</label><div class="sysname-input">' + esc(fn ? fn.label : '') + ' :: ' + esc(fi ? (fi.label || fi.name) : '') + '</div></div>'
+        var edgeDiags = getConnectionDiagnostics(conn.id);
+        var h = renderDiagnosticsBannerHtml(edgeDiags)
+          + '<div class="fld"><label>From</label><div class="sysname-input">' + esc(fn ? fn.label : '') + ' :: ' + esc(fi ? (fi.label || fi.name) : '') + '</div></div>'
           + '<div class="fld"><label>To</label><div class="sysname-input">' + esc(tn ? tn.label : '') + ' :: ' + esc(ti ? (ti.label || ti.name) : '') + '</div></div>'
           + '<div class="fld"><label>Type</label><div class="sysname-input">' + esc(fi ? fi.type : '—') + '</div></div>'
           + '<div class="fld"><label>Routing / Waypoints</label><div class="sysname-input">' + wps.length + ' custom waypoint(s)' + (hasOffset ? ' + corridor offset' : '') + '</div></div>'
@@ -3456,7 +4522,81 @@ export function getStudioHtml(
       }
     }
 
-    container.innerHTML = '<div style="color:var(--ink-3);">Select a node or connection on canvas to view and edit properties.</div>';
+    var allDiags = project.diagnostics || [];
+    var h = '<div class="insec-head" style="margin-bottom:0.8rem;"><span class="insec-title">Model Status &amp; Validation</span></div>';
+    if (allDiags.length === 0) {
+      h += '<div style="background:rgba(46, 160, 67, 0.1); border:1px solid rgba(46, 160, 67, 0.3); border-radius:4px; padding:10px; font-size:0.78rem; color:#3fb950; display:flex; align-items:center; gap:8px; margin-bottom:1rem;">'
+        + '<span>✓</span> <span>No validation issues detected in model.</span></div>'
+        + '<div style="color:var(--ink-3); font-size:0.75rem; line-height:1.4;">Select a node, subsystem, process, or connection on the canvas to inspect and edit its properties.</div>';
+    } else {
+      var errCount = allDiags.filter(function(d) { return d.severity === 'error'; }).length;
+      var warnCount = allDiags.filter(function(d) { return d.severity === 'warning'; }).length;
+      h += '<div style="margin-bottom:0.8rem; font-size:0.78rem;">Found <strong style="color:var(--dead);">' + errCount + ' error' + (errCount !== 1 ? 's' : '') + '</strong> and <strong style="color:#d29922;">' + warnCount + ' warning' + (warnCount !== 1 ? 's' : '') + '</strong>:</div>'
+        + '<div style="display:flex; flex-direction:column; gap:6px; max-height:450px; overflow-y:auto;">';
+      allDiags.forEach(function(d, dIdx) {
+        var sevClass = d.severity === 'error' ? 'error' : (d.severity === 'warning' ? 'warning' : 'info');
+        var icon = d.severity === 'error' ? '❌' : (d.severity === 'warning' ? '⚠️' : 'ℹ️');
+        var locText = d.line != null ? 'Line ' + d.line : (d.targetName || d.elementKind);
+        h += '<div class="inspector-diag-item ' + sevClass + '" data-diag-idx="' + dIdx + '" style="cursor:pointer;" title="Click to locate on canvas">'
+          + '<div style="font-weight:600; display:flex; justify-content:space-between;"><span>' + icon + ' ' + esc(d.elementKind.toUpperCase()) + (d.targetName ? ': ' + esc(d.targetName) : '') + '</span><span style="font-size:0.7rem; opacity:0.8;">' + esc(locText) + '</span></div>'
+          + '<div style="margin-top:2px;">' + esc(d.message) + '</div>'
+          + '</div>';
+      });
+      h += '</div>'
+        + '<div style="margin-top:0.8rem; color:var(--ink-3); font-size:0.72rem; font-style:italic;">Click on any diagnostic above to pan and highlight the element on the canvas.</div>';
+    }
+    container.innerHTML = h;
+
+    // Attach click listeners to jump to elements
+    container.querySelectorAll(".inspector-diag-item[data-diag-idx]").forEach(function(itemEl) {
+      itemEl.onclick = function() {
+        var idx = parseInt(itemEl.dataset.diagIdx, 10);
+        var diag = allDiags[idx];
+        if (!diag) return;
+        if (diag.elementKind === 'node') {
+          var n = (project.nodes || []).find(function(node) {
+            return node.id === diag.elementId || node.label === diag.targetName;
+          });
+          if (n) {
+            selNode = n.id;
+            selEdge = null; selSub = null; selProcess = null;
+            panToNode(n);
+            render();
+            fillInspector();
+          }
+        } else if (diag.elementKind === 'interface' || diag.elementKind === 'parameter') {
+          var ownerNode = (project.nodes || []).find(function(node) {
+            if (diag.elementId && (node.ifaces || []).some(function(f) { return f.id === diag.elementId; })) return true;
+            if (diag.targetName && (node.ifaces || []).some(function(f) { return f.name === diag.targetName || f.label === diag.targetName; })) return true;
+            if (diag.elementId && (node.params || []).some(function(p) { return p.id === diag.elementId; })) return true;
+            if (diag.targetName && (node.params || []).some(function(p) { return p.name === diag.targetName || p.label === diag.targetName; })) return true;
+            return false;
+          });
+          if (ownerNode) {
+            selNode = ownerNode.id;
+            selEdge = null; selSub = null; selProcess = null;
+            panToNode(ownerNode);
+            render();
+            fillInspector();
+          }
+        } else if (diag.elementKind === 'subsystem') {
+          selSub = diag.elementId || diag.targetName;
+          selNode = null; selEdge = null; selProcess = null;
+          render();
+          fillInspector();
+        } else if (diag.elementKind === 'process') {
+          selProcess = diag.elementId || diag.targetName;
+          selNode = null; selEdge = null; selSub = null;
+          render();
+          fillInspector();
+        } else if (diag.elementKind === 'connection') {
+          selEdge = diag.elementId;
+          selNode = null; selSub = null; selProcess = null;
+          render();
+          fillInspector();
+        }
+      };
+    });
   }
 
   /* Setup UI Event Listeners */
@@ -3485,18 +4625,58 @@ export function getStudioHtml(
         toggleInspector(true);
       });
 
-      safeClick("btnUndo", function() {
-        if (!undoStack.length) return;
-        redoStack.push(JSON.stringify(project));
-        project = JSON.parse(undoStack.pop());
-        render(); fillInspector(); syncDoc();
+      safeClick("btnUndo", doUndo);
+      safeClick("btnRedo", doRedo);
+
+      safeClick("btnAddProcess", function() {
+        if (!isRosSystem) return;
+        pushUndo();
+        project.processes = project.processes || [];
+        var pnum = project.processes.length + 1;
+        var pName = "process_" + pnum;
+        project.processes.push({
+          name: pName,
+          nodes: [],
+          threads: 2
+        });
+        selProcess = pName;
+        selNode = null;
+        selSub = null;
+        selEdge = null;
+        render();
+        renderProcessesRail();
+        toggleInspector(false);
+        fillInspector();
+        syncDoc();
+        saveLayout(true);
       });
 
-      safeClick("btnRedo", function() {
-        if (!redoStack.length) return;
-        undoStack.push(JSON.stringify(project));
-        project = JSON.parse(redoStack.pop());
-        render(); fillInspector(); syncDoc();
+      safeClick("btnPullCatalogue", function() {
+        vscode.postMessage({ type: "pullCatalogue" });
+      });
+
+      safeClick("btnAddCatalogueFolder", function() {
+        vscode.postMessage({ type: "browseCatalogueFolder" });
+      });
+
+      window.addEventListener("keydown", function(e) {
+        var tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+          return;
+        }
+        var isMac = (navigator.platform || "").toUpperCase().indexOf("MAC") >= 0;
+        var modKey = isMac ? e.metaKey : e.ctrlKey;
+        if (modKey && (e.key === "z" || e.key === "Z")) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            doRedo();
+          } else {
+            doUndo();
+          }
+        } else if (modKey && (e.key === "y" || e.key === "Y")) {
+          e.preventDefault();
+          doRedo();
+        }
       });
 
       safeClick("btnAutoLayout", function() {
@@ -3546,7 +4726,7 @@ export function getStudioHtml(
       safeClick("btnCollapseAll", function() {
         pushUndo();
         (project.subSystems || []).forEach(function(s) { setSubState(s.ref, "collapsed"); });
-        render(); syncDoc();
+        render(); saveLayout(false);
       });
       safeClick("btnExpandAll", function() {
         pushUndo();
@@ -3554,7 +4734,7 @@ export function getStudioHtml(
           setSubState(s.ref, "framed");
           arrangeSubsystemMembers(s.ref);
         });
-        render(); syncDoc();
+        render(); saveLayout(false);
       });
 
       var filterKeys = { fltPub: "pub", fltSub: "sub", fltSS: "ss", fltSC: "sc", fltAS: "as", fltAC: "ac", fltParam: "param" };
@@ -3659,167 +4839,143 @@ export function getStudioHtml(
       }
 
       function renderCatalogue() {
-      var list = document.getElementById("catList");
-      if (!list) return;
-      list.innerHTML = "";
-      var q = (catSearchInput ? catSearchInput.value : "").trim().toLowerCase();
+        var list = document.getElementById("catList");
+        if (!list) return;
+        list.innerHTML = "";
+        var q = (catSearchInput ? catSearchInput.value : "").trim().toLowerCase();
 
-      if (isRos) {
-        // 1. Communication Objects View (.ros) -> Only .ros communication objects
-        if (catTitleEl) catTitleEl.textContent = "Communication Objects";
-        if (catTabsEl) catTabsEl.style.display = "none";
-
-        var types = (typeCatalog && typeCatalog.types) || {};
-        var typeKeys = Object.keys(types).sort();
-        var count = 0;
-
-        typeKeys.forEach(function(k) {
-          if (q && !k.toLowerCase().includes(q)) return;
-          count++;
-          var tinfo = types[k] || {};
-          var kind = tinfo.kind || (k.includes("/srv/") ? "srv" : k.includes("/action/") ? "action" : "msg");
-          var parts = k.split("/");
-          var pkgName = parts[0] || "ros_package";
-          var typeLabel = parts[parts.length - 1];
-
-          var card = document.createElement("div");
-          card.className = "cat-card";
-          card.innerHTML = '<div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">'
-            + '<span class="type-badge ' + kind + '">' + kind.toUpperCase() + '</span>'
-            + '<span class="ctitle" style="font-size:0.8rem; font-weight:600;">' + esc(typeLabel) + '</span>'
-            + '</div>'
-            + '<div class="csub">' + esc(k) + '</div>';
-
-          card.onclick = function() {
-            pushUndo();
-            var uniqueLabel = typeLabel;
-            var suffix = 1;
-            while (project.nodes.some(function(n) { return n.label === uniqueLabel; })) {
-              uniqueLabel = typeLabel + "_" + (++suffix);
-            }
-
-            var spec = {
-              name: uniqueLabel,
-              pkg: pkgName,
-              category: kind,
-              fields: {}
-            };
-            if (kind === "msg") spec.fields["message"] = [];
-            else if (kind === "srv") { spec.fields["request"] = []; spec.fields["response"] = []; }
-            else if (kind === "action") { spec.fields["goal"] = []; spec.fields["result"] = []; spec.fields["feedback"] = []; }
-
-            var newTypeNode = {
-              id: "n_" + uniqueLabel,
-              label: uniqueLabel,
-              pkg: pkgName,
-              backing: "type",
-              typeCategory: kind,
-              typeSpec: spec,
-              ifaces: [],
-              params: [],
-              x: 140 + project.nodes.length * 25,
-              y: 140 + project.nodes.length * 25
-            };
-            project.nodes.push(newTypeNode);
-            if (!project.types) project.types = {};
-            project.types[pkgName + "." + uniqueLabel] = spec;
-
-            catDrawer.classList.remove("open");
-            render();
-            selNode = newTypeNode.id;
-            toggleInspector(false);
-            fillInspector();
-            syncDoc();
-            saveLayout(true);
-          };
-          list.appendChild(card);
-        });
-
-        if (count === 0) {
-          list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching communication objects found.</div>';
+        // Render Source Filters
+        var sfContainer = document.getElementById("catSourceFilters");
+        var allSources = [];
+        function addSource(s) {
+          if (s && allSources.indexOf(s) === -1) allSources.push(s);
         }
-      } else if (!isRosSystem) {
-        // 2. Component View (.ros2 / .ros1) -> Only Component Node templates
-        if (catTitleEl) catTitleEl.textContent = "Component Templates";
-        if (catTabsEl) catTabsEl.style.display = "none";
+        if (nodeCatalog && nodeCatalog.sources) nodeCatalog.sources.forEach(addSource);
+        if (typeCatalog && typeCatalog.sources) typeCatalog.sources.forEach(addSource);
+        if (isRos) {
+          var typesObj = (typeCatalog && typeCatalog.types) || {};
+          Object.keys(typesObj).forEach(function(k) { if (typesObj[k].source) addSource(typesObj[k].source); });
+        } else {
+          var nodesObj = (nodeCatalog && nodeCatalog.nodes) || {};
+          Object.keys(nodesObj).forEach(function(k) { if (nodesObj[k].source) addSource(nodesObj[k].source); });
+          var systemsArr = (nodeCatalog && nodeCatalog._systems) || [];
+          systemsArr.forEach(function(sys) { if (sys.source) addSource(sys.source); });
+        }
 
-        var nodes = (nodeCatalog && nodeCatalog.nodes) || {};
-        var nodeKeys = Object.keys(nodes).sort();
-        var count = 0;
+        if (sfContainer) {
+          sfContainer.innerHTML = "";
+          if (allSources.length > 0) {
+            var pillAll = document.createElement("div");
+            pillAll.className = "cat-source-pill" + (activeCatSource === "all" ? " active" : "");
+            pillAll.textContent = "All Sources";
+            pillAll.onclick = function() {
+              activeCatSource = "all";
+              renderCatalogue();
+            };
+            sfContainer.appendChild(pillAll);
 
-        nodeKeys.forEach(function(k) {
-          var catEntry = nodes[k];
-          var nodeLbl = k.includes(".") ? k.split(".")[1] : k;
-          var pkgName = catEntry.pkg || (k.includes(".") ? k.split(".")[0] : "");
-          var searchable = (k + " " + (catEntry.from || "") + " " + pkgName).toLowerCase();
-          if (q && !searchable.includes(q)) return;
-          count++;
-
-          var ifaces = normalizeCatalogueInterfaces(catEntry.interfaces);
-          var card = document.createElement("div");
-          card.className = "cat-card";
-          card.innerHTML = '<div class="ctitle">' + esc(nodeLbl) + '</div>'
-            + '<div class="csub">' + esc(catEntry.from || k) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
-            + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
-
-          card.onclick = function() {
-            pushUndo();
-            var uniqueLabel = nodeLbl;
-            var suffix = 1;
-            while (project.nodes.some(function(n) { return n.label === uniqueLabel; })) {
-              uniqueLabel = nodeLbl + "_" + (++suffix);
-            }
-
-            var nodeIfaces = ifaces.map(function(f) {
-              return {
-                id: "i_" + uniqueLabel + "_" + f.name,
-                name: f.name,
-                label: f.label || f.name,
-                kind: f.kind || "pub",
-                type: f.type || "",
-                exposed: true
+            allSources.forEach(function(sName) {
+              var pill = document.createElement("div");
+              pill.className = "cat-source-pill" + (activeCatSource === sName ? " active" : "");
+              pill.textContent = sName;
+              pill.onclick = function() {
+                activeCatSource = sName;
+                renderCatalogue();
               };
+              sfContainer.appendChild(pill);
             });
-
-            var n = {
-              id: "n_" + uniqueLabel,
-              label: uniqueLabel,
-              from: catEntry.from || k,
-              artifact: catEntry.artifact || nodeLbl,
-              pkg: pkgName,
-              backing: "cat",
-              ifaces: nodeIfaces,
-              params: [],
-              x: 140 + project.nodes.length * 25,
-              y: 140 + project.nodes.length * 25
-            };
-            project.nodes.push(n);
-            catDrawer.classList.remove("open");
-            render();
-            selNode = n.id;
-            toggleInspector(false);
-            fillInspector();
-            syncDoc();
-            saveLayout(true);
-          };
-          list.appendChild(card);
-        });
-
-        if (count === 0) {
-          list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching components found.</div>';
+          }
         }
-      } else {
-        // 3. ROS System View (.rossystem) -> Nodes and Subsystems
-        if (catTitleEl) catTitleEl.textContent = "ROS System Components";
-        if (catTabsEl) catTabsEl.style.display = "flex";
 
-        if (activeCatTab === "nodes") {
+        if (isRos) {
+          // 1. Communication Objects View (.ros) -> Only .ros communication objects
+          if (catTitleEl) catTitleEl.textContent = "Communication Objects";
+          if (catTabsEl) catTabsEl.style.display = "none";
+
+          var types = (typeCatalog && typeCatalog.types) || {};
+          var typeKeys = Object.keys(types).sort();
+          var count = 0;
+
+          typeKeys.forEach(function(k) {
+            var tinfo = types[k] || {};
+            if (activeCatSource !== "all" && tinfo.source && tinfo.source !== activeCatSource) return;
+            if (q && !k.toLowerCase().includes(q)) return;
+            count++;
+            var kind = tinfo.kind || (k.includes("/srv/") ? "srv" : k.includes("/action/") ? "action" : "msg");
+            var parts = k.split("/");
+            var pkgName = parts[0] || "ros_package";
+            var typeLabel = parts[parts.length - 1];
+
+            var card = document.createElement("div");
+            card.className = "cat-card";
+            var srcBadge = tinfo.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(tinfo.source) + '</span>' : '';
+            card.innerHTML = '<div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">'
+              + '<span class="type-badge ' + kind + '">' + kind.toUpperCase() + '</span>'
+              + '<span class="ctitle" style="font-size:0.8rem; font-weight:600;">' + esc(typeLabel) + '</span>'
+              + srcBadge
+              + '</div>'
+              + '<div class="csub">' + esc(k) + '</div>';
+
+            card.onclick = function() {
+              pushUndo();
+              var uniqueLabel = typeLabel;
+              var suffix = 1;
+              while (project.nodes.some(function(n) { return n.label === uniqueLabel; })) {
+                uniqueLabel = typeLabel + "_" + (++suffix);
+              }
+
+              var spec = {
+                name: uniqueLabel,
+                pkg: pkgName,
+                category: kind,
+                fields: {}
+              };
+              if (kind === "msg") spec.fields["message"] = [];
+              else if (kind === "srv") { spec.fields["request"] = []; spec.fields["response"] = []; }
+              else if (kind === "action") { spec.fields["goal"] = []; spec.fields["result"] = []; spec.fields["feedback"] = []; }
+
+              var newTypeNode = {
+                id: "n_" + uniqueLabel,
+                label: uniqueLabel,
+                pkg: pkgName,
+                backing: "type",
+                typeCategory: kind,
+                typeSpec: spec,
+                ifaces: [],
+                params: [],
+                x: 140 + project.nodes.length * 25,
+                y: 140 + project.nodes.length * 25
+              };
+              project.nodes.push(newTypeNode);
+              if (!project.types) project.types = {};
+              project.types[pkgName + "." + uniqueLabel] = spec;
+
+              catDrawer.classList.remove("open");
+              render();
+              selNode = newTypeNode.id;
+              toggleInspector(false);
+              fillInspector();
+              syncDoc();
+              saveLayout(true);
+            };
+            list.appendChild(card);
+          });
+
+          if (count === 0) {
+            list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching communication objects found.</div>';
+          }
+        } else if (!isRosSystem) {
+          // 2. Component View (.ros2 / .ros1) -> Only Component Node templates
+          if (catTitleEl) catTitleEl.textContent = "Component Templates";
+          if (catTabsEl) catTabsEl.style.display = "none";
+
           var nodes = (nodeCatalog && nodeCatalog.nodes) || {};
           var nodeKeys = Object.keys(nodes).sort();
           var count = 0;
 
           nodeKeys.forEach(function(k) {
             var catEntry = nodes[k];
+            if (activeCatSource !== "all" && catEntry.source && catEntry.source !== activeCatSource) return;
             var nodeLbl = k.includes(".") ? k.split(".")[1] : k;
             var pkgName = catEntry.pkg || (k.includes(".") ? k.split(".")[0] : "");
             var searchable = (k + " " + (catEntry.from || "") + " " + pkgName).toLowerCase();
@@ -3829,7 +4985,8 @@ export function getStudioHtml(
             var ifaces = normalizeCatalogueInterfaces(catEntry.interfaces);
             var card = document.createElement("div");
             card.className = "cat-card";
-            card.innerHTML = '<div class="ctitle">' + esc(nodeLbl) + '</div>'
+            var srcBadge = catEntry.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(catEntry.source) + '</span>' : '';
+            card.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between;"><span class="ctitle">' + esc(nodeLbl) + '</span>' + srcBadge + '</div>'
               + '<div class="csub">' + esc(catEntry.from || k) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
               + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
@@ -3877,55 +5034,46 @@ export function getStudioHtml(
           });
 
           if (count === 0) {
-            list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching nodes found.</div>';
+            list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching components found.</div>';
           }
         } else {
-          // Subsystems tab
-          var systems = (nodeCatalog && nodeCatalog._systems) || [];
-          var count = 0;
+          // 3. ROS System View (.rossystem) -> Nodes and Subsystems
+          if (catTitleEl) catTitleEl.textContent = "ROS System Components";
+          if (catTabsEl) catTabsEl.style.display = "flex";
 
-          systems.forEach(function(sys) {
-            var sysName = sys.system || "subsystem";
-            var searchable = (sysName + " " + (sys.file || "")).toLowerCase();
-            if (q && !searchable.includes(q)) return;
-            count++;
+          if (activeCatTab === "nodes") {
+            var nodes = (nodeCatalog && nodeCatalog.nodes) || {};
+            var nodeKeys = Object.keys(nodes).sort();
+            var count = 0;
 
-            var nodeCount = Object.keys(sys.nodes || {}).length;
-            var card = document.createElement("div");
-            card.className = "cat-card";
-            card.innerHTML = '<div class="ctitle">' + esc(sysName) + '</div>'
-              + '<div class="csub">' + esc(sys.file || '') + '</div>'
-              + '<div style="font-size:0.68rem; color:var(--k-subsystem); margin-top:2px;">' + nodeCount + ' component node(s)</div>';
+            nodeKeys.forEach(function(k) {
+              var catEntry = nodes[k];
+              if (activeCatSource !== "all" && catEntry.source && catEntry.source !== activeCatSource) return;
+              var nodeLbl = k.includes(".") ? k.split(".")[1] : k;
+              var pkgName = catEntry.pkg || (k.includes(".") ? k.split(".")[0] : "");
+              var searchable = (k + " " + (catEntry.from || "") + " " + pkgName).toLowerCase();
+              if (q && !searchable.includes(q)) return;
+              count++;
 
-            card.onclick = function() {
-              pushUndo();
-              var uniqueRef = sysName;
-              var suffix = 1;
-              while ((project.subSystems || []).some(function(s) { return s.ref === uniqueRef; })) {
-                uniqueRef = sysName + "_" + (++suffix);
-              }
+              var ifaces = normalizeCatalogueInterfaces(catEntry.interfaces);
+              var card = document.createElement("div");
+              card.className = "cat-card";
+              var srcBadge = catEntry.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(catEntry.source) + '</span>' : '';
+              card.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between;"><span class="ctitle">' + esc(nodeLbl) + '</span>' + srcBadge + '</div>'
+                + '<div class="csub">' + esc(catEntry.from || k) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
+                + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
-              if (!project.subSystems) project.subSystems = [];
-              var subEntry = {
-                ref: uniqueRef,
-                state: "collapsed",
-                fromFile: sys.file
-              };
-              project.subSystems.push(subEntry);
+              card.onclick = function() {
+                pushUndo();
+                var uniqueLabel = nodeLbl;
+                var suffix = 1;
+                while (project.nodes.some(function(n) { return n.label === uniqueLabel; })) {
+                  uniqueLabel = nodeLbl + "_" + (++suffix);
+                }
 
-              if (!project.view) project.view = {};
-              if (!project.view.subPos) project.view.subPos = {};
-              project.view.subPos[uniqueRef] = {
-                x: 100 + project.subSystems.length * 40,
-                y: 100 + project.subSystems.length * 40
-              };
-
-              Object.keys(sys.nodes || {}).forEach(function(nKey) {
-                var nodeDef = sys.nodes[nKey];
-                var ifaces = normalizeCatalogueInterfaces(nodeDef.interfaces);
                 var nodeIfaces = ifaces.map(function(f) {
                   return {
-                    id: "i_" + nKey + "_" + f.name,
+                    id: "i_" + uniqueLabel + "_" + f.name,
                     name: f.name,
                     label: f.label || f.name,
                     kind: f.kind || "pub",
@@ -3935,36 +5083,125 @@ export function getStudioHtml(
                 });
 
                 var n = {
-                  id: "n_" + uniqueRef + "_" + nKey,
-                  label: nKey,
-                  from: nodeDef.from || nKey,
-                  subRef: uniqueRef,
-                  backing: "sub",
+                  id: "n_" + uniqueLabel,
+                  label: uniqueLabel,
+                  from: catEntry.from || k,
+                  artifact: catEntry.artifact || nodeLbl,
+                  pkg: pkgName,
+                  backing: "cat",
                   ifaces: nodeIfaces,
                   params: [],
-                  x: 100,
-                  y: 100
+                  x: 140 + project.nodes.length * 25,
+                  y: 140 + project.nodes.length * 25
                 };
                 project.nodes.push(n);
-              });
+                catDrawer.classList.remove("open");
+                render();
+                selNode = n.id;
+                toggleInspector(false);
+                fillInspector();
+                syncDoc();
+                saveLayout(true);
+              };
+              list.appendChild(card);
+            });
 
-              catDrawer.classList.remove("open");
-              render();
-              selSub = uniqueRef;
-              toggleInspector(false);
-              fillInspector();
-              syncDoc();
-              saveLayout(true);
-            };
-            list.appendChild(card);
-          });
+            if (count === 0) {
+              list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching nodes found.</div>';
+            }
+          } else {
+            // Subsystems tab
+            var systems = (nodeCatalog && nodeCatalog._systems) || [];
+            var count = 0;
 
-          if (count === 0) {
-            list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching subsystems found.</div>';
+            systems.forEach(function(sys) {
+              if (activeCatSource !== "all" && sys.source && sys.source !== activeCatSource) return;
+              var sysName = sys.system || "subsystem";
+              var searchable = (sysName + " " + (sys.file || "")).toLowerCase();
+              if (q && !searchable.includes(q)) return;
+              count++;
+
+              var nodeCount = Object.keys(sys.nodes || {}).length;
+              var card = document.createElement("div");
+              card.className = "cat-card";
+              var srcBadge = sys.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(sys.source) + '</span>' : '';
+              card.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between;"><span class="ctitle">' + esc(sysName) + '</span>' + srcBadge + '</div>'
+                + '<div class="csub">' + esc(sys.file || '') + '</div>'
+                + '<div style="font-size:0.68rem; color:var(--k-subsystem); margin-top:2px;">' + nodeCount + ' component node(s)</div>';
+
+              card.onclick = function() {
+                pushUndo();
+                var uniqueRef = sysName;
+                var suffix = 1;
+                while ((project.subSystems || []).some(function(s) { return s.ref === uniqueRef; })) {
+                  uniqueRef = sysName + "_" + (++suffix);
+                }
+
+                if (!project.subSystems) project.subSystems = [];
+                var subEntry = {
+                  ref: uniqueRef,
+                  state: "collapsed",
+                  fromFile: sys.file
+                };
+                project.subSystems.push(subEntry);
+
+                if (!project.view) project.view = {};
+                if (!project.view.subPos) project.view.subPos = {};
+                var spos = {
+                  x: 100 + project.subSystems.length * 40,
+                  y: 100 + project.subSystems.length * 40
+                };
+                project.view.subPos[uniqueRef] = spos;
+
+                var nodeKeys = Object.keys(sys.nodes || {});
+                var cols = Math.max(1, Math.ceil(Math.sqrt(nodeKeys.length)));
+                nodeKeys.forEach(function(nKey, idx) {
+                  var nodeDef = sys.nodes[nKey];
+                  var ifaces = normalizeCatalogueInterfaces(nodeDef.interfaces);
+                  var nodeIfaces = ifaces.map(function(f) {
+                    return {
+                      id: "i_" + uniqueRef + "_" + nKey + "_" + f.name,
+                      name: f.name,
+                      label: f.label || f.name,
+                      kind: f.kind || "pub",
+                      type: f.type || "",
+                      exposed: true
+                    };
+                  });
+
+                  var c = idx % cols;
+                  var r = Math.floor(idx / cols);
+                  var n = {
+                    id: "n_" + uniqueRef + "_" + nKey,
+                    label: nKey,
+                    from: nodeDef.from || nKey,
+                    subRef: uniqueRef,
+                    backing: "sub",
+                    ifaces: nodeIfaces,
+                    params: [],
+                    x: spos.x + 30 + c * 300,
+                    y: spos.y + 50 + r * 240
+                  };
+                  project.nodes.push(n);
+                });
+
+                catDrawer.classList.remove("open");
+                render();
+                selSub = uniqueRef;
+                toggleInspector(false);
+                fillInspector();
+                syncDoc();
+                saveLayout(true);
+              };
+              list.appendChild(card);
+            });
+
+            if (count === 0) {
+              list.innerHTML = '<div style="padding:1rem; color:var(--ink-3); text-align:center;">No matching subsystems found.</div>';
+            }
           }
         }
       }
-    }
     } catch (err) {
       console.error("Error in setupUI:", err);
     }
@@ -3976,37 +5213,72 @@ export function getStudioHtml(
     if (msg.type === "updateModel") {
       var fresh = msg.project;
       
+      var oldSelectedId = selNode;
       var selectedLabel = null;
+      var selectedSubRef = null;
       if (selNode) {
         var oldN = nodeById(selNode);
-        if (oldN) selectedLabel = oldN.label;
+        if (oldN) {
+          selectedLabel = oldN.label;
+          selectedSubRef = oldN.subRef || null;
+        }
       }
 
-      var posByLabel = {};
-      var sizeByLabel = {};
+      var posById = {};
+      var sizeById = {};
+      var directPosByLabel = {};
+      var directSizeByLabel = {};
       (project.nodes || []).forEach(function(n) {
         if (n.x != null && n.y != null) {
-          posByLabel[n.label] = { x: n.x, y: n.y };
+          posById[n.id] = { x: n.x, y: n.y };
+          if (!n.subRef && n.backing !== "sub") {
+            directPosByLabel[n.label] = { x: n.x, y: n.y };
+          }
         }
         if (n.w || n.h) {
-          sizeByLabel[n.label] = { w: n.w, h: n.h };
+          sizeById[n.id] = { w: n.w, h: n.h };
+          if (!n.subRef && n.backing !== "sub") {
+            directSizeByLabel[n.label] = { w: n.w, h: n.h };
+          }
+        }
+      });
+
+      // Preserve client-side subsystem member nodes across external model syncs
+      (project.nodes || []).forEach(function(oldN) {
+        if (oldN.subRef || oldN.backing === "sub") {
+          var exists = (fresh.nodes || []).some(function(fn) {
+            return fn.id === oldN.id || (fn.subRef === oldN.subRef && fn.label === oldN.label);
+          });
+          if (!exists) {
+            fresh.nodes.push(oldN);
+          }
         }
       });
 
       var cols = Math.max(1, Math.ceil(Math.sqrt((fresh.nodes || []).length)));
       (fresh.nodes || []).forEach(function(n, idx) {
-        if (posByLabel[n.label]) {
-          n.x = posByLabel[n.label].x;
-          n.y = posByLabel[n.label].y;
+        var savedPos = posById[n.id] || (!n.subRef && n.backing !== "sub" ? directPosByLabel[n.label] : null);
+        if (savedPos) {
+          n.x = savedPos.x;
+          n.y = savedPos.y;
         } else if (n.x == null || n.y == null) {
-          var c = idx % cols;
-          var r = Math.floor(idx / cols);
-          n.x = 80 + c * 320;
-          n.y = 80 + r * 260;
+          if (n.subRef) {
+            var sPos = (fresh.view && fresh.view.subPos && fresh.view.subPos[n.subRef]) ||
+                       (project.view && project.view.subPos && project.view.subPos[n.subRef]) ||
+                       { x: 100, y: 100 };
+            n.x = sPos.x + 30 + (idx % cols) * 300;
+            n.y = sPos.y + 50 + Math.floor(idx / cols) * 240;
+          } else {
+            var c = idx % cols;
+            var r = Math.floor(idx / cols);
+            n.x = 80 + c * 320;
+            n.y = 80 + r * 260;
+          }
         }
-        if (sizeByLabel[n.label]) {
-          n.w = sizeByLabel[n.label].w;
-          n.h = sizeByLabel[n.label].h;
+        var savedSize = sizeById[n.id] || (!n.subRef && n.backing !== "sub" ? directSizeByLabel[n.label] : null);
+        if (savedSize) {
+          n.w = savedSize.w;
+          n.h = savedSize.h;
         }
       });
 
@@ -4041,16 +5313,37 @@ export function getStudioHtml(
       }
 
       project = fresh;
-      if (selectedLabel) {
-        var newSelectedNode = project.nodes.find(function(n) { return n.label === selectedLabel; });
+      if (oldSelectedId) {
+        var newSelectedNode = project.nodes.find(function(n) { return n.id === oldSelectedId; });
+        if (!newSelectedNode && selectedLabel) {
+          newSelectedNode = project.nodes.find(function(n) {
+            return n.label === selectedLabel && (selectedSubRef ? n.subRef === selectedSubRef : !n.subRef);
+          });
+        }
         selNode = newSelectedNode ? newSelectedNode.id : null;
       }
 
+      ensureSubsystemMembersLoaded();
       render();
       fillInspector();
+      updateDiagPill();
+    } else if (msg.type === "updateDiagnostics") {
+      project.diagnostics = msg.diagnostics;
+      updateDiagPill();
+      render();
+      fillInspector();
+    } else if (msg.type === "updateCatalogue") {
+      if (msg.nodeCatalog) nodeCatalog = msg.nodeCatalog;
+      if (msg.typeCatalog) typeCatalog = msg.typeCatalog;
+      populateTypeSuggestions();
+      var catDrawer = document.getElementById("catalogueDrawer");
+      if (catDrawer && catDrawer.classList.contains("open")) {
+        renderCatalogue();
+      }
     }
   });
 
+  ensureSubsystemMembersLoaded();
   populateTypeSuggestions();
   updateConnectorModeButtons();
   layoutInitialPositions();
@@ -4058,6 +5351,7 @@ export function getStudioHtml(
   render();
   setupWireInteractions();
   setupUI();
+  updateDiagPill();
   fillInspector();
 </script>
 </body>

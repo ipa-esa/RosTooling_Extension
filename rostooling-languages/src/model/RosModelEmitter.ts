@@ -191,6 +191,27 @@ export const RosModelEmitter = {
       }
     }
 
+    // processes: processes+=Process* (RosSystem.xtext:51-58)
+    if (project.processes && project.processes.length > 0) {
+      lines.push('  processes:');
+      for (const proc of project.processes) {
+        const beforeComments = proc.comments?.before;
+        if (Array.isArray(beforeComments)) {
+          for (const c of beforeComments) {
+            lines.push(`    # ${String(c)}`);
+          }
+        }
+        lines.push(`    ${this.formatKey(proc.name)}:`);
+        if (proc.nodes && proc.nodes.length > 0) {
+          const nodesStr = proc.nodes.map((n) => this.formatKey(n)).join(', ');
+          lines.push(`      nodes: [ ${nodesStr} ]`);
+        }
+        if (proc.threads != null) {
+          lines.push(`      threads: ${proc.threads}`);
+        }
+      }
+    }
+
     return lines.join('\n') + '\n';
   },
 
