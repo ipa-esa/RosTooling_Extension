@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
+import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 
 function checkJavaVersion(javaExecutable:string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -223,8 +224,32 @@ export async function activate(context: ExtensionContext) {
             console.error('Command failed:', error);
         }
     });
-    
     context.subscriptions.push(generateCodeCommand);
+    
+    const customEditorProvider = new RosCustomEditorProvider(context);
+    context.subscriptions.push(
+        window.registerCustomEditorProvider(
+            RosCustomEditorProvider.viewType,
+            customEditorProvider,
+            {
+                webviewOptions: { retainContextWhenHidden: true },
+                supportsMultipleEditorsPerDocument: false
+            }
+        )
+    );
+
+    const openVisualStudioCmd = commands.registerCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS model file selected to open in Visual Studio.');
+            return;
+        }
+        await commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+    });
+    context.subscriptions.push(openVisualStudioCmd);
 
     const rossdlCommand = commands.registerCommand('rossdl.buildPackage', async () => {
         try {
