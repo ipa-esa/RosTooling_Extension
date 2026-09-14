@@ -1,5 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { LspValidator, LspDiagnostic } from './LspValidator';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
@@ -8,10 +10,15 @@ import { RosProject } from '../model/RosModelTypes';
 suite('LSP Protocol Model Validation Test Suite', () => {
   let lspValidator: LspValidator;
   const extensionRoot = path.resolve(__dirname, '..', '..');
+  const cataloguePath = fs.existsSync(
+    '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/fraunhoferipa.rostooling-languages/catalogue_repos'
+  )
+    ? '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/fraunhoferipa.rostooling-languages/catalogue_repos'
+    : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
 
   suiteSetup(async function () {
     this.timeout(15000);
-    lspValidator = new LspValidator(extensionRoot);
+    lspValidator = new LspValidator(extensionRoot, cataloguePath);
     await lspValidator.init();
   });
 
@@ -423,6 +430,39 @@ suite('LSP Protocol Model Validation Test Suite', () => {
       syntaxErrors.length,
       0,
       `Expected 0 syntax errors from LSP for .ros model, got: ${JSON.stringify(syntaxErrors, null, 2)}`
+    );
+  });
+
+  test('Validate demo test_system.rossystem referencing catalogue subsystem ur_robot resolves with zero errors', async function () {
+    this.timeout(10000);
+
+    const testSystemPath = path.resolve(
+      extensionRoot,
+      '..',
+      'demo',
+      'test_ws',
+      'src',
+      'test_system',
+      'test_system.rossystem'
+    );
+    assert.ok(fs.existsSync(testSystemPath), `File not found: ${testSystemPath}`);
+    const content = fs.readFileSync(testSystemPath, 'utf-8');
+
+    const diags = await lspValidator.validate(
+      'file://' + testSystemPath,
+      'rossystem',
+      content
+    );
+
+    const errors = diags.filter((d) => d.severity === 1);
+    const unresolvedSubsystemErrors = errors.filter((d) =>
+      d.message.includes("Couldn't resolve reference to System 'ur_robot'")
+    );
+
+    assert.strictEqual(
+      unresolvedSubsystemErrors.length,
+      0,
+      `Expected ur_robot subsystem reference to resolve cleanly from catalogue library, but got: ${JSON.stringify(errors, null, 2)}`
     );
   });
 });

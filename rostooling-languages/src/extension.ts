@@ -6,7 +6,9 @@ import * as fs from 'node:fs';
 import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
+import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
+import { RosCatalogueManager } from './model/RosCatalogueManager';
 
 function checkJavaVersion(javaExecutable:string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -64,13 +66,22 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine('ABORTED: Invalid Java version detected.');
         return;
     }
-    outputChannel.appendLine("Java version is valid")
+    outputChannel.appendLine("Java version is valid");
+
+    const storageDir = context.globalStorageUri
+        ? path.join(context.globalStorageUri.fsPath, 'catalogue_repos')
+        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    const catalogueManager = RosCatalogueManager.getInstance(storageDir);
+    const cataloguePath = catalogueManager.getStorageDir();
+    outputChannel.appendLine(`Catalogue storage path: ${cataloguePath}`);
+
     const serverOptions: ServerOptions = {
         run : {
             command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
+                `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath                
             ]
         },
@@ -79,6 +90,7 @@ export async function activate(context: ExtensionContext) {
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
+                `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath,
                 '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp'  // optional debug flag
             ]            

@@ -16,14 +16,18 @@ export class LspValidator {
   private buffer = Buffer.alloc(0);
   private listeners = new Map<string, (diags: LspDiagnostic[]) => void>();
 
-  constructor(extensionRoot: string) {
+  constructor(extensionRoot: string, cataloguePath?: string) {
     const jarPath = path.join(extensionRoot, 'server', 'rostooling_extension-1.2.1.jar');
-    this.proc = cp.spawn('java', [
+    const args = [
       '--add-opens=java.base/java.lang=ALL-UNNAMED',
       '--add-opens=java.base/java.util=ALL-UNNAMED',
-      '-jar',
-      jarPath,
-    ]);
+    ];
+    if (cataloguePath) {
+      args.push(`-Drostooling.catalogue.path=${cataloguePath}`);
+    }
+    args.push('-jar', jarPath);
+
+    this.proc = cp.spawn('java', args);
 
     this.proc.stdout?.on('data', (data: Buffer) => this.onData(data));
   }
@@ -62,19 +66,27 @@ export class LspValidator {
     this.proc.stdin?.write(msg);
   }
 
-  public async init(): Promise<void> {
+  public async init(rootUri?: string, workspaceFolders?: { uri: string; name: string }[]): Promise<void> {
+    const params: Record<string, unknown> = {
+      processId: process.pid,
+      rootUri: rootUri || ('file://' + process.cwd()),
+      capabilities: {
+        workspace: {
+          workspaceFolders: true,
+        },
+      },
+    };
+    if (workspaceFolders) {
+      params.workspaceFolders = workspaceFolders;
+    }
     this.send({
       jsonrpc: '2.0',
       id: 1,
       method: 'initialize',
-      params: {
-        processId: process.pid,
-        rootUri: 'file://' + process.cwd(),
-        capabilities: {},
-      },
+      params,
     });
     this.send({ jsonrpc: '2.0', method: 'initialized', params: {} });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 800));
   }
 
   public validate(

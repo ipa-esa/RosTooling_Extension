@@ -70,6 +70,12 @@ shadowJar {
 	manifest {
         attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher'
     }
+    doLast {
+        copy {
+            from archiveFile
+            into "${projectDir}/rostooling-languages/server"
+        }
+    }
 }
 
 configure(subprojects.findAll {it.name.startsWith('rostooling')}) {
