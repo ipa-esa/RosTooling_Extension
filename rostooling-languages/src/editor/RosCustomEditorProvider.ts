@@ -111,6 +111,45 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     return { nodeIndex: this.nodeIndex || {}, typeIndex: this.typeIndex || {} };
   }
 
+  public isCoreCatalogue(filePath?: string): boolean {
+    if (!filePath) return false;
+    const normalized = filePath.replace(/\\/g, '/');
+    if (normalized.includes('/RosModelsCatalog/') || normalized.endsWith('/RosModelsCatalog')) return true;
+    if (normalized.includes('/RosCommonObjects/') || normalized.endsWith('/RosCommonObjects')) return true;
+    if (normalized.includes('/.rostooling/catalogue_repos/')) return true;
+    if (normalized.includes('/assets/nodes/') || normalized.includes('/assets/types/')) return true;
+    if (this.catalogueManager) {
+      const storage = this.catalogueManager.getStorageDir().replace(/\\/g, '/');
+      if (storage && normalized.startsWith(storage)) return true;
+    }
+    return false;
+  }
+
+  public resolveComponentFilePath(
+    from?: string,
+    pkg?: string,
+    artifact?: string,
+    label?: string,
+    docFilePath?: string
+  ): string | undefined {
+    const { artifactMap } = this.loadCompanionArtifacts(docFilePath || '');
+    const keys = [
+      from,
+      (pkg && artifact) ? `${pkg}.${artifact}` : undefined,
+      (pkg && label) ? `${pkg}.${label}` : undefined,
+      artifact,
+      label
+    ].filter(Boolean) as string[];
+
+    for (const k of keys) {
+      const art = artifactMap.get(k);
+      if (art && art.filePath && fs.existsSync(art.filePath)) {
+        return art.filePath;
+      }
+    }
+    return undefined;
+  }
+
   private readDocumentOrFile(filePath: string): string {
     const openDoc = vscode.workspace.textDocuments.find(
       (d) => d.uri.fsPath === filePath || d.fileName === filePath
@@ -464,21 +503,41 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
 
         // Map parameters
-        if (node.params.length === 0) {
-          node.params = (declaredArt.params || []).map((p) => ({ ...p, exposed: true }));
-        } else {
-          const declaredParamsByName = new Map<string, RosParameter>();
-          for (const param of declaredArt.params) {
-            declaredParamsByName.set(param.name, param);
-          }
-          for (const param of node.params) {
-            const match = declaredParamsByName.get(param.name);
-            if (match) {
-              param.ptype = match.ptype || param.ptype;
-              if (param.value == null) param.value = match.value;
-            }
+        const existingParamsByName = new Map<string, RosParameter>();
+        for (const p of node.params || []) {
+          existingParamsByName.set(p.name, p);
+        }
+
+        const mergedParams: RosParameter[] = [];
+        for (const decP of declaredArt.params || []) {
+          const existing = existingParamsByName.get(decP.name);
+          if (existing) {
+            mergedParams.push({
+              ...decP,
+              id: existing.id || `p_${node.label}_${decP.name}`,
+              label: existing.label || decP.name,
+              ptype: decP.ptype || existing.ptype || 'String',
+              value: decP.value,
+              sysValue: existing.sysValue,
+              exposed: true,
+            });
+            existingParamsByName.delete(decP.name);
+          } else {
+            mergedParams.push({
+              ...decP,
+              id: `p_${node.label}_${decP.name}`,
+              label: decP.name,
+              ptype: decP.ptype || 'String',
+              value: decP.value,
+              sysValue: undefined,
+              exposed: false,
+            });
           }
         }
+        for (const remaining of existingParamsByName.values()) {
+          mergedParams.push(remaining);
+        }
+        node.params = mergedParams;
       } else if (catNodes[fromKey]) {
         const catEntry = catNodes[fromKey];
         const normalizedIfaces = this.normalizeInterfaces(catEntry.interfaces);
@@ -505,6 +564,45 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             }
           }
         }
+
+        if (catEntry.parameters) {
+          const existingParamsByName = new Map<string, RosParameter>();
+          for (const p of node.params || []) {
+            existingParamsByName.set(p.name, p);
+          }
+          const mergedParams: RosParameter[] = [];
+          for (const [pName, pDef] of Object.entries(catEntry.parameters)) {
+            const ptype = typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String';
+            const val = typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined;
+            const existing = existingParamsByName.get(pName);
+            if (existing) {
+              mergedParams.push({
+                id: existing.id || `p_${node.label}_${pName}`,
+                name: pName,
+                label: existing.label || pName,
+                ptype: ptype || existing.ptype || 'String',
+                value: val,
+                sysValue: existing.sysValue,
+                exposed: true,
+              });
+              existingParamsByName.delete(pName);
+            } else {
+              mergedParams.push({
+                id: `p_${node.label}_${pName}`,
+                name: pName,
+                label: pName,
+                ptype: ptype || 'String',
+                value: val,
+                sysValue: undefined,
+                exposed: false,
+              });
+            }
+          }
+          for (const remaining of existingParamsByName.values()) {
+            mergedParams.push(remaining);
+          }
+          node.params = mergedParams;
+        }
       }
     }
   }
@@ -514,105 +612,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   }
 
   private async syncCompanionRos2Models(project: RosProject, docFilePath: string) {
-    if (!docFilePath.endsWith('.rossystem')) return;
-
-    const { artifactMap } = this.loadCompanionArtifacts(docFilePath);
-    const filesToUpdate = new Map<string, RosProject>();
-
-    for (const node of project.nodes) {
-      const fromKey = node.from || '';
-      const declared = artifactMap.get(fromKey) || artifactMap.get(node.artifact || '') || artifactMap.get(node.label);
-      if (!declared || !declared.filePath) continue;
-
-      let ros2Project = filesToUpdate.get(declared.filePath);
-      if (!ros2Project) {
-        try {
-          const content = this.readDocumentOrFile(declared.filePath);
-          ros2Project = RosModelParser.parseRos2(content, path.basename(declared.filePath));
-          filesToUpdate.set(declared.filePath, ros2Project);
-        } catch (e) {
-          console.warn(`Failed to read companion .ros2 file ${declared.filePath}:`, e);
-          continue;
-        }
-      }
-
-      // Update the artifact interfaces and parameters in ros2Project
-      for (const pkg of Object.values(ros2Project.packages)) {
-        for (const art of pkg.artifacts || []) {
-          if (art.name === declared.name || art.node === declared.node) {
-            // Sync interfaces
-            for (const iface of node.ifaces) {
-              const targetName = iface.name || iface.label;
-              if (!targetName) continue;
-              const existing = (art.ifaces || []).find((f) => f.name === targetName || f.label === targetName);
-              if (existing) {
-                existing.type = iface.type;
-                existing.kind = iface.kind;
-                if (iface.qos) existing.qos = iface.qos;
-              } else {
-                art.ifaces = art.ifaces || [];
-                art.ifaces.push({
-                  id: `i_${art.name}_${targetName}`,
-                  name: targetName,
-                  label: targetName,
-                  kind: iface.kind,
-                  type: iface.type,
-                  qos: iface.qos,
-                  exposed: true,
-                });
-              }
-            }
-
-            // Sync parameters
-            for (const param of node.params || []) {
-              const targetName = param.name || param.label;
-              if (!targetName) continue;
-              const existing = (art.params || []).find((p) => p.name === targetName || p.label === targetName);
-              const val = param.value !== undefined ? param.value : (param.sysValue !== undefined ? param.sysValue : '');
-              if (existing) {
-                if (param.ptype) existing.ptype = param.ptype;
-                existing.value = val;
-              } else {
-                art.params = art.params || [];
-                art.params.push({
-                  id: `p_${art.name}_${targetName}`,
-                  name: targetName,
-                  label: targetName,
-                  ptype: param.ptype || 'String',
-                  value: val,
-                  exposed: true,
-                });
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Apply edits for all updated .ros2 files both in VS Code workspace and persist to disk
-    for (const [filePath, ros2Proj] of filesToUpdate.entries()) {
-      try {
-        const newRos2Content = RosModelEmitter.emitRos2(ros2Proj);
-        const fileUri = vscode.Uri.file(filePath);
-        const openDoc = vscode.workspace.textDocuments.find(
-          (d) => d.uri.fsPath === filePath || d.fileName === filePath
-        );
-
-        if (openDoc) {
-          const edit = new vscode.WorkspaceEdit();
-          edit.replace(
-            fileUri,
-            new vscode.Range(0, 0, openDoc.lineCount + 5, 0),
-            newRos2Content
-          );
-          await vscode.workspace.applyEdit(edit);
-        }
-        // Direct disk write ensures disk state is always identical to in-memory edits
-        fs.writeFileSync(filePath, newRos2Content, 'utf-8');
-      } catch (err) {
-        console.warn(`Failed to apply sync edit to ${filePath}:`, err);
-      }
-    }
+    void project;
+    void docFilePath;
+    // System view must not mutate companion .ros2 / .ros1 component models.
+    // Parameters and interfaces configured in .rossystem are isolated to the system model.
+    return;
   }
 
   private assignGridPositions(project: RosProject) {
@@ -1159,13 +1163,15 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       this.projectCache.set(docKey, project);
     }
 
+    const isReadOnly = this.isCoreCatalogue(document.fileName);
     webviewPanel.webview.html = getStudioHtml(
       project,
       this.context.extensionUri,
       webviewPanel.webview,
       this.nodeIndex,
       this.typeIndex,
-      document.fileName
+      document.fileName,
+      isReadOnly
     );
 
     let isInternalUpdate = false;
@@ -1175,6 +1181,10 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     const messageListener = webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.type) {
         case 'applyEdit': {
+          if (this.isCoreCatalogue(document.fileName)) {
+            vscode.window.showInformationMessage('Core catalogue models are read-only and cannot be modified.');
+            return;
+          }
           try {
             isInternalUpdate = true;
             lastInternalUpdateTime = Date.now();
@@ -1215,12 +1225,32 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
 
         case 'saveLayout': {
+          if (this.isCoreCatalogue(document.fileName)) {
+            return;
+          }
           try {
             const updatedProject: RosProject = msg.project;
             this.projectCache.set(docKey, updatedProject);
             await this.saveLayoutSchematic(document.fileName, updatedProject);
           } catch (err) {
             console.warn('Failed to save layout schematic:', err);
+          }
+          break;
+        }
+
+        case 'openComponentRos2': {
+          const compPath = this.resolveComponentFilePath(
+            msg.from,
+            msg.pkg,
+            msg.artifact,
+            msg.label,
+            document.fileName
+          );
+          if (compPath && fs.existsSync(compPath)) {
+            const targetUri = vscode.Uri.file(compPath);
+            await vscode.commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+          } else {
+            vscode.window.showWarningMessage(`Could not locate component source file for '${msg.from || msg.label || 'component'}'.`);
           }
           break;
         }

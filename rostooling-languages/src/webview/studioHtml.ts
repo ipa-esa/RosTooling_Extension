@@ -8,7 +8,8 @@ export function getStudioHtml(
   webview: vscode.Webview,
   nodeIndex: unknown,
   typeIndex: unknown,
-  docFileName?: string
+  docFileName?: string,
+  isReadOnly?: boolean
 ): string {
   void extensionUri;
   void webview;
@@ -1051,6 +1052,44 @@ export function getStudioHtml(
     outline: none;
   }
 
+  details.qos-details {
+    margin-top: 0.35rem;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: 0.25rem 0.4rem;
+    font-size: 0.72rem;
+  }
+  details.qos-details summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    color: var(--ink-2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    outline: none;
+  }
+  details.qos-details summary:hover {
+    color: var(--ink);
+  }
+  .qos-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3rem 0.5rem;
+    margin-top: 0.4rem;
+  }
+  .qos-grid .fld {
+    margin-bottom: 0.15rem;
+  }
+  .qos-grid .fld label {
+    font-size: 0.65rem;
+  }
+  .qos-grid .fld select {
+    font-size: 0.72rem;
+    padding: 0.18rem 0.3rem;
+  }
+
   /* Toast Notification Alerts */
   .toast-container {
     position: absolute;
@@ -1176,11 +1215,12 @@ export function getStudioHtml(
   <div class="brand">
     <span>RosTooling Studio</span>
     <span class="brand-badge ${modeBadgeClass}" id="modelTypeBadge">${modeBadgeText}</span>
+    ${isReadOnly ? `<span class="brand-badge" id="readOnlyBadge" style="background:#dc2626; color:#fff; font-weight:bold; margin-left:6px;" title="Core Catalogue models are read-only and cannot be modified">🔒 Core Catalogue (Read-Only)</span>` : ''}
   </div>
 
   <div class="sysname-wrap">
     <label>${modelLabelText}</label>
-    <input type="text" id="sysNameInput" class="sysname-input" value="${escapeHtml(displayModelName)}" placeholder="${modelPlaceholder}">
+    <input type="text" id="sysNameInput" class="sysname-input" value="${escapeHtml(displayModelName)}" placeholder="${modelPlaceholder}"${isReadOnly ? ' disabled' : ''}>
   </div>
 
   <div class="spacer"></div>
@@ -1193,7 +1233,7 @@ export function getStudioHtml(
     <button class="mode-btn" id="btnWireLinear" title="Linear Connectors">╱ Linear</button>
     <button class="mode-btn" id="btnWireSpline" title="Spline Connectors">∿ Spline</button>
   </div>
-  <button class="btn" id="btnOpenCatalogue" title="Browse Catalogue">+ Add from Catalogue</button>
+  ${isReadOnly ? '' : '<button class="btn" id="btnOpenCatalogue" title="Browse Catalogue">+ Add from Catalogue</button>'}
   <button class="btn primary" id="btnGenerate" title="Generate ROS 2 Package & Launch Files">⚡ Generate & Launch</button>
   <button class="btn" id="btnSwitchToCode" title="View Source Code">📝 Code</button>
   <div id="diagPillContainer" style="margin-left:8px; display:flex; align-items:center;"></div>
@@ -1348,6 +1388,7 @@ export function getStudioHtml(
   var isRos = !!(project && project.isRos);
   var isRosSystem = (project.isRosSystem !== false && !isRos);
   var docBaseName = ${JSON.stringify(docBaseName)};
+  var isReadOnly = ${Boolean(isReadOnly)};
   var activeCatSource = "all";
   var renderCatalogue = function() {};
 
@@ -1731,6 +1772,7 @@ export function getStudioHtml(
   var saveLayoutTimer = null;
 
   function saveLayout(immediate) {
+    if (isReadOnly) return;
     if (saveLayoutTimer) {
       clearTimeout(saveLayoutTimer);
       saveLayoutTimer = null;
@@ -1855,6 +1897,7 @@ export function getStudioHtml(
   }
 
   function syncDoc() {
+    if (isReadOnly) return;
     vscode.postMessage({ type: "applyEdit", project: project });
   }
 
@@ -1977,6 +2020,7 @@ export function getStudioHtml(
           label: f.label || iname,
           kind: f.kind || "pub",
           type: f.type || "",
+          qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
           exposed: true
         });
       });
@@ -1985,12 +2029,14 @@ export function getStudioHtml(
         var kindOrObj = rawIfaces[iname];
         var kind = typeof kindOrObj === "string" ? kindOrObj : (kindOrObj.kind || "pub");
         var type = typeof kindOrObj === "object" ? (kindOrObj.type || "") : "";
+        var qos = (typeof kindOrObj === "object" && kindOrObj.qos) ? JSON.parse(JSON.stringify(kindOrObj.qos)) : undefined;
         ifaces.push({
           id: iname,
           name: iname,
           label: iname,
           kind: kind,
           type: type,
+          qos: qos,
           exposed: true
         });
       });
@@ -2029,6 +2075,7 @@ export function getStudioHtml(
                 label: f.label || f.name,
                 kind: f.kind || "pub",
                 type: f.type || "",
+                qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
                 exposed: true
               };
             });
@@ -3553,6 +3600,10 @@ export function getStudioHtml(
       var port = ev.target.closest(".port");
       if (port) {
         ev.stopPropagation();
+        if (isReadOnly) {
+          showToastWarning("Editing connections is disabled for read-only core catalogue models.");
+          return;
+        }
         if (!isRosSystem) {
           showToastWarning(isRos ? "Wire connections are disabled in Type Schema mode (.ros). Links represent data type references." : "Wire connections can only be created in .rossystem models.");
           return;
@@ -4113,6 +4164,13 @@ export function getStudioHtml(
     var container = document.getElementById("inspectorContent");
     if (!container) return;
 
+    var openQosMap = {};
+    container.querySelectorAll("details.qos-details").forEach(function(el) {
+      if (el.open && el.dataset.qosIdx != null) {
+        openQosMap[el.dataset.qosIdx] = true;
+      }
+    });
+
     function renderDiagnosticsBannerHtml(diags) {
       if (!diags || diags.length === 0) return "";
       var html = '<div style="margin-bottom:0.8rem; padding:4px 0;">';
@@ -4547,79 +4605,271 @@ export function getStudioHtml(
       }
 
       var nodeDiags = getNodeDiagnostics(n);
-      var h = renderDiagnosticsBannerHtml(nodeDiags)
-        + '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"></div>'
-        + '<div class="fld"><label>Package / Artifact</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '" placeholder="e.g. package.artifact"></div>';
+      var h = renderDiagnosticsBannerHtml(nodeDiags);
 
-      if (!isRosSystem && !isRos) {
-        h += '<div style="display:flex; gap:8px; margin-top:-0.2rem; margin-bottom:0.6rem;">'
-          + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Package</label><input type="text" id="inpNodePkg" value="' + esc(n.pkg || '') + '" placeholder="Package" style="font-size:0.75rem; padding:3px 6px;"></div>'
-          + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Artifact</label><input type="text" id="inpNodeArtifact" value="' + esc(n.artifact || n.label || '') + '" placeholder="Artifact" style="font-size:0.75rem; padding:3px 6px;"></div>'
-          + '</div>';
+      if (isRosSystem) {
+        h += '<button class="btn btn-sm" id="btnOpenComponentRos2" style="width:100%; margin-bottom:0.8rem; background:var(--accent); color:var(--accent-text); display:flex; align-items:center; justify-content:center; gap:6px; font-weight:600; padding:6px 10px;" title="Open and edit component in .ros2 view">'
+          + '📦 Edit Component in .ros2 View'
+          + '</button>';
       }
 
-      h += '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"></div>'
-        + procDropdownHtml
-        + '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
-        + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
-        + '<button class="btn btn-sm" id="btnAddIface" style="padding:2px 8px; font-size:0.72rem; background:var(--accent); color:var(--accent-text);" title="Add Interface">+ Add Interface</button>'
-        + '</div>';
+      h += '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"' + (isReadOnly ? ' disabled' : '') + '></div>';
 
-      n.ifaces.forEach(function(f, idx) {
-        var listId = (f.kind === 'pub' || f.kind === 'sub') ? 'typeSuggestions_msg'
-          : (f.kind === 'ss' || f.kind === 'sc') ? 'typeSuggestions_srv'
-          : (f.kind === 'as' || f.kind === 'ac') ? 'typeSuggestions_action'
-          : 'typeSuggestions_all';
+      if (isRosSystem) {
+        h += '<div class="fld"><label>Component Definition</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '" readonly style="opacity:0.85; background:var(--surface-2); cursor:default;"></div>';
+      } else {
+        h += '<div class="fld"><label>Package / Artifact</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '" placeholder="e.g. package.artifact"' + (isReadOnly ? ' disabled' : '') + '></div>';
+        if (!isRos) {
+          h += '<div style="display:flex; gap:8px; margin-top:-0.2rem; margin-bottom:0.6rem;">'
+            + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Package</label><input type="text" id="inpNodePkg" value="' + esc(n.pkg || '') + '" placeholder="Package" style="font-size:0.75rem; padding:3px 6px;"' + (isReadOnly ? ' disabled' : '') + '></div>'
+            + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Artifact</label><input type="text" id="inpNodeArtifact" value="' + esc(n.artifact || n.label || '') + '" placeholder="Artifact" style="font-size:0.75rem; padding:3px 6px;"' + (isReadOnly ? ' disabled' : '') + '></div>'
+            + '</div>';
+        }
+      }
 
-        h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
-          + '<div style="display:flex; align-items:center; gap:0.3rem;">'
-          + '<span class="kd ' + f.kind + '">' + f.kind + '</span>'
-          + '<input type="text" class="inp-iface-name" data-iface-name-idx="' + idx + '" value="' + esc(f.name || f.label) + '" placeholder="Interface name" style="flex:1; font-weight:600; font-size:0.8rem; padding:2px 5px;">'
-          + '<button class="btn btn-sm btn-del-iface" data-del-iface-idx="' + idx + '" title="Delete Interface" style="color:var(--dead); border-color:var(--dead); padding:1px 5px;">🗑️</button>'
-          + '</div>'
-          + '<div class="fld" style="margin-top:0.3rem;"><label>Kind</label>'
-          + '<select data-iface-kind-idx="' + idx + '" class="inp-iface-kind">'
-          + '<option value="pub"' + (f.kind === 'pub' ? ' selected' : '') + '>Publisher (pub)</option>'
-          + '<option value="sub"' + (f.kind === 'sub' ? ' selected' : '') + '>Subscriber (sub)</option>'
-          + '<option value="ss"' + (f.kind === 'ss' ? ' selected' : '') + '>Service Server (ss)</option>'
-          + '<option value="sc"' + (f.kind === 'sc' ? ' selected' : '') + '>Service Client (sc)</option>'
-          + '<option value="as"' + (f.kind === 'as' ? ' selected' : '') + '>Action Server (as)</option>'
-          + '<option value="ac"' + (f.kind === 'ac' ? ' selected' : '') + '>Action Client (ac)</option>'
-          + '</select></div>'
-          + '<div class="fld" style="margin-top:0.3rem;"><label>Type (Message / Topic)</label>'
-          + '<input type="text" list="' + listId + '" data-iface-idx="' + idx + '" class="inp-iface-type" value="' + esc(f.type || '') + '" placeholder="e.g. sensor_msgs/msg/Image">'
-          + '</div>'
+      h += '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"' + (isReadOnly ? ' disabled' : '') + '></div>'
+        + procDropdownHtml;
+
+      if (isRosSystem) {
+        h += '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
+          + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
           + '</div>';
-      });
+
+        n.ifaces.forEach(function(f, idx) {
+          var targetRef = n.artifact ? (n.artifact + '::' + f.name) : f.name;
+          h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
+            + '<div style="display:flex; align-items:center; gap:0.4rem;">'
+            + '<span class="kd ' + f.kind + '">' + f.kind + '</span>'
+            + '<div style="flex:1;">'
+            + '<label style="font-size:0.68rem; color:var(--ink-2); display:block;">Remapped Name in System</label>'
+            + '<input type="text" class="inp-iface-remap" data-iface-idx="' + idx + '" value="' + esc(f.label || f.name) + '" placeholder="Interface name"' + (isReadOnly ? ' disabled' : '') + ' style="width:100%; font-weight:600; font-size:0.8rem; padding:2px 5px;">'
+            + '</div>'
+            + '</div>'
+            + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:0.25rem; display:flex; justify-content:space-between;">'
+            + '<span>Target: <code>' + esc(targetRef) + '</code></span>'
+            + '<span>Type: <code>' + esc(f.type || '(unspecified)') + '</code></span>'
+            + '</div>'
+            + '</div>';
+        });
+      } else {
+        // Non-system view (.ros2 / .ros1)
+        h += '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
+          + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
+          + (isReadOnly ? '' : '<button class="btn btn-sm" id="btnAddIface" style="padding:2px 8px; font-size:0.72rem; background:var(--accent); color:var(--accent-text);" title="Add Interface">+ Add Interface</button>')
+          + '</div>';
+
+        n.ifaces.forEach(function(f, idx) {
+          var listId = (f.kind === 'pub' || f.kind === 'sub') ? 'typeSuggestions_msg'
+            : (f.kind === 'ss' || f.kind === 'sc') ? 'typeSuggestions_srv'
+            : (f.kind === 'as' || f.kind === 'ac') ? 'typeSuggestions_action'
+            : 'typeSuggestions_all';
+
+          h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
+            + '<div style="display:flex; align-items:center; gap:0.3rem;">'
+            + '<span class="kd ' + f.kind + '">' + f.kind + '</span>'
+            + '<input type="text" class="inp-iface-name" data-iface-name-idx="' + idx + '" value="' + esc(f.name || f.label) + '" placeholder="Interface name"' + (isReadOnly ? ' disabled' : '') + ' style="flex:1; font-weight:600; font-size:0.8rem; padding:2px 5px;">'
+            + (isReadOnly ? '' : '<button class="btn btn-sm btn-del-iface" data-del-iface-idx="' + idx + '" title="Delete Interface" style="color:var(--dead); border-color:var(--dead); padding:1px 5px;">🗑️</button>')
+            + '</div>'
+            + '<div class="fld" style="margin-top:0.3rem;"><label>Kind</label>'
+            + '<select data-iface-kind-idx="' + idx + '" class="inp-iface-kind"' + (isReadOnly ? ' disabled' : '') + '>'
+            + '<option value="pub"' + (f.kind === 'pub' ? ' selected' : '') + '>Publisher (pub)</option>'
+            + '<option value="sub"' + (f.kind === 'sub' ? ' selected' : '') + '>Subscriber (sub)</option>'
+            + '<option value="ss"' + (f.kind === 'ss' ? ' selected' : '') + '>Service Server (ss)</option>'
+            + '<option value="sc"' + (f.kind === 'sc' ? ' selected' : '') + '>Service Client (sc)</option>'
+            + '<option value="as"' + (f.kind === 'as' ? ' selected' : '') + '>Action Server (as)</option>'
+            + '<option value="ac"' + (f.kind === 'ac' ? ' selected' : '') + '>Action Client (ac)</option>'
+            + '</select></div>'
+            + '<div class="fld" style="margin-top:0.3rem;"><label>Type (Message / Topic)</label>'
+            + '<input type="text" list="' + listId + '" data-iface-idx="' + idx + '" class="inp-iface-type" value="' + esc(f.type || '') + '" placeholder="e.g. sensor_msgs/msg/Image"' + (isReadOnly ? ' disabled' : '') + '>'
+            + '</div>';
+
+          if (f.kind === 'pub' || f.kind === 'sub') {
+            var qos = f.qos || {};
+            var qosCount = Object.keys(qos).filter(function(k) { return qos[k] && String(qos[k]).trim() !== ''; }).length;
+            var qosBadgeText = qos.profile ? qos.profile : (qosCount > 0 ? (qosCount + ' set') : 'Default');
+            var isOpen = openQosMap[idx] ? ' open' : '';
+
+            h += '<details class="qos-details" data-qos-idx="' + idx + '"' + isOpen + '>'
+              + '<summary>'
+              + '<span>Quality of Service (QoS)</span>'
+              + '<span class="badge" style="font-size:0.62rem; padding:1px 5px; border-radius:3px; background:' + (qosCount > 0 ? 'var(--accent)' : 'var(--rule)') + '; color:' + (qosCount > 0 ? 'var(--accent-text)' : 'var(--ink-2)') + ';">' + esc(qosBadgeText) + '</span>'
+              + '</summary>'
+              + '<div class="qos-grid">';
+
+            // Profile
+            h += '<div class="fld" style="grid-column: span 2;"><label>Profile</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="profile"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!qos.profile ? ' selected' : '') + '>(Default / Custom)</option>'
+              + '<option value="default_qos"' + (qos.profile === 'default_qos' ? ' selected' : '') + '>default_qos</option>'
+              + '<option value="sensor_qos"' + (qos.profile === 'sensor_qos' ? ' selected' : '') + '>sensor_qos</option>'
+              + '<option value="services_qos"' + (qos.profile === 'services_qos' ? ' selected' : '') + '>services_qos</option>'
+              + '<option value="parameter_qos"' + (qos.profile === 'parameter_qos' ? ' selected' : '') + '>parameter_qos</option>'
+              + '</select></div>';
+
+            // Reliability
+            h += '<div class="fld"><label>Reliability</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="reliability"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!qos.reliability ? ' selected' : '') + '>(Unset)</option>'
+              + '<option value="reliable"' + (qos.reliability === 'reliable' ? ' selected' : '') + '>reliable</option>'
+              + '<option value="best_effort"' + (qos.reliability === 'best_effort' ? ' selected' : '') + '>best_effort</option>'
+              + '</select></div>';
+
+            // Durability
+            h += '<div class="fld"><label>Durability</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="durability"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!qos.durability ? ' selected' : '') + '>(Unset)</option>'
+              + '<option value="volatile"' + (qos.durability === 'volatile' ? ' selected' : '') + '>volatile</option>'
+              + '<option value="transient_local"' + (qos.durability === 'transient_local' ? ' selected' : '') + '>transient_local</option>'
+              + '</select></div>';
+
+            // History
+            h += '<div class="fld"><label>History</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="history"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!qos.history ? ' selected' : '') + '>(Unset)</option>'
+              + '<option value="keep_last"' + (qos.history === 'keep_last' ? ' selected' : '') + '>keep_last</option>'
+              + '<option value="keep_all"' + (qos.history === 'keep_all' ? ' selected' : '') + '>keep_all</option>'
+              + '</select></div>';
+
+            // Depth
+            var depthVal = qos.depth != null ? String(qos.depth) : '';
+            var depthOptions = ['1', '5', '10', '20', '50', '100', '1000'];
+            var hasCustomDepth = depthVal && depthOptions.indexOf(depthVal) === -1;
+            h += '<div class="fld"><label>Depth</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="depth"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!depthVal ? ' selected' : '') + '>(Unset)</option>';
+            if (hasCustomDepth) {
+              h += '<option value="' + esc(depthVal) + '" selected>' + esc(depthVal) + '</option>';
+            }
+            depthOptions.forEach(function(d) {
+              h += '<option value="' + d + '"' + (depthVal === d ? ' selected' : '') + '>' + d + '</option>';
+            });
+            h += '</select></div>';
+
+            // Liveliness
+            h += '<div class="fld"><label>Liveliness</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="liveliness"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!qos.liveliness ? ' selected' : '') + '>(Unset)</option>'
+              + '<option value="automatic"' + (qos.liveliness === 'automatic' ? ' selected' : '') + '>automatic</option>'
+              + '<option value="manual"' + (qos.liveliness === 'manual' ? ' selected' : '') + '>manual</option>'
+              + '</select></div>';
+
+            // Deadline
+            var deadlineVal = qos.deadline != null ? String(qos.deadline) : '';
+            var durationOptions = ['infinite', '100ms', '500ms', '1s', '2s', '5s', '10s'];
+            var hasCustomDeadline = deadlineVal && durationOptions.indexOf(deadlineVal) === -1;
+            h += '<div class="fld"><label>Deadline</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="deadline"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!deadlineVal ? ' selected' : '') + '>(Unset)</option>';
+            if (hasCustomDeadline) {
+              h += '<option value="' + esc(deadlineVal) + '" selected>' + esc(deadlineVal) + '</option>';
+            }
+            durationOptions.forEach(function(dur) {
+              h += '<option value="' + dur + '"' + (deadlineVal === dur ? ' selected' : '') + '>' + dur + '</option>';
+            });
+            h += '</select></div>';
+
+            // Lifespan
+            var lifespanVal = qos.lifespan != null ? String(qos.lifespan) : '';
+            var hasCustomLifespan = lifespanVal && durationOptions.indexOf(lifespanVal) === -1;
+            h += '<div class="fld"><label>Lifespan</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="lifespan"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!lifespanVal ? ' selected' : '') + '>(Unset)</option>';
+            if (hasCustomLifespan) {
+              h += '<option value="' + esc(lifespanVal) + '" selected>' + esc(lifespanVal) + '</option>';
+            }
+            durationOptions.forEach(function(dur) {
+              h += '<option value="' + dur + '"' + (lifespanVal === dur ? ' selected' : '') + '>' + dur + '</option>';
+            });
+            h += '</select></div>';
+
+            // Lease Duration
+            var leaseVal = qos.lease_duration != null ? String(qos.lease_duration) : '';
+            var hasCustomLease = leaseVal && durationOptions.indexOf(leaseVal) === -1;
+            h += '<div class="fld" style="grid-column: span 2;"><label>Lease Duration</label>'
+              + '<select class="inp-iface-qos" data-iface-idx="' + idx + '" data-qos-key="lease_duration"' + (isReadOnly ? ' disabled' : '') + '>'
+              + '<option value=""' + (!leaseVal ? ' selected' : '') + '>(Unset)</option>';
+            if (hasCustomLease) {
+              h += '<option value="' + esc(leaseVal) + '" selected>' + esc(leaseVal) + '</option>';
+            }
+            durationOptions.forEach(function(dur) {
+              h += '<option value="' + dur + '"' + (leaseVal === dur ? ' selected' : '') + '>' + dur + '</option>';
+            });
+            h += '</select></div>';
+
+            // Clear QoS button row if any QoS set
+            if (qosCount > 0 && !isReadOnly) {
+              h += '<div style="grid-column: span 2; display:flex; justify-content:flex-end; margin-top:0.2rem;">'
+                + '<button type="button" class="btn btn-sm btn-clear-qos" data-clear-qos-idx="' + idx + '" style="padding:2px 8px; font-size:0.68rem; color:var(--dead); border:1px solid var(--dead); background:transparent; border-radius:3px; cursor:pointer;">Reset QoS to Default</button>'
+                + '</div>';
+            }
+
+            h += '</div></details>';
+          }
+
+          h += '</div>';
+        });
+      }
 
       // Parameters Section
       var paramsList = n.params || [];
-      h += '<div class="insec-head" style="margin-top:1.1rem; display:flex; justify-content:space-between; align-items:center;">'
-        + '<span class="insec-title">Parameters (' + paramsList.length + ')</span>'
-        + '<button class="btn btn-sm" id="btnAddParam" style="padding:2px 8px; font-size:0.72rem; background:var(--accent); color:var(--accent-text);" title="Add Parameter">+ Add Parameter</button>'
-        + '</div>';
-
-      paramsList.forEach(function(p, pIdx) {
-        h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
-          + '<div style="display:flex; align-items:center; gap:0.3rem;">'
-          + '<span class="pk" style="background:var(--k-param-bg); color:var(--k-param); padding:1px 4px; border-radius:3px; font-size:0.65rem; font-weight:bold;">P</span>'
-          + '<input type="text" class="inp-param-name" data-param-name-idx="' + pIdx + '" value="' + esc(p.name || p.label) + '" placeholder="Parameter name" style="flex:1; font-weight:600; font-size:0.8rem; padding:2px 5px;">'
-          + '<button class="btn btn-sm btn-del-param" data-del-param-idx="' + pIdx + '" title="Delete Parameter" style="color:var(--dead); border-color:var(--dead); padding:1px 5px;">🗑️</button>'
-          + '</div>'
-          + '<div style="display:flex; gap:0.4rem; margin-top:0.3rem;">'
-          + '<select class="inp-param-type" data-param-type-idx="' + pIdx + '" style="width:40%;">'
-          + '<option value="String"' + (p.ptype === 'String' ? ' selected' : '') + '>String</option>'
-          + '<option value="Integer"' + (p.ptype === 'Integer' ? ' selected' : '') + '>Integer</option>'
-          + '<option value="Double"' + (p.ptype === 'Double' ? ' selected' : '') + '>Double</option>'
-          + '<option value="Boolean"' + (p.ptype === 'Boolean' ? ' selected' : '') + '>Boolean</option>'
-          + '<option value="Array"' + (p.ptype === 'Array' ? ' selected' : '') + '>Array</option>'
-          + '</select>'
-          + '<input type="text" class="inp-param-val" data-param-val-idx="' + pIdx + '" value="' + esc(p.sysValue != null ? p.sysValue : (p.value != null ? p.value : '')) + '" placeholder="Value" style="flex:1; padding:2px 5px;">'
-          + '</div>'
+      if (isRosSystem) {
+        h += '<div class="insec-head" style="margin-top:1.1rem; display:flex; justify-content:space-between; align-items:center;">'
+          + '<span class="insec-title">Parameters (' + paramsList.length + ')</span>'
           + '</div>';
-      });
 
-      h += '<button class="btn" id="btnDeleteNode" style="margin-top:1rem; color:var(--dead); border-color:var(--dead);">Delete Node</button>';
+        paramsList.forEach(function(p, pIdx) {
+          var hasSysVal = p.sysValue != null && String(p.sysValue).trim() !== '';
+          var defaultText = p.value != null ? String(p.value) : '';
+          h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
+            + '<div style="display:flex; align-items:center; justify-content:space-between; gap:0.3rem;">'
+            + '<div style="display:flex; align-items:center; gap:0.3rem;">'
+            + '<span class="pk" style="background:var(--k-param-bg); color:var(--k-param); padding:1px 4px; border-radius:3px; font-size:0.65rem; font-weight:bold;">P</span>'
+            + '<span style="font-weight:600; font-size:0.8rem;">' + esc(p.name) + '</span>'
+            + '<span style="font-size:0.68rem; color:var(--ink-3);">(' + esc(p.ptype || 'String') + ')</span>'
+            + '</div>'
+            + '<span style="font-size:0.68rem; color:var(--ink-3);">' + (defaultText ? 'Default: <code>' + esc(defaultText) + '</code>' : '<em style="opacity:0.7;">(no default)</em>') + '</span>'
+            + '</div>'
+            + '<div style="margin-top:0.3rem;">'
+            + '<div style="display:flex; align-items:center; gap:0.4rem;">'
+            + '<label style="font-size:0.68rem; color:var(--ink-2); white-space:nowrap;">Launch Value:</label>'
+            + '<input type="text" class="inp-param-sysval" data-param-idx="' + pIdx + '" value="' + esc(p.sysValue != null ? String(p.sysValue) : '') + '" placeholder="' + (defaultText ? 'Inherits default (' + esc(defaultText) + ')' : 'Mandatory to configure') + '"' + (isReadOnly ? ' disabled' : '') + ' style="flex:1; padding:2px 5px; font-size:0.75rem;">'
+            + '</div>'
+            + '<div style="font-size:0.65rem; margin-top:2px; color:' + (hasSysVal ? 'var(--accent-hover)' : 'var(--ink-3)') + ';">'
+            + (hasSysVal ? '✅ Included in .rossystem' : '⚪ Omitted from .rossystem (empty)')
+            + '</div>'
+            + '</div>'
+            + '</div>';
+        });
+      } else {
+        h += '<div class="insec-head" style="margin-top:1.1rem; display:flex; justify-content:space-between; align-items:center;">'
+          + '<span class="insec-title">Parameters (' + paramsList.length + ')</span>'
+          + (isReadOnly ? '' : '<button class="btn btn-sm" id="btnAddParam" style="padding:2px 8px; font-size:0.72rem; background:var(--accent); color:var(--accent-text);" title="Add Parameter">+ Add Parameter</button>')
+          + '</div>';
+
+        paramsList.forEach(function(p, pIdx) {
+          h += '<div style="padding:0.4rem 0; border-bottom:1px solid var(--rule-soft);">'
+            + '<div style="display:flex; align-items:center; gap:0.3rem;">'
+            + '<span class="pk" style="background:var(--k-param-bg); color:var(--k-param); padding:1px 4px; border-radius:3px; font-size:0.65rem; font-weight:bold;">P</span>'
+            + '<input type="text" class="inp-param-name" data-param-name-idx="' + pIdx + '" value="' + esc(p.name || p.label) + '" placeholder="Parameter name"' + (isReadOnly ? ' disabled' : '') + ' style="flex:1; font-weight:600; font-size:0.8rem; padding:2px 5px;">'
+            + (isReadOnly ? '' : '<button class="btn btn-sm btn-del-param" data-del-param-idx="' + pIdx + '" title="Delete Parameter" style="color:var(--dead); border-color:var(--dead); padding:1px 5px;">🗑️</button>')
+            + '</div>'
+            + '<div style="display:flex; gap:0.4rem; margin-top:0.3rem;">'
+            + '<select class="inp-param-type" data-param-type-idx="' + pIdx + '"' + (isReadOnly ? ' disabled' : '') + ' style="width:40%;">'
+            + '<option value="String"' + (p.ptype === 'String' ? ' selected' : '') + '>String</option>'
+            + '<option value="Integer"' + (p.ptype === 'Integer' ? ' selected' : '') + '>Integer</option>'
+            + '<option value="Double"' + (p.ptype === 'Double' ? ' selected' : '') + '>Double</option>'
+            + '<option value="Boolean"' + (p.ptype === 'Boolean' ? ' selected' : '') + '>Boolean</option>'
+            + '<option value="Array"' + (p.ptype === 'Array' ? ' selected' : '') + '>Array</option>'
+            + '</select>'
+            + '<input type="text" class="inp-param-val" data-param-val-idx="' + pIdx + '" value="' + esc(p.sysValue != null ? p.sysValue : (p.value != null ? p.value : '')) + '" placeholder="Value"' + (isReadOnly ? ' disabled' : '') + ' style="flex:1; padding:2px 5px;">'
+            + '</div>'
+            + '</div>';
+        });
+      }
+
+      if (!isReadOnly) {
+        h += '<button class="btn" id="btnDeleteNode" style="margin-top:1rem; color:var(--dead); border-color:var(--dead);">Delete Node</button>';
+      }
       container.innerHTML = h;
 
       function updateNodePackageAndArtifact(node, pkgVal, artVal) {
@@ -4812,7 +5062,11 @@ export function getStudioHtml(
         sel.onchange = function(e) {
           var idx = parseInt(sel.dataset.ifaceKindIdx, 10);
           pushUndo();
-          n.ifaces[idx].kind = e.target.value;
+          var newKind = e.target.value;
+          n.ifaces[idx].kind = newKind;
+          if (newKind !== "pub" && newKind !== "sub") {
+            delete n.ifaces[idx].qos;
+          }
           pruneIncompatibleConnections(n, n.ifaces[idx]);
           render();
           fillInspector();
@@ -4829,6 +5083,44 @@ export function getStudioHtml(
           render();
           fillInspector();
           syncDoc();
+        };
+      });
+
+      document.querySelectorAll(".inp-iface-qos").forEach(function(sel) {
+        sel.onchange = function(e) {
+          var idx = parseInt(sel.dataset.ifaceIdx, 10);
+          var key = sel.dataset.qosKey;
+          var val = e.target.value;
+          if (n.ifaces[idx]) {
+            pushUndo();
+            n.ifaces[idx].qos = n.ifaces[idx].qos || {};
+            if (val && val.trim() !== "") {
+              n.ifaces[idx].qos[key] = val.trim();
+            } else {
+              delete n.ifaces[idx].qos[key];
+            }
+            if (Object.keys(n.ifaces[idx].qos).length === 0) {
+              delete n.ifaces[idx].qos;
+            }
+            render();
+            fillInspector();
+            syncDoc();
+          }
+        };
+      });
+
+      document.querySelectorAll(".btn-clear-qos").forEach(function(btn) {
+        btn.onclick = function(e) {
+          e.stopPropagation();
+          e.preventDefault();
+          var idx = parseInt(btn.dataset.clearQosIdx, 10);
+          if (n.ifaces[idx]) {
+            pushUndo();
+            delete n.ifaces[idx].qos;
+            render();
+            fillInspector();
+            syncDoc();
+          }
         };
       });
 
@@ -4899,21 +5191,69 @@ export function getStudioHtml(
         };
       });
 
-      document.getElementById("btnDeleteNode").onclick = function() {
-        pushUndo();
-        var deletedLabel = n.label;
-        project.nodes = project.nodes.filter(function(x) { return x.id !== n.id; });
-        project.connections = project.connections.filter(function(c) { return c.from.n !== n.id && c.to.n !== n.id; });
-        if (project.processes) {
-          project.processes.forEach(function(p) {
-            if (p.nodes) {
-              p.nodes = p.nodes.filter(function(x) { return x !== deletedLabel; });
-            }
+      var btnOpenComp = document.getElementById("btnOpenComponentRos2");
+      if (btnOpenComp) {
+        btnOpenComp.onclick = function() {
+          vscode.postMessage({
+            type: 'openComponentRos2',
+            from: n.from,
+            pkg: n.pkg,
+            artifact: n.artifact,
+            label: n.label
           });
-        }
-        selNode = null;
-        render(); fillInspector(); syncDoc();
-      };
+        };
+      }
+
+      document.querySelectorAll(".inp-iface-remap").forEach(function(inp) {
+        inp.onchange = function(e) {
+          var idx = parseInt(inp.dataset.ifaceIdx, 10);
+          if (n.ifaces[idx]) {
+            pushUndo();
+            var val = e.target.value.trim();
+            n.ifaces[idx].label = val || n.ifaces[idx].name;
+            render();
+            syncDoc();
+          }
+        };
+      });
+
+      document.querySelectorAll(".inp-param-sysval").forEach(function(inp) {
+        inp.onchange = function(e) {
+          var idx = parseInt(inp.dataset.paramIdx, 10);
+          if (n.params[idx]) {
+            pushUndo();
+            var val = e.target.value.trim();
+            if (val !== "") {
+              n.params[idx].sysValue = val;
+              n.params[idx].exposed = true;
+            } else {
+              delete n.params[idx].sysValue;
+              n.params[idx].exposed = false;
+            }
+            fillInspector();
+            syncDoc();
+          }
+        };
+      });
+
+      var btnDelNode = document.getElementById("btnDeleteNode");
+      if (btnDelNode) {
+        btnDelNode.onclick = function() {
+          pushUndo();
+          var deletedLabel = n.label;
+          project.nodes = project.nodes.filter(function(x) { return x.id !== n.id; });
+          project.connections = project.connections.filter(function(c) { return c.from.n !== n.id && c.to.n !== n.id; });
+          if (project.processes) {
+            project.processes.forEach(function(p) {
+              if (p.nodes) {
+                p.nodes = p.nodes.filter(function(x) { return x !== deletedLabel; });
+              }
+            });
+          }
+          selNode = null;
+          render(); fillInspector(); syncDoc();
+        };
+      }
       return;
     }
 
@@ -4931,7 +5271,7 @@ export function getStudioHtml(
           + '<div class="fld"><label>Type</label><div class="sysname-input">' + esc(fi ? fi.type : '—') + '</div></div>'
           + '<div class="fld"><label>Routing / Waypoints</label><div class="sysname-input">' + wps.length + ' custom waypoint(s)' + (hasOffset ? ' + corridor offset' : '') + '</div></div>'
           + '<button class="btn" id="btnResetConnBends" style="margin-top:0.6rem; width:100%; font-size:0.75rem;">↺ Reset Bends &amp; Waypoints</button>'
-          + '<button class="btn" id="btnDeleteConn" style="margin-top:0.6rem; width:100%; color:var(--dead); border-color:var(--dead);">Delete Connection</button>';
+          + (isReadOnly ? '' : '<button class="btn" id="btnDeleteConn" style="margin-top:0.6rem; width:100%; color:var(--dead); border-color:var(--dead);">Delete Connection</button>');
         container.innerHTML = h;
 
         var btnReset = document.getElementById("btnResetConnBends");
@@ -4953,12 +5293,15 @@ export function getStudioHtml(
           };
         }
 
-        document.getElementById("btnDeleteConn").onclick = function() {
-          pushUndo();
-          project.connections = project.connections.filter(function(c) { return c.id !== selEdge; });
-          selEdge = null;
-          render(); fillInspector(); syncDoc();
-        };
+        var btnDelConn = document.getElementById("btnDeleteConn");
+        if (btnDelConn) {
+          btnDelConn.onclick = function() {
+            pushUndo();
+            project.connections = project.connections.filter(function(c) { return c.id !== selEdge; });
+            selEdge = null;
+            render(); fillInspector(); syncDoc();
+          };
+        }
         return;
       }
     }
@@ -5454,6 +5797,10 @@ export function getStudioHtml(
               + '<div class="csub">' + esc(k) + '</div>';
 
             card.onclick = function() {
+              if (isReadOnly) {
+                showToastWarning("Adding items is disabled for read-only core catalogue models.");
+                return;
+              }
               pushUndo();
               var uniqueLabel = typeLabel;
               var suffix = 1;
@@ -5528,6 +5875,10 @@ export function getStudioHtml(
               + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
             card.onclick = function() {
+              if (isReadOnly) {
+                showToastWarning("Adding components is disabled for read-only core catalogue models.");
+                return;
+              }
               pushUndo();
               var uniqueLabel = nodeLbl;
               var suffix = 1;
@@ -5542,6 +5893,7 @@ export function getStudioHtml(
                   label: f.label || f.name,
                   kind: f.kind || "pub",
                   type: f.type || "",
+                  qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
                   exposed: true
                 };
               });
@@ -5601,6 +5953,10 @@ export function getStudioHtml(
                 + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
               card.onclick = function() {
+                if (isReadOnly) {
+                  showToastWarning("Adding components is disabled for read-only core catalogue models.");
+                  return;
+                }
                 pushUndo();
                 var uniqueLabel = nodeLbl;
                 var suffix = 1;
@@ -5615,6 +5971,7 @@ export function getStudioHtml(
                     label: f.label || f.name,
                     kind: f.kind || "pub",
                     type: f.type || "",
+                    qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
                     exposed: true
                   };
                 });
@@ -5667,6 +6024,10 @@ export function getStudioHtml(
                 + '<div style="font-size:0.68rem; color:var(--k-subsystem); margin-top:2px;">' + nodeCount + ' component node(s)</div>';
 
               card.onclick = function() {
+                if (isReadOnly) {
+                  showToastWarning("Adding subsystems is disabled for read-only core catalogue models.");
+                  return;
+                }
                 pushUndo();
                 var uniqueRef = sysName;
                 var suffix = 1;
@@ -5702,6 +6063,7 @@ export function getStudioHtml(
                       label: f.label || f.name,
                       kind: f.kind || "pub",
                       type: f.type || "",
+                      qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
                       exposed: true
                     };
                   });

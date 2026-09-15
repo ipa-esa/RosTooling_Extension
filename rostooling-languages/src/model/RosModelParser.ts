@@ -581,8 +581,12 @@ export const RosModelParser = {
           continue;
         }
 
-        if (curQos && keyMatch && val) {
-          curQos[kw || ''] = this.unquote(val);
+        const validQosKeys = new Set([
+          'profile', 'history', 'depth', 'reliability', 'durability',
+          'lease_duration', 'liveliness', 'lifespan', 'deadline'
+        ]);
+        if (curQos && keyMatch && val && kw && validQosKeys.has(kw)) {
+          curQos[kw] = this.unquote(val);
           continue;
         }
 

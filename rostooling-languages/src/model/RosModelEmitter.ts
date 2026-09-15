@@ -151,23 +151,34 @@ export const RosModelEmitter = {
           lines.push('      interfaces:');
           for (const iface of exposedIfaces) {
             const expLabel = iface.label || iface.name;
-            const targetRef = node.artifact ? `${node.artifact}::${iface.name}` : iface.name;
+            const artName = node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+            const targetRef = artName ? `${artName}::${iface.name}` : iface.name;
             const kindArrow = `${iface.kind || 'pub'}->`;
             lines.push(`        - ${this.formatKey(expLabel)}: ${kindArrow} ${this.qDouble(targetRef)}`);
           }
         }
 
         // Node Parameters: '-' name=EString ':' from=[ros::Parameter|EString] / 'value:' value=ParameterValue
-        const exposedParams = (node.params || []).filter((p) => p.exposed !== false);
+        // RosSystem.xtext requires 'value:' for any parameter emitted in .rossystem.
+        // Omit parameters that have no value assigned.
+        const exposedParams = (node.params || []).filter((p) => {
+          if (p.exposed === false) return false;
+          const val = (p.sysValue !== undefined && p.sysValue !== null && String(p.sysValue).trim() !== '')
+            ? p.sysValue
+            : (p.value !== undefined && p.value !== null && String(p.value).trim() !== '' ? p.value : null);
+          return val !== null;
+        });
         if (exposedParams.length > 0) {
           lines.push('      parameters:');
           for (const param of exposedParams) {
             const expLabel = param.label || param.name;
-            const targetRef = node.artifact ? `${node.artifact}::${param.name}` : param.name;
+            const artName = node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+            const targetRef = artName ? `${artName}::${param.name}` : param.name;
+            const val = (param.sysValue !== undefined && param.sysValue !== null && String(param.sysValue).trim() !== '')
+              ? param.sysValue
+              : (param.value ?? '');
             lines.push(`        - ${this.formatKey(expLabel)}: ${this.qDouble(targetRef)}`);
-            if (param.sysValue !== undefined && param.sysValue !== null && param.sysValue !== '') {
-              lines.push(`          value: ${this.formatParamValue(param.ptype, param.sysValue)}`);
-            }
+            lines.push(`          value: ${this.formatParamValue(param.ptype, val)}`);
           }
         }
       }
@@ -303,9 +314,12 @@ export const RosModelEmitter = {
               lines.push(`          type: ${this.qSingle(iface.type)}`);
             }
             if (iface.qos && Object.keys(iface.qos).length > 0) {
-              lines.push('          qos:');
-              for (const [k, v] of Object.entries(iface.qos)) {
-                lines.push(`            ${k}: ${this.formatQosValue(k, v)}`);
+              const validEntries = Object.entries(iface.qos).filter(([, v]) => v != null && String(v).trim() !== '');
+              if (validEntries.length > 0) {
+                lines.push('          qos:');
+                for (const [k, v] of validEntries) {
+                  lines.push(`            ${k}: ${this.formatQosValue(k, v)}`);
+                }
               }
             }
           }

@@ -1714,4 +1714,349 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.strictEqual(emitted.includes('node_1:'), false, 'Must not emit stale artifact name');
     });
   });
+
+  suite('21. Component (.ros2) Interface QoS Dropdown Configuration & Lifecycle', () => {
+    test('Setting QoS dropdown values on publisher and subscriber serializes compliant Xtext/YAML QoS blocks', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'sensor_system' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_lidar',
+            label: 'lidar_driver',
+            pkg: 'sensor_pkg',
+            artifact: 'lidar_node',
+            from: 'sensor_pkg.lidar_node',
+            backing: 'local',
+            ifaces: [
+              {
+                id: 'i_scan',
+                name: 'scan',
+                label: 'scan',
+                kind: 'pub',
+                type: 'sensor_msgs/msg/LaserScan',
+                qos: {
+                  profile: 'sensor_qos',
+                  reliability: 'best_effort',
+                  durability: 'volatile',
+                  history: 'keep_last',
+                  depth: '10',
+                  deadline: '100ms',
+                  lifespan: 'infinite',
+                  lease_duration: '500ms',
+                  liveliness: 'automatic',
+                },
+                exposed: true,
+              },
+              {
+                id: 'i_sub_cmd',
+                name: 'cmd',
+                label: 'cmd',
+                kind: 'sub',
+                type: 'std_msgs/msg/String',
+                qos: {
+                  reliability: 'reliable',
+                  durability: 'transient_local',
+                  history: 'keep_all',
+                  depth: '50',
+                },
+                exposed: true,
+              },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const emitted = RosModelEmitter.emitRos2(project);
+      assert.ok(emitted.includes('qos:'), 'Emitted .ros2 must include qos: block');
+      assert.ok(emitted.includes('profile: sensor_qos'), 'Profile must be emitted bare');
+      assert.ok(emitted.includes('reliability: best_effort'), 'Reliability must be emitted bare');
+      assert.ok(emitted.includes('durability: volatile'), 'Durability must be emitted bare');
+      assert.ok(emitted.includes('history: keep_last'), 'History must be emitted bare');
+      assert.ok(emitted.includes('depth: 10'), 'Depth must be emitted as integer');
+      assert.ok(emitted.includes('deadline: "100ms"'), 'Deadline string must be quoted');
+      assert.ok(emitted.includes('lifespan: infinite'), 'Lifespan infinite must be bare');
+      assert.ok(emitted.includes('lease_duration: "500ms"'), 'Lease duration string must be quoted');
+      assert.ok(emitted.includes('liveliness: automatic'), 'Liveliness must be emitted bare');
+
+      // Roundtrip parse
+      const parsed = RosModelParser.parseRos2(emitted);
+      const pkg = parsed.packages['sensor_pkg'];
+      assert.ok(pkg, 'Package sensor_pkg must be parsed');
+      const art = pkg.artifacts.find((a) => a.name === 'lidar_node');
+      assert.ok(art, 'Artifact lidar_node must be parsed');
+      const scanIface = art.ifaces.find((f) => f.name === 'scan');
+      assert.ok(scanIface, 'Interface scan must be parsed');
+      assert.ok(scanIface.qos, 'Interface scan must have QoS object');
+      assert.strictEqual(scanIface.qos.profile, 'sensor_qos');
+      assert.strictEqual(scanIface.qos.reliability, 'best_effort');
+      assert.strictEqual(scanIface.qos.durability, 'volatile');
+      assert.strictEqual(scanIface.qos.history, 'keep_last');
+      assert.strictEqual(scanIface.qos.depth, '10');
+      assert.strictEqual(scanIface.qos.deadline, '100ms');
+      assert.strictEqual(scanIface.qos.lifespan, 'infinite');
+      assert.strictEqual(scanIface.qos.lease_duration, '500ms');
+      assert.strictEqual(scanIface.qos.liveliness, 'automatic');
+
+      const cmdIface = art.ifaces.find((f) => f.name === 'cmd');
+      assert.ok(cmdIface && cmdIface.qos, 'Interface cmd must have QoS');
+      assert.strictEqual(cmdIface.qos.reliability, 'reliable');
+      assert.strictEqual(cmdIface.qos.durability, 'transient_local');
+      assert.strictEqual(cmdIface.qos.history, 'keep_all');
+      assert.strictEqual(cmdIface.qos.depth, '50');
+    });
+
+    test('Clearing QoS removes qos: block cleanly from emitted .ros2', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'sensor_system' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_lidar',
+            label: 'lidar_driver',
+            pkg: 'sensor_pkg',
+            artifact: 'lidar_node',
+            from: 'sensor_pkg.lidar_node',
+            backing: 'local',
+            ifaces: [
+              {
+                id: 'i_scan',
+                name: 'scan',
+                label: 'scan',
+                kind: 'pub',
+                type: 'sensor_msgs/msg/LaserScan',
+                exposed: true,
+              },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const emitted = RosModelEmitter.emitRos2(project);
+      assert.strictEqual(emitted.includes('qos:'), false, 'Emitted output must not include qos: block when QoS is empty or absent');
+    });
+
+    test('Webview HTML provides pure dropdown selectors for all QoS properties', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: false,
+        system: { name: 'sensor_system' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+      const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'sensor_nodes.ros2');
+      assert.ok(html.includes('details.qos-details'), 'HTML must include CSS styles for QoS details panel');
+      assert.ok(html.includes('.qos-grid'), 'HTML must include CSS grid for QoS fields');
+      assert.ok(html.includes('Quality of Service (QoS)'), 'HTML must render Quality of Service section header');
+      assert.ok(html.includes('data-qos-key="profile"'), 'HTML must include profile dropdown selector');
+      assert.ok(html.includes('data-qos-key="reliability"'), 'HTML must include reliability dropdown selector');
+      assert.ok(html.includes('data-qos-key="durability"'), 'HTML must include durability dropdown selector');
+      assert.ok(html.includes('data-qos-key="history"'), 'HTML must include history dropdown selector');
+      assert.ok(html.includes('data-qos-key="depth"'), 'HTML must include depth dropdown selector');
+      assert.ok(html.includes('data-qos-key="liveliness"'), 'HTML must include liveliness dropdown selector');
+      assert.ok(html.includes('data-qos-key="deadline"'), 'HTML must include deadline dropdown selector');
+      assert.ok(html.includes('data-qos-key="lifespan"'), 'HTML must include lifespan dropdown selector');
+      assert.ok(html.includes('data-qos-key="lease_duration"'), 'HTML must include lease_duration dropdown selector');
+      assert.ok(html.includes('btn-clear-qos'), 'HTML must include Reset QoS to Default button');
+      assert.ok(html.includes('default_qos'), 'HTML must include default_qos option');
+      assert.ok(html.includes('sensor_qos'), 'HTML must include sensor_qos option');
+    });
+  });
+
+  suite('22. System View Node Remapping, RosSystem Parameter Isolation, and Core Catalogue Read-Only Enforcement', () => {
+    test('Interface remapping in .rossystem preserves target component reference and emits valid kind arrow', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'perception_bringup' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_cv_camera_node',
+            label: 'cv_camera_node',
+            from: 'cv_camera.cv_camera_node',
+            artifact: 'cv_camera_node',
+            pkg: 'cv_camera',
+            ifaces: [
+              {
+                id: 'i_cv_camera_node_camera_info',
+                name: 'camera_info',
+                label: 'camera_info',
+                kind: 'pub',
+                type: 'sensor_msgs/msg/CameraInfo',
+                exposed: true,
+              },
+              {
+                id: 'i_cv_camera_node_set_camera_info',
+                name: 'set_camera_info',
+                label: 'set_camera_info_test', // User remapped name in system
+                kind: 'ss',
+                type: 'sensor_msgs/srv/SetCameraInfo',
+                exposed: true,
+              },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const emitted = RosModelEmitter.emitRosSystem(project);
+      assert.ok(emitted.includes('- camera_info: pub-> "cv_camera_node::camera_info"'), 'Default interface label points to target reference');
+      assert.ok(emitted.includes('- set_camera_info_test: ss-> "cv_camera_node::set_camera_info"'), 'Remapped interface label must preserve original component target reference');
+      assert.ok(!emitted.includes('set_camera_info_test::'), 'Target reference must never be corrupted by remapped label');
+    });
+
+    test('Parameters without assigned launch values are omitted from .rossystem and assigned values emit mandatory value: clause', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'perception_bringup' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_cv_camera_node',
+            label: 'cv_camera_node',
+            from: 'cv_camera.cv_camera_node',
+            artifact: 'cv_camera_node',
+            pkg: 'cv_camera',
+            ifaces: [],
+            params: [
+              {
+                id: 'p_cv_camera_node_image_width',
+                name: 'image_width',
+                label: 'image_width',
+                ptype: 'Integer',
+                value: undefined, // Component has no default value
+                sysValue: undefined, // User did not configure it in system
+                exposed: false,
+              },
+              {
+                id: 'p_cv_camera_node_device_id',
+                name: 'device_id',
+                label: 'device_id',
+                ptype: 'Integer',
+                value: 0, // Component default value
+                sysValue: '1', // User assigned launch value in system
+                exposed: true,
+              },
+            ],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const emitted = RosModelEmitter.emitRosSystem(project);
+      assert.ok(!emitted.includes('image_width'), 'Unconfigured parameters without values must be omitted from .rossystem');
+      assert.ok(emitted.includes('parameters:'), 'Parameters block should be emitted when configured parameter exists');
+      assert.ok(emitted.includes('- device_id: "cv_camera_node::device_id"'), 'Configured parameter should be emitted with target ref');
+      assert.ok(emitted.includes('value: 1'), 'Emitted parameter must have mandatory value: clause per RosSystem.xtext');
+    });
+
+    test('Core catalogue detection correctly identifies catalogue folders vs workspace models', () => {
+      const mockContext = {
+        extensionPath: '/mock/ext',
+        globalStorageUri: vscode.Uri.file('/mock/storage'),
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new RosCustomEditorProvider(mockContext);
+      assert.strictEqual(provider.isCoreCatalogue('/home/adm-esa/coresense-ws/src/RosModelsCatalog/cameras/cv_camera.ros2'), true);
+      assert.strictEqual(provider.isCoreCatalogue('/home/adm-esa/coresense-ws/src/RosCommonObjects/basic_msgs/sensor_msgs.ros'), true);
+      assert.strictEqual(provider.isCoreCatalogue('/home/user/.rostooling/catalogue_repos/RosModelsCatalog/models.ros2'), true);
+      assert.strictEqual(provider.isCoreCatalogue('/mock/ext/assets/nodes/node_index.json'), true);
+      assert.strictEqual(provider.isCoreCatalogue('/home/adm-esa/coresense-ws/src/RosTooling_Extension/demo/test_ws/src/test_system/test_node.ros2'), false);
+      assert.strictEqual(provider.isCoreCatalogue('/home/adm-esa/coresense-ws/src/RosTooling_Extension/demo/test_ws/src/test_system/mock_robot_system/perception_bringup.rossystem'), false);
+    });
+
+    test('System view inspector specializes node properties: component link button, remapping, parameter launch values', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'perception_bringup' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_cam',
+            label: 'cv_camera_node',
+            from: 'cv_camera.cv_camera_node',
+            artifact: 'cv_camera_node',
+            pkg: 'cv_camera',
+            ifaces: [
+              { id: 'i1', name: 'camera_info', label: 'camera_info', kind: 'pub', type: 'sensor_msgs/msg/CameraInfo', exposed: true },
+            ],
+            params: [
+              { id: 'p1', name: 'image_width', label: 'image_width', ptype: 'Integer', value: undefined, exposed: false },
+            ],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
+      assert.ok(html.includes('btnOpenComponentRos2'), 'Inspector must render Edit Component in .ros2 View button');
+      assert.ok(html.includes('Edit Component in .ros2 View'), 'Button label must match specification');
+      assert.ok(html.includes('inp-iface-remap'), 'Inspector must render Remapped Name input field in System view');
+      assert.ok(html.includes('id="inpNodeFrom"') && html.includes('readonly style="opacity:0.85; background:var(--surface-2)'), 'Component definition must be read-only in System view');
+    });
+
+    test('Core catalogue read-only mode displays badge, disables inputs, and prevents modifications', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: false,
+        system: { name: 'cv_camera' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n1',
+            label: 'cv_camera_node',
+            from: 'cv_camera.cv_camera_node',
+            artifact: 'cv_camera_node',
+            pkg: 'cv_camera',
+            ifaces: [],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, '/coresense-ws/src/RosModelsCatalog/cameras/cv_camera.ros2', true);
+      assert.ok(html.includes('readOnlyBadge'), 'Topbar must display read-only badge');
+      assert.ok(html.includes('Core Catalogue (Read-Only)'), 'Badge text must clearly indicate core catalogue read-only');
+      assert.ok(html.includes('var isReadOnly = true;'), 'Client script must have isReadOnly set to true');
+      assert.ok(!html.includes('id="btnOpenCatalogue"'), 'Catalogue add button must be omitted in read-only mode');
+      assert.ok(html.includes('sysNameInput" class="sysname-input" value="cv_camera" placeholder="Enter package name..." disabled'), 'Model name input must be disabled in read-only mode');
+    });
+  });
 });
