@@ -1285,7 +1285,8 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const systemHtml = getStudioHtml(systemProj, mockUri, mockWebview, {}, {}, 'my_sys.rossystem');
-      assert.ok(systemHtml.includes('id="btnAddNode"'), '.rossystem mode MUST render + Add New Node');
+      assert.ok(!systemHtml.includes('id="btnAddNode"'), '.rossystem mode must NOT render + Add New Node');
+      assert.ok(systemHtml.includes('id="btnAddSystemNode"'), '.rossystem mode MUST render + Import Node');
       assert.ok(systemHtml.includes('id="btnAddSubsystem"'), '.rossystem mode MUST render + Import Subsystem');
       assert.ok(systemHtml.includes('id="subsystemSection"'), '.rossystem mode MUST render subsystemSection');
       assert.ok(systemHtml.includes('id="processSection"'), '.rossystem mode MUST render processSection');
@@ -2057,6 +2058,70 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.ok(html.includes('var isReadOnly = true;'), 'Client script must have isReadOnly set to true');
       assert.ok(!html.includes('id="btnOpenCatalogue"'), 'Catalogue add button must be omitted in read-only mode');
       assert.ok(html.includes('sysNameInput" class="sysname-input" value="cv_camera" placeholder="Enter package name..." disabled'), 'Model name input must be disabled in read-only mode');
+    });
+
+    test('System view disallows blank node creation and enables catalogue and workspace node import', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'perception_bringup' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
+      assert.ok(!html.includes('id="btnAddNode"'), 'System view must NOT have + Add New Node button');
+      assert.ok(html.includes('id="btnAddSystemNode"'), 'System view MUST have + Import Node button');
+      assert.ok(html.includes('+ Import Node'), 'System view button text must read + Import Node');
+      assert.ok(html.includes('safeClick("btnAddSystemNode"'), 'System view must wire click handler for btnAddSystemNode');
+      assert.ok(html.includes('activeCatTab = "nodes";'), 'Import Node button must activate nodes tab in catalogue drawer');
+      assert.ok(html.includes('body.mode-system #btnAddNode'), 'CSS must enforce that btnAddNode is hidden in mode-system');
+    });
+
+    test('Changing Node Label in system view does NOT alter component definition (from and artifact)', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'perception_bringup' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_defect_detector',
+            label: 'defect_detector',
+            from: 'inspection_nodes.ai_defect_detector',
+            artifact: 'ai_defect_detector',
+            pkg: 'inspection_nodes',
+            ifaces: [
+              { id: 'i1', name: 'image_raw', label: 'image_raw', kind: 'sub', type: 'sensor_msgs/msg/Image', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      // 1. Verify emitted YAML preserves component definition and component interface target
+      const emitted = RosModelEmitter.emitRosSystem(project);
+      assert.ok(emitted.includes('defect_detector:'), 'Emitted YAML must use the new node label');
+      assert.ok(emitted.includes('from: "inspection_nodes.ai_defect_detector"'), 'Emitted YAML must preserve the original component definition');
+      assert.ok(emitted.includes('image_raw: sub-> "ai_defect_detector::image_raw"'), 'Target reference must preserve original component artifact and interface name');
+      assert.ok(!emitted.includes('inspection_nodes.defect_detector'), 'Emitted YAML must NEVER invent a non-existent component definition');
+
+      // 2. Verify webview client script prevents altering from/artifact on label change in system view
+      const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
+      assert.ok(html.includes('if (!isRosSystem && !isRos)'), 'Inspector label change handler must guard from/artifact mutation against system mode');
+      assert.ok(html.includes('updateNodePackageAndArtifact(node, pkgVal, artVal) {\n        if (isRosSystem) return;'), 'updateNodePackageAndArtifact must guard against modifying component definition in system mode');
     });
   });
 });

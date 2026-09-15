@@ -1168,6 +1168,7 @@ export function getStudioHtml(
 
   /* Mode-specific visibility rules */
   body.mode-ros #btnAddNode,
+  body.mode-ros #btnAddSystemNode,
   body.mode-ros #btnAddSubsystem,
   body.mode-ros #subsystemSection,
   body.mode-ros #processSection,
@@ -1184,6 +1185,7 @@ export function getStudioHtml(
     display: block !important;
   }
 
+  body.mode-component #btnAddSystemNode,
   body.mode-component #btnAddSubsystem,
   body.mode-component #subsystemSection,
   body.mode-component #processSection,
@@ -1193,6 +1195,7 @@ export function getStudioHtml(
     display: none !important;
   }
 
+  body.mode-system #btnAddNode,
   body.mode-system #btnAddCommObject,
   body.mode-system #commObjectBtnGroup,
   body.mode-system #filterTypeSection {
@@ -1244,7 +1247,8 @@ export function getStudioHtml(
   <div class="rail">
     <div class="rail-section">
       <div class="rail-title">Quick Actions</div>
-      ${!isRos ? '<button class="btn" id="btnAddNode" style="width:100%; justify-content:center;">+ Add New Node</button>' : ''}
+      ${!isRos && !isRosSystem ? '<button class="btn" id="btnAddNode" style="width:100%; justify-content:center;">+ Add New Node</button>' : ''}
+      ${isRosSystem ? '<button class="btn" id="btnAddSystemNode" style="width:100%; justify-content:center;" title="Import node from catalogue or workspace">+ Import Node</button>' : ''}
       ${isRosSystem ? '<button class="btn" id="btnAddSubsystem" style="width:100%; justify-content:center;">+ Import Subsystem</button>' : ''}
       ${isRos ? `
       <button class="btn primary" id="btnAddCommObject" style="width:100%; justify-content:center; display:flex;" title="Add new communication object">+ Add Comm Object</button>
@@ -1823,6 +1827,8 @@ export function getStudioHtml(
   if (isRos) {
     var btnAddNode = document.getElementById("btnAddNode");
     if (btnAddNode) btnAddNode.style.display = "none";
+    var btnAddSysNode = document.getElementById("btnAddSystemNode");
+    if (btnAddSysNode) btnAddSysNode.style.display = "none";
     var btnAddSub = document.getElementById("btnAddSubsystem");
     if (btnAddSub) btnAddSub.style.display = "none";
     var subSection = document.getElementById("subsystemSection");
@@ -1843,8 +1849,13 @@ export function getStudioHtml(
     if (subSection) subSection.style.display = "none";
     var btnAddSub = document.getElementById("btnAddSubsystem");
     if (btnAddSub) btnAddSub.style.display = "none";
+    var btnAddSysNode = document.getElementById("btnAddSystemNode");
+    if (btnAddSysNode) btnAddSysNode.style.display = "none";
     var procSection = document.getElementById("processSection");
     if (procSection) procSection.style.display = "none";
+  } else {
+    var btnAddNode = document.getElementById("btnAddNode");
+    if (btnAddNode) btnAddNode.style.display = "none";
   }
 
   function esc(s) {
@@ -4873,6 +4884,7 @@ export function getStudioHtml(
       container.innerHTML = h;
 
       function updateNodePackageAndArtifact(node, pkgVal, artVal) {
+        if (isRosSystem) return;
         pushUndo();
         var cleanPkg = sanitizeName(pkgVal);
         var cleanArt = sanitizeName(artVal);
@@ -4928,9 +4940,11 @@ export function getStudioHtml(
           if (!newLabel || newLabel === oldLabel) return;
           pushUndo();
           n.label = newLabel;
-          if (!n.artifact || n.artifact === oldLabel) {
-            n.artifact = newLabel;
-            n.from = (n.pkg ? n.pkg + "." : "") + newLabel;
+          if (!isRosSystem && !isRos) {
+            if (!n.artifact || n.artifact === oldLabel) {
+              n.artifact = newLabel;
+              n.from = (n.pkg ? n.pkg + "." : "") + newLabel;
+            }
           }
           if (project.processes) {
             project.processes.forEach(function(p) {
@@ -4947,6 +4961,7 @@ export function getStudioHtml(
       var inpFrom = document.getElementById("inpNodeFrom");
       if (inpFrom) {
         inpFrom.onchange = function(e) {
+          if (isRosSystem) return;
           var val = e.target.value.trim();
           var p = n.pkg || "";
           var a = n.artifact || n.label || "";
@@ -5578,8 +5593,7 @@ export function getStudioHtml(
       }
 
       safeClick("btnAddNode", function() {
-        if (isRos) {
-          addNewCommObject("msg");
+        if (isRos || isRosSystem) {
           return;
         }
         pushUndo();
@@ -5683,6 +5697,17 @@ export function getStudioHtml(
       });
       safeClick("btnCloseCatalogue", function() {
         if (catDrawer) catDrawer.classList.remove("open");
+      });
+      safeClick("btnAddSystemNode", function() {
+        if (catDrawer) {
+          catDrawer.classList.add("open");
+          if (tabNodesBtn) {
+            activeCatTab = "nodes";
+            tabNodesBtn.classList.add("active");
+            if (tabSubsystemsBtn) tabSubsystemsBtn.classList.remove("active");
+          }
+          renderCatalogue();
+        }
       });
       safeClick("btnAddSubsystem", function() {
         if (catDrawer) {
@@ -5976,6 +6001,21 @@ export function getStudioHtml(
                   };
                 });
 
+                var nodeParams = [];
+                if (catEntry.parameters) {
+                  Object.keys(catEntry.parameters).forEach(function(pName) {
+                    var pDef = catEntry.parameters[pName];
+                    nodeParams.push({
+                      id: "p_" + uniqueLabel + "_" + pName,
+                      name: pName,
+                      label: pName,
+                      ptype: (typeof pDef === "object" && pDef && pDef.type) ? pDef.type : "String",
+                      value: (typeof pDef === "object" && pDef && pDef.value !== undefined) ? pDef.value : (typeof pDef !== "object" ? pDef : undefined),
+                      exposed: false
+                    });
+                  });
+                }
+
                 var n = {
                   id: "n_" + uniqueLabel,
                   label: uniqueLabel,
@@ -5984,7 +6024,7 @@ export function getStudioHtml(
                   pkg: pkgName,
                   backing: "cat",
                   ifaces: nodeIfaces,
-                  params: [],
+                  params: nodeParams,
                   x: 140 + project.nodes.length * 25,
                   y: 140 + project.nodes.length * 25
                 };
