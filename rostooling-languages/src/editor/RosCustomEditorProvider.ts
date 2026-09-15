@@ -993,16 +993,45 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       const fromIface = fromNode?.ifaces.find((i) => i.id === conn.from.i);
       const toIface = toNode?.ifaces.find((i) => i.id === conn.to.i);
 
+      const isTypeDep =
+        Boolean(project.isRos) ||
+        conn.id.startsWith('dep_') ||
+        fromNode?.backing === 'type' ||
+        toNode?.backing === 'type';
+
       if (!fromNode || !fromIface || !toNode || !toIface) {
-        results.push({
-          elementId: conn.id,
-          elementKind: 'connection',
-          targetName: conn.id,
-          severity: 'error',
-          message: `Connection references unresolvable endpoint: from='${conn.from.n}::${conn.from.i}', to='${conn.to.n}::${conn.to.i}'`,
-          line: conn.line,
-          source: 'RosSystemValidator',
-        });
+        if (!isTypeDep) {
+          results.push({
+            elementId: conn.id,
+            elementKind: 'connection',
+            targetName: conn.id,
+            severity: 'error',
+            message: `Connection references unresolvable endpoint: from='${conn.from.n}::${conn.from.i}', to='${conn.to.n}::${conn.to.i}'`,
+            line: conn.line,
+            source: 'RosSystemValidator',
+          });
+        }
+        continue;
+      }
+
+      if (isTypeDep) {
+        // In .ros models, connections represent UML schema type dependencies
+        const cleanFromType = (fromIface.type || '').replace(/^['"]|['"]$/g, '').replace(/\[\]$/, '').trim();
+        const cleanToType = (toIface.type || '').replace(/^['"]|['"]$/g, '').replace(/\[\]$/, '').trim();
+        const baseFrom = cleanFromType.split('/').pop()?.split('.').pop() || cleanFromType;
+        const baseTo = cleanToType.split('/').pop()?.split('.').pop() || cleanToType;
+
+        if (baseFrom !== baseTo && cleanFromType !== cleanToType && !cleanFromType.endsWith('/' + toNode.label)) {
+          results.push({
+            elementId: conn.id,
+            elementKind: 'connection',
+            targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
+            severity: 'error',
+            message: `Type dependency mismatch: '${fromIface.type}' does not reference '${toNode.label}'`,
+            line: conn.line,
+            source: 'RosValidator',
+          });
+        }
         continue;
       }
 
@@ -1026,7 +1055,17 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         });
       }
 
-      if (fromIface.type && toIface.type && fromIface.type !== '—' && toIface.type !== '—' && fromIface.type !== toIface.type) {
+      const cleanFrom = (fromIface.type || '').replace(/^['"]|['"]$/g, '').trim();
+      const cleanTo = (toIface.type || '').replace(/^['"]|['"]$/g, '').trim();
+      const normFrom = cleanFrom.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
+      const normTo = cleanTo.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
+      const isMatch =
+        cleanFrom === cleanTo ||
+        normFrom === normTo ||
+        (cleanFrom.includes('/') && !cleanTo.includes('/') && cleanFrom.endsWith('/' + cleanTo)) ||
+        (!cleanFrom.includes('/') && cleanTo.includes('/') && cleanTo.endsWith('/' + cleanFrom));
+
+      if (fromIface.type && toIface.type && fromIface.type !== '—' && toIface.type !== '—' && !isMatch) {
         results.push({
           elementId: conn.id,
           elementKind: 'connection',
@@ -1101,7 +1140,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         formatVersion: 4,
         isRosSystem,
         isRos,
-        system: { name: path.basename(document.fileName, path.extname(document.fileName)) },
+        system: { name: isRos ? '' : path.basename(document.fileName, path.extname(document.fileName)) },
         subSystems: [],
         nodes: [],
         connections: [],
@@ -1125,7 +1164,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       this.context.extensionUri,
       webviewPanel.webview,
       this.nodeIndex,
-      this.typeIndex
+      this.typeIndex,
+      document.fileName
     );
 
     let isInternalUpdate = false;

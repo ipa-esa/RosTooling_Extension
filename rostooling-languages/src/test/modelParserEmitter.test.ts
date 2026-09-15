@@ -209,4 +209,73 @@ suite('RosModelParser & Emitter Test Suite', () => {
 
     assert.strictEqual(freshProject.subSystems[0].state, 'framed', 'Expanded state must persist');
   });
+
+  test('Parse empty .ros file with absolute path does not pollute system.name with path', () => {
+    const emptyPath = '/home/adm-esa/workspace/test_system/inspection_msgs.ros';
+    const parsed = RosModelParser.parseRos('', emptyPath);
+    assert.strictEqual(parsed.system.name, '', 'Empty .ros file must have empty system.name');
+    assert.strictEqual(parsed.nodes.length, 0);
+    assert.strictEqual(Object.keys(parsed.types).length, 0);
+
+    const emitted = RosModelEmitter.emitRos(parsed);
+    assert.strictEqual(emitted, '', 'Emitting empty .ros project with empty system.name returns empty string');
+  });
+
+  test('emitRos deduplicates types across disparate package keys and sanitizes path-like package names', () => {
+    const dirtyPath = '/home/adm-esa/workspace/test_system/inspection_msgs';
+    const project = {
+      formatVersion: 4,
+      isRos: true,
+      isRosSystem: false,
+      system: { name: 'inspection_msgs' },
+      subSystems: [],
+      nodes: [
+        {
+          id: 'type_NewMessage',
+          label: 'NewMessage',
+          pkg: 'inspection_msgs',
+          backing: 'type' as const,
+          typeCategory: 'msg' as const,
+          typeSpec: {
+            name: 'NewMessage',
+            category: 'msg' as const,
+            pkg: 'inspection_msgs',
+            fields: {
+              message: [{ type: 'string', name: 'data', constant: false, array: false }],
+            },
+          },
+          ifaces: [],
+          params: [],
+        },
+      ],
+      connections: [],
+      packages: {},
+      types: {
+        [`${dirtyPath}.NewMessage`]: {
+          name: 'NewMessage',
+          category: 'msg' as const,
+          pkg: dirtyPath,
+          fields: {
+            message: [{ type: 'string', name: 'data', constant: false, array: false }],
+          },
+        },
+      },
+    };
+
+    const emitted = RosModelEmitter.emitRos(project);
+
+    // Verify it emits ONLY ONE clean package block: inspection_msgs
+    const occurrences = (emitted.match(/inspection_msgs:/g) || []).length;
+    assert.strictEqual(occurrences, 1, 'inspection_msgs package header must occur exactly once');
+    assert.ok(!emitted.includes('/home/adm-esa'), 'Must not emit absolute file path as package name');
+    assert.ok(!emitted.includes('"'), 'Must not quote package header');
+    assert.ok(emitted.includes('msgs:'));
+    assert.ok(emitted.includes('NewMessage'));
+    assert.ok(emitted.includes('string data'));
+
+    // Round-trip parse to verify correctness
+    const roundTripped = RosModelParser.parseRos(emitted, 'inspection_msgs.ros');
+    assert.strictEqual(roundTripped.system.name, 'inspection_msgs');
+    assert.strictEqual(roundTripped.nodes.length, 1);
+  });
 });

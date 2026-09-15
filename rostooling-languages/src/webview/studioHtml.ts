@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { RosProject } from '../model/RosModelTypes';
 
@@ -6,7 +7,8 @@ export function getStudioHtml(
   extensionUri: vscode.Uri,
   webview: vscode.Webview,
   nodeIndex: unknown,
-  typeIndex: unknown
+  typeIndex: unknown,
+  docFileName?: string
 ): string {
   void extensionUri;
   void webview;
@@ -16,6 +18,17 @@ export function getStudioHtml(
   const modeClass = isRos ? 'mode-ros' : (isRosSystem ? 'mode-system' : 'mode-component');
   const modeBadgeText = isRos ? 'Communication Objects (.ros)' : (isRosSystem ? 'System (.rossystem)' : 'Component (.ros2)');
   const modeBadgeClass = isRos ? 'mode-ros' : (isRosSystem ? 'mode-sys' : 'mode-comp');
+  const docBaseName = docFileName ? path.basename(docFileName, path.extname(docFileName)) : '';
+  const pkgFromNode = (project.nodes || []).find((n) => n.pkg)?.pkg;
+  const pkgFromPackage = Object.keys(project.packages || {})[0];
+  const pkgFromSystem = project.system?.name ? project.system.name.replace(/_system$/, '') : '';
+  const displayModelName = isRos
+    ? (project.system?.name || '')
+    : (!isRosSystem
+      ? (pkgFromNode || pkgFromPackage || (pkgFromSystem !== 'package' && pkgFromSystem !== 'ros_package' ? pkgFromSystem : '') || docBaseName || 'ros_package')
+      : (project.system?.name || 'ros_system'));
+  const modelLabelText = (isRos || !isRosSystem) ? 'Package:' : 'System:';
+  const modelPlaceholder = (isRos || !isRosSystem) ? 'Enter package name...' : 'ros_system';
   const projectJson = JSON.stringify(project).replace(/</g, '\\u003c');
   const nodeIndexJson = JSON.stringify(nodeIndex || {}).replace(/</g, '\\u003c');
   const typeIndexJson = JSON.stringify(typeIndex || {}).replace(/</g, '\\u003c');
@@ -1113,6 +1126,39 @@ export function getStudioHtml(
   }
   .cat-card .ctitle { font-weight: 650; font-size: 0.78rem; }
   .cat-card .csub { font-size: 0.65rem; color: var(--ink-2); font-family: var(--font-mono); }
+
+  /* Mode-specific visibility rules */
+  body.mode-ros #btnAddNode,
+  body.mode-ros #btnAddSubsystem,
+  body.mode-ros #subsystemSection,
+  body.mode-ros #processSection,
+  body.mode-ros #filterInterfaceSection {
+    display: none !important;
+  }
+  body.mode-ros #btnAddCommObject {
+    display: flex !important;
+  }
+  body.mode-ros #commObjectBtnGroup {
+    display: flex !important;
+  }
+  body.mode-ros #filterTypeSection {
+    display: block !important;
+  }
+
+  body.mode-component #btnAddSubsystem,
+  body.mode-component #subsystemSection,
+  body.mode-component #processSection,
+  body.mode-component #btnAddCommObject,
+  body.mode-component #commObjectBtnGroup,
+  body.mode-component #filterTypeSection {
+    display: none !important;
+  }
+
+  body.mode-system #btnAddCommObject,
+  body.mode-system #commObjectBtnGroup,
+  body.mode-system #filterTypeSection {
+    display: none !important;
+  }
 </style>
 </head>
 <body class="${modeClass}">
@@ -1133,8 +1179,8 @@ export function getStudioHtml(
   </div>
 
   <div class="sysname-wrap">
-    <label>Model:</label>
-    <input type="text" id="sysNameInput" class="sysname-input" value="${escapeHtml(project.system.name || 'ros_system')}">
+    <label>${modelLabelText}</label>
+    <input type="text" id="sysNameInput" class="sysname-input" value="${escapeHtml(displayModelName)}" placeholder="${modelPlaceholder}">
   </div>
 
   <div class="spacer"></div>
@@ -1158,11 +1204,19 @@ export function getStudioHtml(
   <div class="rail">
     <div class="rail-section">
       <div class="rail-title">Quick Actions</div>
-      <button class="btn" id="btnAddNode" style="width:100%; justify-content:center;">+ Add New Node</button>
-      <button class="btn" id="btnAddSubsystem" style="width:100%; justify-content:center;">+ Import Subsystem</button>
+      ${!isRos ? '<button class="btn" id="btnAddNode" style="width:100%; justify-content:center;">+ Add New Node</button>' : ''}
+      ${isRosSystem ? '<button class="btn" id="btnAddSubsystem" style="width:100%; justify-content:center;">+ Import Subsystem</button>' : ''}
+      ${isRos ? `
+      <button class="btn primary" id="btnAddCommObject" style="width:100%; justify-content:center; display:flex;" title="Add new communication object">+ Add Comm Object</button>
+      <div id="commObjectBtnGroup" style="display:flex; gap:4px; margin-top:4px;">
+        <button class="btn btn-sm" id="btnAddMsg" style="flex:1; justify-content:center; font-size:0.72rem; padding:3px 2px;" title="Add Message (TopicSpec)">+ Message</button>
+        <button class="btn btn-sm" id="btnAddSrv" style="flex:1; justify-content:center; font-size:0.72rem; padding:3px 2px;" title="Add Service (ServiceSpec)">+ Service</button>
+        <button class="btn btn-sm" id="btnAddAction" style="flex:1; justify-content:center; font-size:0.72rem; padding:3px 2px;" title="Add Action (ActionSpec)">+ Action</button>
+      </div>` : ''}
     </div>
 
-    <div class="rail-section">
+    ${!isRos ? `
+    <div class="rail-section" id="filterInterfaceSection">
       <div class="rail-title">Filter Interfaces</div>
       <label class="filter-row"><input type="checkbox" id="fltPub" checked><span class="filter-swatch" style="background:var(--k-pub)"></span> Publishers</label>
       <label class="filter-row"><input type="checkbox" id="fltSub" checked><span class="filter-swatch" style="background:var(--k-sub)"></span> Subscribers</label>
@@ -1171,8 +1225,17 @@ export function getStudioHtml(
       <label class="filter-row"><input type="checkbox" id="fltAS" checked><span class="filter-swatch" style="background:var(--k-as)"></span> Action Servers</label>
       <label class="filter-row"><input type="checkbox" id="fltAC" checked><span class="filter-swatch" style="background:var(--k-ac)"></span> Action Clients</label>
       <label class="filter-row"><input type="checkbox" id="fltParam" checked><span class="filter-swatch" style="background:var(--k-param)"></span> Parameters</label>
-    </div>
+    </div>` : ''}
 
+    ${isRos ? `
+    <div class="rail-section" id="filterTypeSection">
+      <div class="rail-title">Filter Types</div>
+      <label class="filter-row"><input type="checkbox" id="fltMsg" checked><span class="filter-swatch" style="background:var(--accent)"></span> Messages</label>
+      <label class="filter-row"><input type="checkbox" id="fltSrv" checked><span class="filter-swatch" style="background:#10b981"></span> Services</label>
+      <label class="filter-row"><input type="checkbox" id="fltAct" checked><span class="filter-swatch" style="background:#f59e0b"></span> Actions</label>
+    </div>` : ''}
+
+    ${isRosSystem ? `
     <div class="rail-section" id="subsystemSection">
       <div class="rail-title">Subsystem Views</div>
       <button class="btn" id="btnCollapseAll" style="font-size:0.72rem; width:100%;">Collapse All Subsystems</button>
@@ -1185,7 +1248,7 @@ export function getStudioHtml(
         <button class="btn btn-sm" id="btnAddProcess" style="padding:1px 6px; font-size:0.7rem; background:var(--accent); color:var(--accent-text);" title="Add Process">+ Add</button>
       </div>
       <div id="processList" style="display:flex; flex-direction:column; gap:4px; margin-top:6px;"></div>
-    </div>
+    </div>` : ''}
   </div>
 
   <!-- Central Canvas -->
@@ -1284,10 +1347,93 @@ export function getStudioHtml(
   var isInspectorCollapsed = false;
   var isRos = !!(project && project.isRos);
   var isRosSystem = (project.isRosSystem !== false && !isRos);
+  var docBaseName = ${JSON.stringify(docBaseName)};
   var activeCatSource = "all";
+  var renderCatalogue = function() {};
 
   function joinLines(arr) {
     return (arr || []).join(String.fromCharCode(10));
+  }
+
+  function hasPathChars(str) {
+    if (!str) return false;
+    return str.indexOf('/') !== -1 || str.indexOf(String.fromCharCode(92)) !== -1;
+  }
+
+  function sanitizeName(str) {
+    if (!str) return '';
+    var s = String(str).trim();
+    var bslash = String.fromCharCode(92);
+    var p1 = s.lastIndexOf('/');
+    var p2 = s.lastIndexOf(bslash);
+    var maxIdx = p1 > p2 ? p1 : p2;
+    if (maxIdx !== -1) {
+      s = s.substring(maxIdx + 1);
+    }
+    if (s.endsWith('.ros')) {
+      s = s.substring(0, s.length - 4);
+    }
+    return s.trim();
+  }
+
+  function syncTypeCardNode(n, spec) {
+    var nodeIfaces = [];
+    var nodeParams = [];
+    nodeIfaces.push({
+      id: "port_" + spec.name + "_in",
+      name: spec.name,
+      label: spec.name,
+      kind: "sub",
+      type: spec.name,
+      exposed: true
+    });
+    var compNames = Object.keys(spec.fields || {});
+    for (var i = 0; i < compNames.length; i++) {
+      var fList = spec.fields[compNames[i]] || [];
+      for (var j = 0; j < fList.length; j++) {
+        var f = fList[j];
+        if (f.constant) {
+          nodeParams.push({
+            id: "p_" + spec.name + "_" + f.name,
+            name: f.name,
+            label: f.name,
+            ptype: f.type,
+            value: f.value,
+            exposed: true
+          });
+        } else {
+          nodeIfaces.push({
+            id: "f_" + spec.name + "_" + f.name,
+            name: f.name,
+            label: f.name,
+            kind: "pub",
+            type: f.type,
+            exposed: true
+          });
+        }
+      }
+    }
+    n.ifaces = nodeIfaces;
+    n.params = nodeParams;
+    n.typeSpec = spec;
+    n.typeCategory = spec.category;
+  }
+
+  function rebuildProjectTypes() {
+    if (!isRos && !(project && project.isRos)) return;
+    var newTypes = {};
+    (project.nodes || []).forEach(function(node) {
+      if (node.backing === 'type' && node.typeSpec) {
+        var rawPkg = node.pkg || (project.system && project.system.name) || docBaseName || 'ros_package';
+        var pName = sanitizeName(rawPkg);
+        node.pkg = pName;
+        node.typeSpec.pkg = pName;
+        node.typeSpec.name = node.label;
+        var key = (pName ? pName + '.' : '') + node.label;
+        newTypes[key] = node.typeSpec;
+      }
+    });
+    project.types = newTypes;
   }
 
   var PROCESS_COLORS = [
@@ -1632,11 +1778,31 @@ export function getStudioHtml(
   var btnToggleInspector = document.getElementById("btnToggleInspector");
   var toastContainer = document.getElementById("toastContainer");
 
-  if (!isRosSystem) {
+  if (isRos) {
+    var btnAddNode = document.getElementById("btnAddNode");
+    if (btnAddNode) btnAddNode.style.display = "none";
+    var btnAddSub = document.getElementById("btnAddSubsystem");
+    if (btnAddSub) btnAddSub.style.display = "none";
+    var subSection = document.getElementById("subsystemSection");
+    if (subSection) subSection.style.display = "none";
+    var procSection = document.getElementById("processSection");
+    if (procSection) procSection.style.display = "none";
+    var fltIfaceSection = document.getElementById("filterInterfaceSection");
+    if (fltIfaceSection) fltIfaceSection.style.display = "none";
+
+    var btnAddComm = document.getElementById("btnAddCommObject");
+    if (btnAddComm) btnAddComm.style.display = "flex";
+    var commGroup = document.getElementById("commObjectBtnGroup");
+    if (commGroup) commGroup.style.display = "flex";
+    var fltTypeSec = document.getElementById("filterTypeSection");
+    if (fltTypeSec) fltTypeSec.style.display = "block";
+  } else if (!isRosSystem) {
     var subSection = document.getElementById("subsystemSection");
     if (subSection) subSection.style.display = "none";
     var btnAddSub = document.getElementById("btnAddSubsystem");
     if (btnAddSub) btnAddSub.style.display = "none";
+    var procSection = document.getElementById("processSection");
+    if (procSection) procSection.style.display = "none";
   }
 
   function esc(s) {
@@ -1692,6 +1858,60 @@ export function getStudioHtml(
     vscode.postMessage({ type: "applyEdit", project: project });
   }
 
+  function updateSystemName(val) {
+    pushUndo();
+    var oldName = project.system && project.system.name ? project.system.name : "";
+    var newName = sanitizeName(val);
+    if (!project.system) project.system = { name: "" };
+    project.system.name = newName;
+    var topInput = document.getElementById("sysNameInput");
+    if (topInput && topInput.value !== newName) topInput.value = newName;
+    var inspInput = document.getElementById("inpModelName");
+    if (inspInput && inspInput.value !== newName) inspInput.value = newName;
+
+      if (isRos) {
+        (project.nodes || []).forEach(function(n) {
+          if (n.backing === 'type') {
+            if (!n.pkg || n.pkg === oldName || hasPathChars(n.pkg)) {
+              n.pkg = newName;
+            }
+            if (n.typeSpec) {
+              if (!n.typeSpec.pkg || n.typeSpec.pkg === oldName || hasPathChars(n.typeSpec.pkg)) {
+                n.typeSpec.pkg = newName;
+              }
+            }
+          }
+        });
+        rebuildProjectTypes();
+      } else if (!isRosSystem) {
+        // Component (.ros2 / .ros1) mode
+        (project.nodes || []).forEach(function(n) {
+          n.pkg = newName;
+          n.from = (newName ? newName + "." : "") + (n.artifact || n.label || "artifact");
+        });
+        if (!project.packages) project.packages = {};
+        var oldKeys = Object.keys(project.packages);
+        var prevPkgData = oldKeys.length > 0 ? project.packages[oldKeys[0]] : null;
+        var gitRepo = prevPkgData ? prevPkgData.fromGitRepo : undefined;
+        project.packages = {};
+        project.packages[newName] = {
+          name: newName,
+          fromGitRepo: gitRepo,
+          artifacts: (project.nodes || []).map(function(n) {
+            return {
+              name: n.artifact || n.label,
+              node: n.label,
+              ifaces: n.ifaces || [],
+              params: n.params || []
+            };
+          })
+        };
+      }
+    render();
+    fillInspector();
+    syncDoc();
+  }
+
   function applyView() {
     canvas.style.transform = "translate(" + view.tx + "px, " + view.ty + "px) scale(" + view.k + ")";
     document.getElementById("zoomDisplay").textContent = Math.round(view.k * 100) + "%";
@@ -1743,6 +1963,39 @@ export function getStudioHtml(
         (n.id && n.id.startsWith("n_" + ref + "_")) ||
         (n.pkg === ref);
     });
+  }
+
+  function normalizeCatalogueInterfaces(rawIfaces) {
+    var ifaces = [];
+    if (!rawIfaces) return ifaces;
+    if (Array.isArray(rawIfaces)) {
+      rawIfaces.forEach(function(f) {
+        var iname = f.name || f.label || "iface";
+        ifaces.push({
+          id: iname,
+          name: iname,
+          label: f.label || iname,
+          kind: f.kind || "pub",
+          type: f.type || "",
+          exposed: true
+        });
+      });
+    } else if (typeof rawIfaces === "object") {
+      Object.keys(rawIfaces).forEach(function(iname) {
+        var kindOrObj = rawIfaces[iname];
+        var kind = typeof kindOrObj === "string" ? kindOrObj : (kindOrObj.kind || "pub");
+        var type = typeof kindOrObj === "object" ? (kindOrObj.type || "") : "";
+        ifaces.push({
+          id: iname,
+          name: iname,
+          label: iname,
+          kind: kind,
+          type: type,
+          exposed: true
+        });
+      });
+    }
+    return ifaces;
   }
 
   function ensureSubsystemMembersLoaded(targetProj) {
@@ -2332,6 +2585,15 @@ export function getStudioHtml(
   /* Render Single Node Card or Type Schema Card */
   function renderNode(n) {
     if (n.backing === "type") {
+      if (isRos) {
+        var cat = n.typeCategory || (n.typeSpec && n.typeSpec.category) || "msg";
+        var fltM = document.getElementById("fltMsg");
+        var fltS = document.getElementById("fltSrv");
+        var fltA = document.getElementById("fltAct");
+        if (cat === "msg" && fltM && !fltM.checked) return;
+        if (cat === "srv" && fltS && !fltS.checked) return;
+        if (cat === "action" && fltA && !fltA.checked) return;
+      }
       renderTypeCard(n);
       return;
     }
@@ -4067,32 +4329,85 @@ export function getStudioHtml(
         h += '<button class="btn" id="btnDeleteTypeCard" style="margin-top:1rem; color:var(--dead); border-color:var(--dead);">Delete Type Card</button>';
         container.innerHTML = h;
 
-        document.getElementById("inpTypeLabel").onchange = function(e) {
-          pushUndo();
-          var oldName = n.label;
-          var newName = e.target.value.trim();
-          n.label = newName;
-          spec.name = newName;
-          if (project.types[spec.pkg + "." + oldName]) {
-            delete project.types[spec.pkg + "." + oldName];
-            project.types[spec.pkg + "." + newName] = spec;
-          }
-          render(); fillInspector(); syncDoc();
-        };
+        var inpLabel = document.getElementById("inpTypeLabel");
+        if (inpLabel) {
+          inpLabel.oninput = function(e) {
+            var rawVal = e.target.value.trim();
+            if (rawVal) {
+              n.label = rawVal;
+              spec.name = rawVal;
+              var cardEl = canvas.querySelector('[data-n="' + n.id + '"] .ntitle');
+              if (cardEl) cardEl.textContent = rawVal;
+            }
+          };
+          inpLabel.onchange = function(e) {
+            pushUndo();
+            var rawNew = e.target.value.trim();
+            var newName = sanitizeName(rawNew) || n.label;
+            e.target.value = newName;
+            var oldId = n.id;
+            n.label = newName;
+            spec.name = newName;
+            n.id = "type_" + newName;
+            if (selNode === oldId) {
+              selNode = n.id;
+            }
+            syncTypeCardNode(n, spec);
+            rebuildProjectTypes();
+            render();
+            fillInspector();
+            syncDoc();
+          };
+        }
 
-        document.getElementById("inpTypePkg").onchange = function(e) {
-          pushUndo();
-          n.pkg = e.target.value.trim();
-          spec.pkg = n.pkg;
-          render(); fillInspector(); syncDoc();
-        };
+        var inpPkg = document.getElementById("inpTypePkg");
+        if (inpPkg) {
+          inpPkg.onchange = function(e) {
+            pushUndo();
+            var oldPkg = n.pkg || "";
+            var newPkg = sanitizeName(e.target.value);
+            e.target.value = newPkg;
+            n.pkg = newPkg;
+            spec.pkg = newPkg;
 
-        document.getElementById("inpTypeCat").onchange = function(e) {
-          pushUndo();
-          spec.category = e.target.value;
-          n.typeCategory = spec.category;
-          render(); fillInspector(); syncDoc();
-        };
+            if (isRos) {
+              if (!project.system || !project.system.name || project.system.name === oldPkg || hasPathChars(project.system.name)) {
+                if (!project.system) project.system = { name: "" };
+                project.system.name = newPkg;
+                var topInput = document.getElementById("sysNameInput");
+                if (topInput) topInput.value = newPkg;
+                var inpModel = document.getElementById("inpModelName");
+                if (inpModel) inpModel.value = newPkg;
+              }
+              (project.nodes || []).forEach(function(other) {
+                if (other.backing === 'type' && (other.pkg === oldPkg || !other.pkg || hasPathChars(other.pkg))) {
+                  other.pkg = newPkg;
+                  if (other.typeSpec) other.typeSpec.pkg = newPkg;
+                }
+              });
+            }
+
+            syncTypeCardNode(n, spec);
+            rebuildProjectTypes();
+            render();
+            fillInspector();
+            syncDoc();
+          };
+        }
+
+        var inpCat = document.getElementById("inpTypeCat");
+        if (inpCat) {
+          inpCat.onchange = function(e) {
+            pushUndo();
+            spec.category = e.target.value;
+            n.typeCategory = spec.category;
+            syncTypeCardNode(n, spec);
+            rebuildProjectTypes();
+            render();
+            fillInspector();
+            syncDoc();
+          };
+        }
 
         document.querySelectorAll(".btn-add-field").forEach(function(btn) {
           btn.onclick = function() {
@@ -4106,7 +4421,11 @@ export function getStudioHtml(
               array: false
             };
             spec.fields[comp].push(newF);
-            render(); fillInspector(); syncDoc();
+            syncTypeCardNode(n, spec);
+            rebuildProjectTypes();
+            render();
+            fillInspector();
+            syncDoc();
           };
         });
 
@@ -4117,7 +4436,11 @@ export function getStudioHtml(
             if (spec.fields[comp] && spec.fields[comp][fidx]) {
               pushUndo();
               spec.fields[comp].splice(fidx, 1);
-              render(); fillInspector(); syncDoc();
+              syncTypeCardNode(n, spec);
+              rebuildProjectTypes();
+              render();
+              fillInspector();
+              syncDoc();
             }
           };
         });
@@ -4130,7 +4453,11 @@ export function getStudioHtml(
               pushUndo();
               spec.fields[comp][fidx].type = e.target.value.trim();
               spec.fields[comp][fidx].array = e.target.value.trim().endsWith("[]");
-              render(); fillInspector(); syncDoc();
+              syncTypeCardNode(n, spec);
+              rebuildProjectTypes();
+              render();
+              fillInspector();
+              syncDoc();
             }
           };
         });
@@ -4142,7 +4469,11 @@ export function getStudioHtml(
             if (spec.fields[comp] && spec.fields[comp][fidx]) {
               pushUndo();
               spec.fields[comp][fidx].name = e.target.value.trim();
-              render(); fillInspector(); syncDoc();
+              syncTypeCardNode(n, spec);
+              rebuildProjectTypes();
+              render();
+              fillInspector();
+              syncDoc();
             }
           };
         });
@@ -4159,7 +4490,11 @@ export function getStudioHtml(
               } else {
                 spec.fields[comp][fidx].value = "0";
               }
-              render(); fillInspector(); syncDoc();
+              syncTypeCardNode(n, spec);
+              rebuildProjectTypes();
+              render();
+              fillInspector();
+              syncDoc();
             }
           };
         });
@@ -4171,21 +4506,28 @@ export function getStudioHtml(
             if (spec.fields[comp] && spec.fields[comp][fidx]) {
               pushUndo();
               spec.fields[comp][fidx].value = e.target.value.trim();
-              render(); fillInspector(); syncDoc();
+              syncTypeCardNode(n, spec);
+              rebuildProjectTypes();
+              render();
+              fillInspector();
+              syncDoc();
             }
           };
         });
 
-        document.getElementById("btnDeleteTypeCard").onclick = function() {
-          pushUndo();
-          project.nodes = project.nodes.filter(function(x) { return x.id !== n.id; });
-          project.connections = project.connections.filter(function(c) { return c.from.n !== n.id && c.to.n !== n.id; });
-          if (project.types[spec.pkg + "." + n.label]) {
-            delete project.types[spec.pkg + "." + n.label];
-          }
-          selNode = null;
-          render(); fillInspector(); syncDoc();
-        };
+        var btnDelType = document.getElementById("btnDeleteTypeCard");
+        if (btnDelType) {
+          btnDelType.onclick = function() {
+            pushUndo();
+            project.nodes = project.nodes.filter(function(x) { return x.id !== n.id; });
+            project.connections = project.connections.filter(function(c) { return c.from.n !== n.id && c.to.n !== n.id; });
+            rebuildProjectTypes();
+            selNode = null;
+            render();
+            fillInspector();
+            syncDoc();
+          };
+        }
         return;
       }
 
@@ -4207,8 +4549,16 @@ export function getStudioHtml(
       var nodeDiags = getNodeDiagnostics(n);
       var h = renderDiagnosticsBannerHtml(nodeDiags)
         + '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"></div>'
-        + '<div class="fld"><label>Package / Artifact</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '"></div>'
-        + '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"></div>'
+        + '<div class="fld"><label>Package / Artifact</label><input type="text" id="inpNodeFrom" value="' + esc(n.from || '') + '" placeholder="e.g. package.artifact"></div>';
+
+      if (!isRosSystem && !isRos) {
+        h += '<div style="display:flex; gap:8px; margin-top:-0.2rem; margin-bottom:0.6rem;">'
+          + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Package</label><input type="text" id="inpNodePkg" value="' + esc(n.pkg || '') + '" placeholder="Package" style="font-size:0.75rem; padding:3px 6px;"></div>'
+          + '<div class="fld" style="flex:1; margin-bottom:0;"><label style="font-size:0.68rem; color:var(--ink-2);">Artifact</label><input type="text" id="inpNodeArtifact" value="' + esc(n.artifact || n.label || '') + '" placeholder="Artifact" style="font-size:0.75rem; padding:3px 6px;"></div>'
+          + '</div>';
+      }
+
+      h += '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"></div>'
         + procDropdownHtml
         + '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
         + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
@@ -4272,25 +4622,116 @@ export function getStudioHtml(
       h += '<button class="btn" id="btnDeleteNode" style="margin-top:1rem; color:var(--dead); border-color:var(--dead);">Delete Node</button>';
       container.innerHTML = h;
 
-      document.getElementById("inpNodeLabel").onchange = function(e) {
-        var oldLabel = n.label;
-        var newLabel = e.target.value.trim();
-        if (!newLabel || newLabel === oldLabel) return;
+      function updateNodePackageAndArtifact(node, pkgVal, artVal) {
         pushUndo();
-        n.label = newLabel;
-        if (project.processes) {
-          project.processes.forEach(function(p) {
-            if (p.nodes) {
-              var pIdx = p.nodes.indexOf(oldLabel);
-              if (pIdx !== -1) p.nodes[pIdx] = newLabel;
-            }
-          });
+        var cleanPkg = sanitizeName(pkgVal);
+        var cleanArt = sanitizeName(artVal);
+
+        if (cleanPkg) node.pkg = cleanPkg;
+        if (cleanArt) node.artifact = cleanArt;
+        node.from = (node.pkg ? node.pkg + "." : "") + (node.artifact || node.label || "");
+
+        if (!isRos && !isRosSystem) {
+          if (cleanPkg) {
+            if (!project.system) project.system = { name: "" };
+            project.system.name = cleanPkg;
+            var topInput = document.getElementById("sysNameInput");
+            if (topInput) topInput.value = cleanPkg;
+            var inspInput = document.getElementById("inpModelName");
+            if (inspInput) inspInput.value = cleanPkg;
+
+            (project.nodes || []).forEach(function(other) {
+              other.pkg = cleanPkg;
+              other.from = cleanPkg + "." + (other.artifact || other.label || "artifact");
+            });
+
+            if (!project.packages) project.packages = {};
+            var oldKeys = Object.keys(project.packages);
+            var prevPkgData = oldKeys.length > 0 ? project.packages[oldKeys[0]] : null;
+            var gitRepo = prevPkgData ? prevPkgData.fromGitRepo : undefined;
+            project.packages = {};
+            project.packages[cleanPkg] = {
+              name: cleanPkg,
+              fromGitRepo: gitRepo,
+              artifacts: (project.nodes || []).map(function(otherNode) {
+                return {
+                  name: otherNode.artifact || otherNode.label,
+                  node: otherNode.label,
+                  ifaces: otherNode.ifaces || [],
+                  params: otherNode.params || []
+                };
+              })
+            };
+          }
         }
-        render(); fillInspector(); syncDoc();
-      };
-      document.getElementById("inpNodeFrom").onchange = function(e) {
-        pushUndo(); n.from = e.target.value; render(); fillInspector(); syncDoc();
-      };
+
+        render();
+        fillInspector();
+        syncDoc();
+      }
+
+      var inpLabelEl = document.getElementById("inpNodeLabel");
+      if (inpLabelEl) {
+        inpLabelEl.onchange = function(e) {
+          var oldLabel = n.label;
+          var newLabel = e.target.value.trim();
+          if (!newLabel || newLabel === oldLabel) return;
+          pushUndo();
+          n.label = newLabel;
+          if (!n.artifact || n.artifact === oldLabel) {
+            n.artifact = newLabel;
+            n.from = (n.pkg ? n.pkg + "." : "") + newLabel;
+          }
+          if (project.processes) {
+            project.processes.forEach(function(p) {
+              if (p.nodes) {
+                var pIdx = p.nodes.indexOf(oldLabel);
+                if (pIdx !== -1) p.nodes[pIdx] = newLabel;
+              }
+            });
+          }
+          render(); fillInspector(); syncDoc();
+        };
+      }
+
+      var inpFrom = document.getElementById("inpNodeFrom");
+      if (inpFrom) {
+        inpFrom.onchange = function(e) {
+          var val = e.target.value.trim();
+          var p = n.pkg || "";
+          var a = n.artifact || n.label || "";
+          if (val.includes(".")) {
+            var dot = val.indexOf(".");
+            p = val.substring(0, dot);
+            a = val.substring(dot + 1);
+          } else if (val.includes("/")) {
+            var slash = val.indexOf("/");
+            p = val.substring(0, slash);
+            a = val.substring(slash + 1);
+          } else if (val) {
+            if (!isRos && !isRosSystem) {
+              a = val;
+            } else {
+              p = val;
+            }
+          }
+          updateNodePackageAndArtifact(n, p, a);
+        };
+      }
+
+      var inpPkg = document.getElementById("inpNodePkg");
+      if (inpPkg) {
+        inpPkg.onchange = function(e) {
+          updateNodePackageAndArtifact(n, e.target.value, n.artifact || n.label || "");
+        };
+      }
+
+      var inpArt = document.getElementById("inpNodeArtifact");
+      if (inpArt) {
+        inpArt.onchange = function(e) {
+          updateNodePackageAndArtifact(n, n.pkg || "", e.target.value);
+        };
+      }
       document.getElementById("inpNodeNs").onchange = function(e) {
         pushUndo(); n.namespace = e.target.value; render(); fillInspector(); syncDoc();
       };
@@ -4523,7 +4964,10 @@ export function getStudioHtml(
     }
 
     var allDiags = project.diagnostics || [];
-    var h = '<div class="insec-head" style="margin-bottom:0.8rem;"><span class="insec-title">Model Status &amp; Validation</span></div>';
+    var h = '<div class="insec-head" style="margin-bottom:0.8rem;"><span class="insec-title">' + ((isRos || !isRosSystem) ? 'Package Settings' : 'System Settings') + '</span></div>'
+      + '<div class="fld"><label>' + ((isRos || !isRosSystem) ? 'Package Name' : 'System Name') + '</label>'
+      + '<input type="text" id="inpModelName" value="' + esc(project.system && project.system.name ? project.system.name.replace(/_system$/, '') : '') + '" placeholder="' + ((isRos || !isRosSystem) ? 'Enter package name...' : 'ros_system') + '"></div>'
+      + '<div class="insec-head" style="margin-top:1rem; margin-bottom:0.8rem;"><span class="insec-title">Model Status &amp; Validation</span></div>';
     if (allDiags.length === 0) {
       h += '<div style="background:rgba(46, 160, 67, 0.1); border:1px solid rgba(46, 160, 67, 0.3); border-radius:4px; padding:10px; font-size:0.78rem; color:#3fb950; display:flex; align-items:center; gap:8px; margin-bottom:1rem;">'
         + '<span>✓</span> <span>No validation issues detected in model.</span></div>'
@@ -4546,6 +4990,13 @@ export function getStudioHtml(
         + '<div style="margin-top:0.8rem; color:var(--ink-3); font-size:0.72rem; font-style:italic;">Click on any diagnostic above to pan and highlight the element on the canvas.</div>';
     }
     container.innerHTML = h;
+
+    var inpModel = document.getElementById("inpModelName");
+    if (inpModel) {
+      inpModel.onchange = function(e) {
+        updateSystemName(e.target.value);
+      };
+    }
 
     // Attach click listeners to jump to elements
     container.querySelectorAll(".inspector-diag-item[data-diag-idx]").forEach(function(itemEl) {
@@ -4610,9 +5061,7 @@ export function getStudioHtml(
       var sysNameEl = document.getElementById("sysNameInput");
       if (sysNameEl) {
         sysNameEl.onchange = function(e) {
-          pushUndo();
-          project.system.name = e.target.value;
-          syncDoc();
+          updateSystemName(e.target.value);
         };
       }
 
@@ -4700,12 +5149,111 @@ export function getStudioHtml(
         vscode.postMessage({ type: "openCodeView" });
       });
 
+      function addNewCommObject(category) {
+        category = category || "msg";
+        pushUndo();
+        var rawModelName = project.system && project.system.name ? project.system.name.trim() : "";
+        var pkgName = sanitizeName(rawModelName);
+        if (!pkgName) {
+          pkgName = sanitizeName(docBaseName || "ros_package");
+          if (!project.system) project.system = { name: "" };
+          project.system.name = pkgName;
+          var sysInput = document.getElementById("sysNameInput");
+          if (sysInput) sysInput.value = pkgName;
+          var inpModel = document.getElementById("inpModelName");
+          if (inpModel) inpModel.value = pkgName;
+        }
+        var baseLabel = category === "srv" ? "NewService" : category === "action" ? "NewAction" : "NewMessage";
+        var uniqueLabel = baseLabel;
+        var suffix = 1;
+        while (project.nodes.some(function(n) { return n.label === uniqueLabel; })) {
+          uniqueLabel = baseLabel + "_" + (++suffix);
+        }
+
+        var spec = {
+          name: uniqueLabel,
+          pkg: pkgName,
+          category: category,
+          fields: {}
+        };
+        if (category === "msg") {
+          spec.fields["message"] = [
+            { type: "string", name: "data", constant: false, array: false }
+          ];
+        } else if (category === "srv") {
+          spec.fields["request"] = [
+            { type: "string", name: "data", constant: false, array: false }
+          ];
+          spec.fields["response"] = [
+            { type: "bool", name: "success", constant: false, array: false }
+          ];
+        } else if (category === "action") {
+          spec.fields["goal"] = [
+            { type: "string", name: "order", constant: false, array: false }
+          ];
+          spec.fields["result"] = [
+            { type: "bool", name: "success", constant: false, array: false }
+          ];
+          spec.fields["feedback"] = [
+            { type: "float32", name: "progress", constant: false, array: false }
+          ];
+        }
+
+        var newTypeNode = {
+          id: "type_" + uniqueLabel,
+          label: uniqueLabel,
+          pkg: pkgName,
+          backing: "type",
+          typeCategory: category,
+          typeSpec: spec,
+          ifaces: [],
+          params: [],
+          x: 120 + (project.nodes.length % 5) * 40,
+          y: 120 + Math.floor(project.nodes.length / 5) * 40
+        };
+        syncTypeCardNode(newTypeNode, spec);
+
+        project.nodes.push(newTypeNode);
+        rebuildProjectTypes();
+
+        render();
+        selNode = newTypeNode.id;
+        selEdge = null;
+        selSub = null;
+        toggleInspector(false);
+        fillInspector();
+        syncDoc();
+        saveLayout(true);
+
+        setTimeout(function() {
+          var inp = document.getElementById("inpTypeLabel");
+          if (inp) {
+            inp.focus();
+            inp.select();
+          }
+        }, 60);
+      }
+
       safeClick("btnAddNode", function() {
+        if (isRos) {
+          addNewCommObject("msg");
+          return;
+        }
         pushUndo();
         var nodeName = "node_" + (project.nodes.length + 1);
+        var curPkg = "";
+        if (!isRosSystem && !isRos) {
+          var firstNodeWithPkg = (project.nodes || []).find(function(n) { return n.pkg; });
+          curPkg = (firstNodeWithPkg && firstNodeWithPkg.pkg)
+            || (project.system && project.system.name ? project.system.name.replace(/_system$/, '') : '')
+            || (docBaseName ? sanitizeName(docBaseName) : "ros_package");
+        }
         var newNode = {
           id: "n_" + nodeName,
           label: nodeName,
+          pkg: curPkg || undefined,
+          artifact: nodeName,
+          from: curPkg ? curPkg + "." + nodeName : nodeName,
           ifaces: [
             { id: "i_" + nodeName + "_topic_out", name: "topic_out", label: "topic_out", kind: "pub", type: "std_msgs/msg/String", exposed: true },
             { id: "i_" + nodeName + "_topic_in", name: "topic_in", label: "topic_in", kind: "sub", type: "std_msgs/msg/String", exposed: true }
@@ -4721,6 +5269,28 @@ export function getStudioHtml(
         toggleInspector(false);
         fillInspector();
         syncDoc();
+      });
+
+      safeClick("btnAddCommObject", function() {
+        addNewCommObject("msg");
+      });
+      safeClick("btnAddMsg", function() {
+        addNewCommObject("msg");
+      });
+      safeClick("btnAddSrv", function() {
+        addNewCommObject("srv");
+      });
+      safeClick("btnAddAction", function() {
+        addNewCommObject("action");
+      });
+
+      ["fltMsg", "fltSrv", "fltAct"].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.onchange = function() {
+            render();
+          };
+        }
       });
 
       safeClick("btnCollapseAll", function() {
@@ -4805,40 +5375,7 @@ export function getStudioHtml(
         };
       }
 
-      function normalizeCatalogueInterfaces(rawIfaces) {
-        var ifaces = [];
-        if (!rawIfaces) return ifaces;
-        if (Array.isArray(rawIfaces)) {
-          rawIfaces.forEach(function(f) {
-            var iname = f.name || f.label || "iface";
-            ifaces.push({
-              id: iname,
-              name: iname,
-              label: f.label || iname,
-              kind: f.kind || "pub",
-              type: f.type || "",
-              exposed: true
-            });
-          });
-        } else if (typeof rawIfaces === "object") {
-          Object.keys(rawIfaces).forEach(function(iname) {
-            var kindOrObj = rawIfaces[iname];
-            var kind = typeof kindOrObj === "string" ? kindOrObj : (kindOrObj.kind || "pub");
-            var type = typeof kindOrObj === "object" ? (kindOrObj.type || "") : "";
-            ifaces.push({
-              id: iname,
-              name: iname,
-              label: iname,
-              kind: kind,
-              type: type,
-              exposed: true
-            });
-          });
-        }
-        return ifaces;
-      }
-
-      function renderCatalogue() {
+      renderCatalogue = function() {
         var list = document.getElementById("catList");
         if (!list) return;
         list.innerHTML = "";
@@ -4935,7 +5472,7 @@ export function getStudioHtml(
               else if (kind === "action") { spec.fields["goal"] = []; spec.fields["result"] = []; spec.fields["feedback"] = []; }
 
               var newTypeNode = {
-                id: "n_" + uniqueLabel,
+                id: "type_" + uniqueLabel,
                 label: uniqueLabel,
                 pkg: pkgName,
                 backing: "type",
@@ -4946,9 +5483,9 @@ export function getStudioHtml(
                 x: 140 + project.nodes.length * 25,
                 y: 140 + project.nodes.length * 25
               };
+              syncTypeCardNode(newTypeNode, spec);
               project.nodes.push(newTypeNode);
-              if (!project.types) project.types = {};
-              project.types[pkgName + "." + uniqueLabel] = spec;
+              rebuildProjectTypes();
 
               catDrawer.classList.remove("open");
               render();

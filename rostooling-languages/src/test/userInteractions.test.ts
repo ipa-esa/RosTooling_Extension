@@ -1,11 +1,18 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vm from 'vm';
+import * as vscode from 'vscode';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
 import { ConnectionValidator } from '../model/ConnectionValidator';
+import { RosCustomEditorProvider } from '../editor/RosCustomEditorProvider';
+import { getStudioHtml } from '../webview/studioHtml';
 import {
   RosProject,
   RosNode,
   RosInteractionKind,
+  RosTypeSpec,
 } from '../model/RosModelTypes';
 
 suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
@@ -1009,6 +1016,702 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.ok(emitted.includes('GetPose'));
       assert.ok(emitted.includes('request'));
       assert.ok(emitted.includes('response'));
+    });
+
+    test('Dynamically add new Message, Service, and Action communication objects and emit compliant .ros grammar', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: true,
+        isRosSystem: false,
+        system: { name: 'custom_pkg' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      // 1. Add Message
+      const msgSpec: RosTypeSpec = {
+        name: 'BatteryStatus',
+        category: 'msg',
+        pkg: 'custom_pkg',
+        fields: {
+          message: [
+            { type: 'float32', name: 'voltage', constant: false, array: false },
+            { type: 'uint8', name: 'BATTERY_LOW=1', constant: true, value: '1', array: false },
+          ],
+        },
+      };
+      const msgNode: RosNode = {
+        id: 'n_BatteryStatus',
+        label: 'BatteryStatus',
+        pkg: 'custom_pkg',
+        backing: 'type',
+        typeCategory: 'msg',
+        typeSpec: msgSpec,
+        ifaces: [],
+        params: [],
+        x: 100,
+        y: 100,
+      };
+      project.nodes.push(msgNode);
+      project.types['custom_pkg.BatteryStatus'] = msgSpec;
+
+      // 2. Add Service
+      const srvSpec: RosTypeSpec = {
+        name: 'ResetOdom',
+        category: 'srv',
+        pkg: 'custom_pkg',
+        fields: {
+          request: [{ type: 'bool', name: 'force', constant: false, array: false }],
+          response: [{ type: 'bool', name: 'success', constant: false, array: false }],
+        },
+      };
+      const srvNode: RosNode = {
+        id: 'n_ResetOdom',
+        label: 'ResetOdom',
+        pkg: 'custom_pkg',
+        backing: 'type',
+        typeCategory: 'srv',
+        typeSpec: srvSpec,
+        ifaces: [],
+        params: [],
+        x: 350,
+        y: 100,
+      };
+      project.nodes.push(srvNode);
+      project.types['custom_pkg.ResetOdom'] = srvSpec;
+
+      // 3. Add Action
+      const actionSpec: RosTypeSpec = {
+        name: 'NavigateToPose',
+        category: 'action',
+        pkg: 'custom_pkg',
+        fields: {
+          goal: [{ type: 'string', name: 'target_frame', constant: false, array: false }],
+          result: [{ type: 'bool', name: 'reached', constant: false, array: false }],
+          feedback: [{ type: 'float32', name: 'distance_remaining', constant: false, array: false }],
+        },
+      };
+      const actionNode: RosNode = {
+        id: 'n_NavigateToPose',
+        label: 'NavigateToPose',
+        pkg: 'custom_pkg',
+        backing: 'type',
+        typeCategory: 'action',
+        typeSpec: actionSpec,
+        ifaces: [],
+        params: [],
+        x: 600,
+        y: 100,
+      };
+      project.nodes.push(actionNode);
+      project.types['custom_pkg.NavigateToPose'] = actionSpec;
+
+      assert.strictEqual(project.nodes.length, 3);
+
+      // Emit .ros
+      const emitted = RosModelEmitter.emitRos(project);
+
+      assert.ok(emitted.includes('custom_pkg:'));
+      assert.ok(emitted.includes('msgs:'));
+      assert.ok(emitted.includes('BatteryStatus'));
+      assert.ok(emitted.includes('message'));
+      assert.ok(emitted.includes('float32 voltage'));
+      assert.ok(emitted.includes('uint8 BATTERY_LOW=1'));
+
+      assert.ok(emitted.includes('srvs:'));
+      assert.ok(emitted.includes('ResetOdom'));
+      assert.ok(emitted.includes('request'));
+      assert.ok(emitted.includes('bool force'));
+      assert.ok(emitted.includes('response'));
+      assert.ok(emitted.includes('bool success'));
+
+      assert.ok(emitted.includes('actions:'));
+      assert.ok(emitted.includes('NavigateToPose'));
+      assert.ok(emitted.includes('goal'));
+      assert.ok(emitted.includes('string target_frame'));
+      assert.ok(emitted.includes('result'));
+      assert.ok(emitted.includes('bool reached'));
+      assert.ok(emitted.includes('feedback'));
+      assert.ok(emitted.includes('float32 distance_remaining'));
+
+      // Round-trip parse to verify grammar compliance
+      const parsed = RosModelParser.parseRos(emitted, 'custom_pkg.ros');
+      assert.strictEqual(parsed.nodes.length, 3);
+      assert.ok(parsed.nodes.some((n) => n.label === 'BatteryStatus' && n.typeCategory === 'msg'));
+      assert.ok(parsed.nodes.some((n) => n.label === 'ResetOdom' && n.typeCategory === 'srv'));
+      assert.ok(parsed.nodes.some((n) => n.label === 'NavigateToPose' && n.typeCategory === 'action'));
+    });
+
+    test('Populating an empty .ros model infers package from user-assigned model name without absolute path pollution', () => {
+      // 1. User opens empty inspection_msgs.ros
+      const docPath = '/home/adm-esa/coresense-ws/src/RosTooling_Extension/demo/test_ws/src/test_system/inspection_msgs.ros';
+      const emptyProject = RosModelParser.parseRos('', docPath);
+      assert.strictEqual(emptyProject.system.name, '', 'Initial system.name must be empty');
+
+      // 2. User fills package/model name in studio
+      const assignedPkg = 'inspection_msgs';
+      emptyProject.system.name = assignedPkg;
+
+      // 3. User adds new Message object; package is inferred from project.system.name
+      const uniqueLabel = 'NewMessage';
+      const spec: RosTypeSpec = {
+        name: uniqueLabel,
+        pkg: emptyProject.system.name,
+        category: 'msg',
+        fields: {
+          message: [{ type: 'string', name: 'data', constant: false, array: false }],
+        },
+      };
+      const typeNode: RosNode = {
+        id: `type_${uniqueLabel}`,
+        label: uniqueLabel,
+        pkg: emptyProject.system.name,
+        backing: 'type',
+        typeCategory: 'msg',
+        typeSpec: spec,
+        ifaces: [],
+        params: [],
+      };
+      emptyProject.nodes.push(typeNode);
+      emptyProject.types[`${emptyProject.system.name}.${uniqueLabel}`] = spec;
+
+      // 4. Emit model
+      const emitted = RosModelEmitter.emitRos(emptyProject);
+      assert.ok(emitted.includes('inspection_msgs:'));
+      assert.ok(!emitted.includes('/home/adm-esa'));
+      assert.strictEqual((emitted.match(/inspection_msgs:/g) || []).length, 1);
+      assert.ok(emitted.includes('NewMessage'));
+      assert.ok(emitted.includes('string data'));
+
+      // 5. Simulate user manually renaming package to 'sensor_msgs'
+      const newPkg = 'sensor_msgs';
+      emptyProject.system.name = newPkg;
+      for (const n of emptyProject.nodes) {
+        if (n.backing === 'type') {
+          n.pkg = newPkg;
+          if (n.typeSpec) n.typeSpec.pkg = newPkg;
+        }
+      }
+      const rekeyedTypes: Record<string, RosTypeSpec> = {};
+      for (const s of Object.values(emptyProject.types)) {
+        s.pkg = newPkg;
+        rekeyedTypes[`${newPkg}.${s.name}`] = s;
+      }
+      emptyProject.types = rekeyedTypes;
+
+      const renamedEmitted = RosModelEmitter.emitRos(emptyProject);
+      assert.ok(renamedEmitted.includes('sensor_msgs:'));
+      assert.ok(!renamedEmitted.includes('inspection_msgs:'));
+      assert.ok(!renamedEmitted.includes('/home/adm-esa'));
+      assert.strictEqual((renamedEmitted.match(/sensor_msgs:/g) || []).length, 1);
+    });
+
+    test('Validate demo inspection_msgs.ros model parses and round-trips cleanly', () => {
+      const inspectionFile = path.resolve(__dirname, '../../demo/test_ws/src/test_system/inspection_msgs.ros');
+      if (fs.existsSync(inspectionFile)) {
+        const content = fs.readFileSync(inspectionFile, 'utf-8');
+        const parsed = RosModelParser.parseRos(content, inspectionFile);
+        assert.strictEqual(parsed.system.name, 'inspection_msgs');
+        assert.strictEqual(parsed.nodes.length, 1);
+        assert.strictEqual(parsed.nodes[0].label, 'NewMessage');
+
+        const emitted = RosModelEmitter.emitRos(parsed);
+        assert.ok(emitted.includes('inspection_msgs:'));
+        assert.strictEqual((emitted.match(/inspection_msgs:/g) || []).length, 1);
+        assert.ok(!emitted.includes('/home/adm-esa'));
+        assert.ok(emitted.includes('string data'));
+      }
+    });
+
+    test('Mode-specific UI rendering correctly isolates buttons between Communication Objects, Component, and System views', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+
+      // 1. Communication Objects View (.ros)
+      const rosProj: RosProject = {
+        formatVersion: 4,
+        isRos: true,
+        isRosSystem: false,
+        system: { name: 'my_msgs' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+      const rosHtml = getStudioHtml(rosProj, mockUri, mockWebview, {}, {}, 'my_msgs.ros');
+      assert.ok(!rosHtml.includes('id="btnAddNode"'), '.ros mode must NOT render + Add New Node');
+      assert.ok(!rosHtml.includes('id="btnAddSubsystem"'), '.ros mode must NOT render + Import Subsystem');
+      assert.ok(!rosHtml.includes('id="subsystemSection"'), '.ros mode must NOT render subsystemSection');
+      assert.ok(!rosHtml.includes('id="processSection"'), '.ros mode must NOT render processSection');
+      assert.ok(!rosHtml.includes('id="filterInterfaceSection"'), '.ros mode must NOT render filterInterfaceSection');
+      assert.ok(rosHtml.includes('id="btnAddCommObject"'), '.ros mode MUST render + Add Comm Object');
+      assert.ok(rosHtml.includes('id="filterTypeSection"'), '.ros mode MUST render filterTypeSection');
+
+      // 2. Component View (.ros2)
+      const ros2Proj: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: false,
+        system: { name: 'my_pkg' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+      const ros2Html = getStudioHtml(ros2Proj, mockUri, mockWebview, {}, {}, 'my_pkg.ros2');
+      assert.ok(ros2Html.includes('id="btnAddNode"'), '.ros2 mode MUST render + Add New Node');
+      assert.ok(!ros2Html.includes('id="btnAddSubsystem"'), '.ros2 mode must NOT render + Import Subsystem');
+      assert.ok(!ros2Html.includes('id="subsystemSection"'), '.ros2 mode must NOT render subsystemSection');
+      assert.ok(!ros2Html.includes('id="processSection"'), '.ros2 mode must NOT render processSection');
+      assert.ok(ros2Html.includes('id="filterInterfaceSection"'), '.ros2 mode MUST render filterInterfaceSection');
+      assert.ok(!ros2Html.includes('id="btnAddCommObject"'), '.ros2 mode must NOT render + Add Comm Object');
+      assert.ok(!ros2Html.includes('id="filterTypeSection"'), '.ros2 mode must NOT render filterTypeSection');
+
+      // 3. System View (.rossystem)
+      const systemProj: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'my_sys' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+      const systemHtml = getStudioHtml(systemProj, mockUri, mockWebview, {}, {}, 'my_sys.rossystem');
+      assert.ok(systemHtml.includes('id="btnAddNode"'), '.rossystem mode MUST render + Add New Node');
+      assert.ok(systemHtml.includes('id="btnAddSubsystem"'), '.rossystem mode MUST render + Import Subsystem');
+      assert.ok(systemHtml.includes('id="subsystemSection"'), '.rossystem mode MUST render subsystemSection');
+      assert.ok(systemHtml.includes('id="processSection"'), '.rossystem mode MUST render processSection');
+      assert.ok(systemHtml.includes('id="filterInterfaceSection"'), '.rossystem mode MUST render filterInterfaceSection');
+      assert.ok(!systemHtml.includes('id="btnAddCommObject"'), '.rossystem mode must NOT render + Add Comm Object');
+      assert.ok(!systemHtml.includes('id="filterTypeSection"'), '.rossystem mode must NOT render filterTypeSection');
+    });
+
+    test('Webview client script executes cleanly without runtime or syntax errors across .ros, .ros2, and .rossystem', () => {
+      const mockUri = { fsPath: '/mock/path' } as unknown as vscode.Uri;
+      const mockWebview = { asWebviewUri: (u: vscode.Uri) => u } as unknown as vscode.Webview;
+
+      const testConfigs = [
+        {
+          proj: { isRos: true, nodes: [{ id: 'type_Msg', label: 'Msg', backing: 'type', typeCategory: 'msg', typeSpec: { name: 'Msg', category: 'msg', fields: { message: [] } } }], system: { name: 'test_pkg' } } as unknown as RosProject,
+          file: 'test_pkg.ros'
+        },
+        {
+          proj: { isRos: false, isRosSystem: false, nodes: [{ id: 'n1', label: 'node1', ifaces: [] }], system: { name: 'pkg' } } as unknown as RosProject,
+          file: 'pkg.ros2'
+        },
+        {
+          proj: { isRos: false, isRosSystem: true, nodes: [], subSystems: [{ ref: 'sub1' }], system: { name: 'sys' } } as unknown as RosProject,
+          file: 'sys.rossystem'
+        }
+      ];
+
+      for (const cfg of testConfigs) {
+        const html = getStudioHtml(cfg.proj, mockUri, mockWebview, { _systems: [{ system: 'sub1', nodes: { n1: { interfaces: [{ name: 'i1' }] } } }] }, {}, cfg.file);
+        const scriptMatch = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
+        assert.ok(scriptMatch, 'script tag must exist in studio HTML');
+        const scriptCode = scriptMatch[1];
+
+        // 1. Verify syntax compiles cleanly in Node VM
+        assert.doesNotThrow(() => {
+          new vm.Script(scriptCode);
+        }, `Syntax error found in script for ${cfg.file}`);
+
+        // 2. Verify execution in mock DOM
+        const noop = (): void => {
+          /* no-op for mock DOM */
+        };
+        const clickHandlers: Record<string, () => void> = {};
+        const elMap: Record<string, unknown> = {};
+        const mockEl = (tag: string) => ({
+          tagName: tag,
+          classList: {
+            add: noop,
+            remove: noop,
+            toggle: noop,
+            contains: () => false,
+          },
+          style: {},
+          appendChild: noop,
+          remove: noop,
+          addEventListener: noop,
+          querySelectorAll: () => [],
+          dataset: {},
+          getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+        });
+
+        const dom = {
+          getElementById: (id: string) => {
+            if (!elMap[id]) {
+              const el = mockEl(id);
+              Object.defineProperty(el, 'onclick', {
+                set(fn: () => void) {
+                  clickHandlers[id] = fn;
+                },
+                get() {
+                  return clickHandlers[id];
+                },
+              });
+              elMap[id] = el;
+            }
+            return elMap[id];
+          },
+          querySelector: () => mockEl('div'),
+          querySelectorAll: () => [],
+          createElement: mockEl,
+          body: { classList: { add: noop, remove: noop } },
+        };
+
+        const context = {
+          document: dom,
+          window: { addEventListener: noop },
+          navigator: { platform: 'Linux' },
+          console: { log: noop, warn: noop, error: noop },
+          setTimeout: (fn: () => void) => fn(),
+          acquireVsCodeApi: () => ({ postMessage: noop }),
+        };
+
+        vm.createContext(context);
+        assert.doesNotThrow(() => {
+          vm.runInContext(scriptCode, context);
+        }, `Runtime error found when running script for ${cfg.file}`);
+
+        assert.ok(Object.keys(clickHandlers).length > 10, 'Expected multiple interactive button handlers to be registered');
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------------------
+  // 19. COMMUNICATION OBJECTS (.ros) LIFECYCLE & TYPE DEPENDENCIES
+  // --------------------------------------------------------------------------------------
+  suite('19. Communication Objects (.ros) Lifecycle & Type Dependencies', () => {
+    test('Renaming a communication object in place updates model and does NOT create duplicate NewMessage', () => {
+      // 1. Setup a .ros project with one default NewMessage type node
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: true,
+        system: { name: 'my_msgs' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'type_NewMessage',
+            label: 'NewMessage',
+            pkg: 'my_msgs',
+            backing: 'type',
+            typeCategory: 'msg',
+            typeSpec: {
+              name: 'NewMessage',
+              pkg: 'my_msgs',
+              category: 'msg',
+              fields: {
+                message: [{ type: 'string', name: 'data', constant: false, array: false }],
+              },
+            },
+            ifaces: [
+              { id: 'port_NewMessage_in', name: 'NewMessage', label: 'NewMessage', kind: 'sub', type: 'NewMessage', exposed: true },
+              { id: 'f_NewMessage_data', name: 'data', label: 'data', kind: 'pub', type: 'string', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {
+          'my_msgs.NewMessage': {
+            name: 'NewMessage',
+            pkg: 'my_msgs',
+            category: 'msg',
+            fields: {
+              message: [{ type: 'string', name: 'data', constant: false, array: false }],
+            },
+          },
+        },
+      };
+
+      // 2. User renames "NewMessage" to "CustomTelemetry" and adds a new field "battery_level"
+      const targetNode = project.nodes[0];
+      targetNode.id = 'type_CustomTelemetry';
+      targetNode.label = 'CustomTelemetry';
+      assert.ok(targetNode.typeSpec, 'Target node must have typeSpec');
+      const spec = targetNode.typeSpec;
+      spec.name = 'CustomTelemetry';
+      spec.fields = spec.fields || {};
+      spec.fields['message'] = spec.fields['message'] || [];
+      spec.fields['message'].push({
+        type: 'float32',
+        name: 'battery_level',
+        constant: false,
+        array: false,
+      });
+
+      // Emulate rebuildProjectTypes()
+      const newTypes: Record<string, RosTypeSpec> = {};
+      for (const n of project.nodes) {
+        if (n.backing === 'type' && n.typeSpec) {
+          newTypes[`${n.pkg || 'my_msgs'}.${n.label}`] = n.typeSpec;
+        }
+      }
+      project.types = newTypes;
+
+      // 3. Emit .ros model
+      const emitted = RosModelEmitter.emitRos(project);
+
+      // Verify "CustomTelemetry" is emitted with both fields
+      assert.ok(emitted.includes('CustomTelemetry'), 'Emitted code should include renamed message CustomTelemetry');
+      assert.ok(emitted.includes('battery_level'), 'Emitted code should include newly added field battery_level');
+
+      // Verify "NewMessage" is NOT in the emitted output
+      assert.strictEqual(
+        emitted.includes('NewMessage'),
+        false,
+        'Emitted code should not contain phantom duplicate NewMessage'
+      );
+    });
+
+    test('RosModelEmitter filters out orphaned NewMessage template even if present in project.types', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: true,
+        system: { name: 'my_msgs' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'type_RenamedMessage',
+            label: 'RenamedMessage',
+            pkg: 'my_msgs',
+            backing: 'type',
+            typeCategory: 'msg',
+            typeSpec: {
+              name: 'RenamedMessage',
+              pkg: 'my_msgs',
+              category: 'msg',
+              fields: {
+                message: [{ type: 'int32', name: 'count', constant: false, array: false }],
+              },
+            },
+            ifaces: [],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        // Simulate stale/deserialized project.types containing lingering NewMessage
+        types: {
+          'my_msgs.NewMessage': {
+            name: 'NewMessage',
+            pkg: 'my_msgs',
+            category: 'msg',
+            fields: {
+              message: [{ type: 'string', name: 'data', constant: false, array: false }],
+            },
+          },
+          'my_msgs.RenamedMessage': {
+            name: 'RenamedMessage',
+            pkg: 'my_msgs',
+            category: 'msg',
+            fields: {
+              message: [{ type: 'int32', name: 'count', constant: false, array: false }],
+            },
+          },
+        },
+      };
+
+      const emitted = RosModelEmitter.emitRos(project);
+      assert.ok(emitted.includes('RenamedMessage'), 'Should emit RenamedMessage');
+      assert.strictEqual(
+        emitted.includes('NewMessage'),
+        false,
+        'Should skip orphaned NewMessage template when nodes exist'
+      );
+    });
+
+    test('Type dependency connections in .ros models do not produce false Port type mismatch diagnostics', () => {
+      // Parse inspection_msgs.ros
+      const rosContent = `inspection_msgs:
+  msgs:
+    DefectReport
+      message
+        string target_id
+        uint8 severity
+        float64 confidence
+        'geometry_msgs/msg/Pose' defect_pose
+    SafetyStatus
+      message
+        bool estop_active
+        bool zone_violation
+        string warning_msg
+  srvs:
+    TriggerInspection
+      request
+        string inspection_point_id
+      response
+        bool success
+        string message
+        'inspection_msgs/msg/DefectReport' defect
+`;
+      const project = RosModelParser.parseRos(rosContent, 'inspection_msgs.ros');
+
+      // Verify parser generated the type dependency connection
+      assert.ok(project.connections.length > 0, 'Should have parsed dependency connection');
+      const depConn = project.connections.find((c) => c.id.includes('TriggerInspection') && c.id.includes('DefectReport'));
+      assert.ok(depConn, 'Should have dep connection between TriggerInspection and DefectReport');
+
+      // Validate with ConnectionValidator
+      const fromNode = project.nodes.find((n) => n.id === depConn.from.n);
+      const toNode = project.nodes.find((n) => n.id === depConn.to.n);
+      assert.ok(fromNode && toNode, 'Endpoints must exist');
+      const fromIface = fromNode.ifaces.find((i) => i.id === depConn.from.i);
+      const toIface = toNode.ifaces.find((i) => i.id === depConn.to.i);
+      assert.ok(fromIface && toIface, 'Interfaces must exist');
+
+      // Check with ConnectionValidator.validate: normalized matching should accept inspection_msgs/msg/DefectReport to DefectReport
+      const valResult = ConnectionValidator.validate(fromNode, fromIface, toNode, toIface);
+      assert.ok(!valResult.reason?.includes('Type mismatch'), `Expected no type mismatch, got: ${valResult.reason}`);
+
+      // Now validate with RosCustomEditorProvider.mapDiagnosticsToElements
+      const mockContext = {
+        extensionPath: '/tmp',
+        globalStorageUri: { fsPath: '/tmp' },
+      } as unknown as vscode.ExtensionContext;
+      const provider = new RosCustomEditorProvider(mockContext);
+
+      const diags = provider.mapDiagnosticsToElements([], project, 'inspection_msgs.ros');
+      const mismatchErrors = diags.filter((d) =>
+        d.message.includes('Port type mismatch') ||
+        d.message.includes('Incompatible port kinds') ||
+        d.message.includes('Type dependency mismatch')
+      );
+
+      assert.strictEqual(
+        mismatchErrors.length,
+        0,
+        `Expected 0 type mismatch/incompatible port errors, found: ${JSON.stringify(mismatchErrors)}`
+      );
+    });
+  });
+
+  // --------------------------------------------------------------------------------------
+  // 20. COMPONENT (.ros2) PACKAGE & ARTIFACT RENAMING LIFECYCLE
+  // --------------------------------------------------------------------------------------
+  suite('20. Component (.ros2) Package & Artifact Renaming Lifecycle', () => {
+    test('Renaming package and artifact in inspection_nodes.ros2 does not revert to ros_package.node_1', () => {
+      const initialDoc = `ros_package:
+  artifacts:
+    node_1:
+      node: ai_defect_detector
+      publishers:
+        topic_out:
+          type: 'std_msgs/msg/String'
+      subscribers:
+        topic_in:
+          type: 'std_msgs/msg/String'
+`;
+      const project = RosModelParser.parseRos2(initialDoc, 'inspection_nodes.ros2');
+      assert.strictEqual(project.nodes.length, 1);
+      const node = project.nodes[0];
+      assert.strictEqual(node.pkg, 'ros_package');
+      assert.strictEqual(node.artifact, 'node_1');
+      assert.strictEqual(node.from, 'ros_package.node_1');
+
+      // 1. Emulate user renaming Package / Artifact in inspector to 'inspection_nodes.defect_detector'
+      const newPkg = 'inspection_nodes';
+      const newArt = 'defect_detector';
+      node.pkg = newPkg;
+      node.artifact = newArt;
+      node.from = `${newPkg}.${newArt}`;
+
+      // Synchronize project package
+      project.packages = {};
+      project.packages[newPkg] = {
+        name: newPkg,
+        artifacts: [{
+          name: newArt,
+          node: node.label,
+          ifaces: node.ifaces,
+          params: node.params,
+        }],
+      };
+      project.system.name = newPkg;
+
+      // 2. Emit .ros2
+      const emitted = RosModelEmitter.emitRos2(project);
+
+      // Verify emitted output contains the new package and artifact
+      assert.ok(emitted.includes('inspection_nodes:'), 'Emitted code must contain new package name inspection_nodes');
+      assert.ok(emitted.includes('defect_detector:'), 'Emitted code must contain new artifact name defect_detector');
+      assert.ok(emitted.includes('node: ai_defect_detector'), 'Emitted code must preserve node name ai_defect_detector');
+
+      // Verify emitted output does NOT contain the old defaults
+      assert.strictEqual(
+        emitted.includes('ros_package:'),
+        false,
+        'Emitted code must not default back to ros_package'
+      );
+      assert.strictEqual(
+        emitted.includes('node_1:'),
+        false,
+        'Emitted code must not default back to node_1'
+      );
+
+      // 3. Verify round-trip re-parsing keeps the renamed package and artifact
+      const roundTrip = RosModelParser.parseRos2(emitted, 'inspection_nodes.ros2');
+      assert.strictEqual(roundTrip.nodes.length, 1);
+      const rtNode = roundTrip.nodes[0];
+      assert.strictEqual(rtNode.pkg, 'inspection_nodes');
+      assert.strictEqual(rtNode.artifact, 'defect_detector');
+      assert.strictEqual(rtNode.from, 'inspection_nodes.defect_detector');
+      assert.strictEqual(rtNode.label, 'ai_defect_detector');
+    });
+
+    test('RosModelEmitter updates artifact and package name even if project.packages has stale references', () => {
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'package' },
+        subSystems: [],
+        nodes: [
+          {
+            id: 'n_detector',
+            label: 'ai_defect_detector',
+            pkg: 'custom_inspection',
+            artifact: 'detector_art',
+            from: 'custom_inspection.detector_art',
+            backing: 'local',
+            ifaces: [
+              { id: 'i_out', name: 'status', label: 'status', kind: 'pub', type: 'std_msgs/msg/String', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {
+          // Stale package with old name and old artifact
+          ros_package: {
+            name: 'ros_package',
+            artifacts: [
+              {
+                name: 'node_1',
+                node: 'ai_defect_detector',
+                ifaces: [],
+                params: [],
+              },
+            ],
+          },
+        },
+        types: {},
+      };
+
+      const emitted = RosModelEmitter.emitRos2(project);
+      assert.ok(emitted.includes('custom_inspection:'), 'Must emit node.pkg custom_inspection');
+      assert.ok(emitted.includes('detector_art:'), 'Must emit node.artifact detector_art');
+      assert.strictEqual(emitted.includes('ros_package:'), false, 'Must not emit stale package name');
+      assert.strictEqual(emitted.includes('node_1:'), false, 'Must not emit stale artifact name');
     });
   });
 });

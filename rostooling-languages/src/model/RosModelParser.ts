@@ -491,8 +491,8 @@ export const RosModelParser = {
       const val = keyMatch ? keyMatch[2].trim() : null;
 
       if (!seenRoot && keyMatch && !val && ind === 0) {
-        pkgName = kw || 'ros_package';
-        proj.system.name = `${pkgName}_system`;
+        pkgName = (kw || 'ros_package').replace(/^.*[\\/]/, '').replace(/\.ros2$/, '').replace(/\.ros1$/, '').trim() || 'ros_package';
+        proj.system.name = pkgName;
         seenRoot = true;
         leadComments = [];
         continue;
@@ -671,12 +671,12 @@ export const RosModelParser = {
    */
   parseRos(text: string, fileName = 'common.ros'): RosProject {
     const lines = this.splitLines(text);
-    const baseName = fileName.replace(/\.ros$/, '');
+    const cleanFileName = fileName.replace(/^.*[\\/]/, '').replace(/\.ros$/, '');
     const proj: RosProject = {
       formatVersion: 4,
       isRos: true,
       isRosSystem: false,
-      system: { name: baseName },
+      system: { name: '' },
       subSystems: [],
       nodes: [],
       connections: [],
@@ -684,7 +684,7 @@ export const RosModelParser = {
       types: {},
     };
 
-    let curPkg = baseName;
+    let curPkg = '';
     let curBlock: 'msgs' | 'srvs' | 'actions' | null = null;
     let curCompartment: string | null = null;
     let curTypeSpec: RosTypeSpec | null = null;
@@ -703,8 +703,11 @@ export const RosModelParser = {
 
       // Package declaration at root indent
       if (ind === 0 && clean.endsWith(':')) {
-        curPkg = this.unquote(clean.slice(0, -1));
+        curPkg = this.unquote(clean.slice(0, -1)).replace(/^.*[\\/]/, '').replace(/\.ros$/, '').trim();
         proj.system.name = curPkg;
+        if (!proj.packages[curPkg]) {
+          proj.packages[curPkg] = { name: curPkg, artifacts: [] };
+        }
         curBlock = null;
         curCompartment = null;
         curTypeSpec = null;
@@ -768,15 +771,19 @@ export const RosModelParser = {
       if (tokens.length === 1 && !tokens[0].includes('=') && curBlock) {
         const specName = this.unquote(tokens[0].replace(/:$/, ''));
         const cat = curBlock === 'msgs' ? 'msg' : curBlock === 'srvs' ? 'srv' : 'action';
+        const typePkg = curPkg || proj.system.name || cleanFileName || 'ros_package';
         curCompartment = null;
         curTypeSpec = {
           name: specName,
           category: cat,
-          pkg: curPkg,
+          pkg: typePkg,
           fields: {},
           line: lineNo,
         };
-        proj.types[`${curPkg}.${specName}`] = curTypeSpec;
+        if (!proj.system.name) {
+          proj.system.name = typePkg;
+        }
+        proj.types[`${typePkg}.${specName}`] = curTypeSpec;
         continue;
       }
 

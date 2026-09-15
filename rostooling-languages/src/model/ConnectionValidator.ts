@@ -69,7 +69,17 @@ export const ConnectionValidator = {
     const srcType = (sourceIface.type || '').trim();
     const tgtType = (targetIface.type || '').trim();
 
-    if (srcType && tgtType && srcType !== tgtType) {
+    const cleanSrc = srcType.replace(/^['"]|['"]$/g, '').trim();
+    const cleanTgt = tgtType.replace(/^['"]|['"]$/g, '').trim();
+    const normSrc = cleanSrc.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
+    const normTgt = cleanTgt.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
+    const isTypeMatch =
+      cleanSrc === cleanTgt ||
+      normSrc === normTgt ||
+      (cleanSrc.includes('/') && !cleanTgt.includes('/') && cleanSrc.endsWith('/' + cleanTgt)) ||
+      (!cleanSrc.includes('/') && cleanTgt.includes('/') && cleanTgt.endsWith('/' + cleanSrc));
+
+    if (cleanSrc && cleanTgt && cleanSrc !== '—' && cleanTgt !== '—' && !isTypeMatch) {
       return {
         valid: false,
         reason: `Type mismatch: Source type "${srcType}" does not match target type "${tgtType}".`,

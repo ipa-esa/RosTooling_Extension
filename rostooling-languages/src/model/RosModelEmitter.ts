@@ -220,31 +220,68 @@ export const RosModelEmitter = {
    */
   emitRos2(project: RosProject, pkgName?: string): string {
     const lines: string[] = [];
-    const pkg = (pkgName && project.packages[pkgName]) || Object.values(project.packages)[0] || {
-      name: project.system.name.replace(/_system$/, '') || 'ros_package',
-      artifacts: [],
-    };
 
-    // Ensure pkg.artifacts contains all nodes from project.nodes
-    if (!pkg.artifacts) pkg.artifacts = [];
-    for (const node of project.nodes) {
+    const fallbackPkgName = (project.system?.name || '')
+      .replace(/_system$/, '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.ros2$/, '')
+      .replace(/\.ros1$/, '')
+      .trim();
+
+    const nonDefaultNodePkg = (project.nodes || []).find((n) => n.pkg && n.pkg !== 'ros_package')?.pkg;
+    const anyNodePkg = (project.nodes || []).find((n) => n.pkg)?.pkg;
+    const determinedPkgName =
+      (pkgName && pkgName !== 'ros_package' ? pkgName : '') ||
+      nonDefaultNodePkg ||
+      (fallbackPkgName && fallbackPkgName !== 'package' && fallbackPkgName !== 'ros_package' ? fallbackPkgName : '') ||
+      anyNodePkg ||
+      (pkgName ? project.packages[pkgName]?.name : '') ||
+      Object.values(project.packages)[0]?.name ||
+      fallbackPkgName ||
+      'ros_package';
+
+    const cleanPkgName = determinedPkgName
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.ros2$/, '')
+      .replace(/\.ros1$/, '')
+      .trim() || 'ros_package';
+
+    let pkg = (pkgName && project.packages[pkgName]) || project.packages[cleanPkgName] || Object.values(project.packages)[0];
+    if (!pkg) {
+      pkg = {
+        name: cleanPkgName,
+        artifacts: [],
+      };
+    } else {
+      pkg.name = cleanPkgName;
+    }
+
+    // Build active artifacts list strictly aligned with project.nodes
+    const activeArtifacts: typeof pkg.artifacts = [];
+    for (const node of project.nodes || []) {
+      if (node.backing === 'type') continue;
       const artName = node.artifact || node.label;
-      const existingArt = pkg.artifacts.find((a) => a.name === artName || a.node === node.label);
-      if (!existingArt) {
-        pkg.artifacts.push({
+      const existingArt = (pkg.artifacts || []).find(
+        (a) => a.name === artName || (node.label && a.node === node.label)
+      );
+      if (existingArt) {
+        existingArt.name = artName;
+        existingArt.node = node.label;
+        existingArt.ifaces = node.ifaces;
+        existingArt.params = node.params;
+        activeArtifacts.push(existingArt);
+      } else {
+        activeArtifacts.push({
           name: artName,
           node: node.label,
           ifaces: node.ifaces || [],
           params: node.params || [],
         });
-      } else {
-        existingArt.ifaces = node.ifaces;
-        existingArt.params = node.params;
-        existingArt.node = node.label;
       }
     }
+    pkg.artifacts = activeArtifacts;
 
-    lines.push(`${this.formatKey(pkg.name)}:`);
+    lines.push(`${this.formatKey(cleanPkgName)}:`);
     if (pkg.fromGitRepo) {
       lines.push(`  fromGitRepo: ${this.qDouble(pkg.fromGitRepo)}`);
     }
@@ -311,26 +348,60 @@ export const RosModelEmitter = {
     const lines: string[] = [];
     const pkgMap: Record<string, RosTypeSpec[]> = {};
 
+    // Sanitize project.system.name fallback
+    const fallbackPkg = (project.system?.name || '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.ros$/, '')
+      .trim();
+
+    const sanitizePkg = (p?: string): string => {
+      if (!p) return fallbackPkg || 'ros_package';
+      const clean = p.replace(/^.*[\\/]/, '').replace(/\.ros$/, '').trim();
+      return clean || fallbackPkg || 'ros_package';
+    };
+
+    const seenTypeNames = new Set<string>();
+
     // Gather types from project.nodes
     for (const node of project.nodes || []) {
       if (node.backing === 'type' && node.typeSpec) {
-        const pkgName = node.pkg || project.system.name || 'ros_package';
+        const pkgName = sanitizePkg(node.pkg || fallbackPkg);
         if (!pkgMap[pkgName]) pkgMap[pkgName] = [];
-        // Keep node.typeSpec synchronized with node.label
         const curSpec = node.typeSpec;
-        if (!pkgMap[pkgName].find((s) => s.name === curSpec.name)) {
+        const typeName = node.label || curSpec.name;
+        curSpec.name = typeName;
+        curSpec.pkg = pkgName;
+        if (!seenTypeNames.has(typeName)) {
+          seenTypeNames.add(typeName);
           pkgMap[pkgName].push(curSpec);
         }
       }
     }
 
+    const hasTypeNodes = (project.nodes || []).some((n) => n.backing === 'type');
+    const defaultTemplateNames = new Set(['NewMessage', 'NewService', 'NewAction']);
+
     // Also include any types directly in project.types not already in nodes
     for (const spec of Object.values(project.types || {})) {
-      const pkgName = spec.pkg || project.system.name || 'ros_package';
-      if (!pkgMap[pkgName]) pkgMap[pkgName] = [];
-      if (!pkgMap[pkgName].find((s) => s.name === spec.name)) {
+      if (!spec || !spec.name) continue;
+      // If type nodes exist, skip orphaned default templates from project.types
+      if (hasTypeNodes && defaultTemplateNames.has(spec.name)) {
+        continue;
+      }
+      if (!seenTypeNames.has(spec.name)) {
+        const pkgName = sanitizePkg(spec.pkg || fallbackPkg);
+        if (!pkgMap[pkgName]) pkgMap[pkgName] = [];
+        spec.pkg = pkgName;
+        seenTypeNames.add(spec.name);
         pkgMap[pkgName].push(spec);
       }
+    }
+
+    if (Object.keys(pkgMap).length === 0) {
+      if (fallbackPkg) {
+        return `${this.formatKey(fallbackPkg)}:\n`;
+      }
+      return '';
     }
 
     for (const [pkgName, specs] of Object.entries(pkgMap)) {
