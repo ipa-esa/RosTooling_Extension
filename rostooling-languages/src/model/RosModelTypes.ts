@@ -51,6 +51,8 @@ export interface RosConnection {
   id: string;
   from: { n: string; i: string };
   to: { n: string; i: string };
+  rawFrom?: string;
+  rawTo?: string;
   midX?: number;
   midY?: number;
   connectorMode?: 'orthogonal' | 'linear' | 'spline';

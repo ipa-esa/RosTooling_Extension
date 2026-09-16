@@ -2205,5 +2205,59 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         assert.ok(foundSys.nodes['lidar_node'], 'Indexed hardware_bringup must contain lidar_node');
       }
     });
+
+    test('Subsystem connection persistence: connecting node to subsystem port is preserved across parse and emit', () => {
+      const sampleWithSubConnection = `
+inspection_system:
+  subSystems:
+    perception_bringup
+  nodes:
+    mission_exec:
+      from: "inspection_nodes.mission_executive"
+      interfaces:
+        - trigger_client: sc-> "mission_executive::inspect_target_client"
+  connections:
+    - ["trigger_srv", "trigger_client"]
+`;
+      // 1. RosModelParser parses connection even though trigger_srv is not in nodes yet
+      const project = RosModelParser.parseRosSystem(sampleWithSubConnection, 'inspection_system.rossystem');
+      assert.strictEqual(project.connections.length, 1, 'Connection with subsystem endpoint must be parsed and preserved');
+      assert.strictEqual(project.connections[0].rawFrom, 'trigger_srv');
+      assert.strictEqual(project.connections[0].rawTo, 'trigger_client');
+
+      // 2. RosModelEmitter preserves and emits the connection
+      const emitted = RosModelEmitter.emitRosSystem(project);
+      assert.ok(emitted.includes('- ["trigger_srv", "trigger_client"]'), 'Emitted YAML must retain bracketed connection with subsystem port');
+
+      // 3. Simulated resolveSystemInterfaces resolves endpoint to loaded subsystem node
+      project.nodes.push({
+        id: 'n_perception_bringup_defect_detector',
+        label: 'defect_detector',
+        subRef: 'perception_bringup',
+        backing: 'sub',
+        ifaces: [
+          { id: 'i_defect_detector_trigger_srv', name: 'trigger_inspection_srv', label: 'trigger_srv', kind: 'ss', type: 'inspection_msgs/srv/TriggerInspection', exposed: true },
+        ],
+        params: [],
+      });
+
+      // Re-resolve connection endpoint
+      for (const conn of project.connections) {
+        if (!conn.from.n) {
+          for (const n of project.nodes) {
+            const match = n.ifaces.find((f) => f.label === conn.from.i || f.name === conn.from.i);
+            if (match) {
+              conn.from.n = n.id;
+              conn.from.i = match.id;
+              break;
+            }
+          }
+        }
+      }
+
+      assert.strictEqual(project.connections[0].from.n, 'n_perception_bringup_defect_detector');
+      assert.strictEqual(project.connections[0].from.i, 'i_defect_detector_trigger_srv');
+      assert.strictEqual(project.connections[0].to.n, 'n_mission_exec');
+    });
   });
 });

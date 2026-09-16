@@ -190,12 +190,33 @@ export const RosModelEmitter = {
       for (const conn of project.connections) {
         const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
         const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
-        const fromIface = fromNode?.ifaces?.find((f) => f.id === conn.from.i);
-        const toIface = toNode?.ifaces?.find((f) => f.id === conn.to.i);
+        const fromIface = fromNode?.ifaces?.find(
+          (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+        );
+        const toIface = toNode?.ifaces?.find(
+          (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+        );
 
-        if (fromNode && toNode && fromIface && toIface) {
-          const fromName = fromIface.label || fromIface.name;
-          const toName = toIface.label || toIface.name;
+        let fromName = fromIface ? (fromIface.label || fromIface.name) : '';
+        let toName = toIface ? (toIface.label || toIface.name) : '';
+
+        if (!fromName && conn.rawFrom) fromName = conn.rawFrom;
+        if (!toName && conn.rawTo) toName = conn.rawTo;
+
+        if (!fromName && conn.from?.i) {
+          const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
+            (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+          );
+          fromName = fallback ? (fallback.label || fallback.name) : conn.from.i;
+        }
+        if (!toName && conn.to?.i) {
+          const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
+            (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+          );
+          toName = fallback ? (fallback.label || fallback.name) : conn.to.i;
+        }
+
+        if (fromName && toName) {
           // Format as bracketed connection pair [from, to]
           lines.push(`    - [${this.qDouble(fromName)}, ${this.qDouble(toName)}]`);
         }

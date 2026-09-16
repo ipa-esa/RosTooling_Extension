@@ -427,15 +427,21 @@ export const RosModelParser = {
             }
           }
 
-          if (fromNode && fromIface && toNode && toIface) {
-            proj.connections.push({
-              id: `c_${fromLabel}_${toLabel}`,
-              from: { n: fromNode.id, i: fromIface.id },
-              to: { n: toNode.id, i: toIface.id },
-              line: lineNo,
-              comments: leadComments.length ? { before: [...leadComments] } : undefined,
-            });
-          }
+          proj.connections.push({
+            id: `c_${fromLabel}_${toLabel}`,
+            from: {
+              n: fromNode ? fromNode.id : '',
+              i: fromIface ? fromIface.id : fromLabel,
+            },
+            to: {
+              n: toNode ? toNode.id : '',
+              i: toIface ? toIface.id : toLabel,
+            },
+            rawFrom: fromLabel,
+            rawTo: toLabel,
+            line: lineNo,
+            comments: leadComments.length ? { before: [...leadComments] } : undefined,
+          });
           leadComments = [];
           continue;
         }

@@ -8,6 +8,7 @@ import { getStudioHtml } from '../webview/studioHtml';
 import { RosProject, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic } from '../model/RosModelTypes';
 import { RosLayoutManager } from '../model/RosLayoutManager';
 import { RosCatalogueManager } from '../model/RosCatalogueManager';
+import { SRC_SIDE } from '../model/ConnectionValidator';
 
 interface DeclaredArtifact {
   filePath: string;
@@ -227,6 +228,19 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       const resolved = path.resolve(path.dirname(docFilePath), fromFile);
       if (fs.existsSync(resolved)) return resolved;
     }
+    if (docFilePath && subRef) {
+      const resolved = path.resolve(
+        path.dirname(docFilePath),
+        subRef.endsWith('.rossystem') ? subRef : `${subRef}.rossystem`
+      );
+      if (fs.existsSync(resolved)) return resolved;
+      const base = subRef.replace(/_\d+$/, '');
+      const resolvedBase = path.resolve(
+        path.dirname(docFilePath),
+        base.endsWith('.rossystem') ? base : `${base}.rossystem`
+      );
+      if (fs.existsSync(resolvedBase)) return resolvedBase;
+    }
 
     return undefined;
   }
@@ -375,6 +389,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     // 1. Resolve and load subsystems recursively into project.nodes
     for (const sub of project.subSystems || []) {
       const subFilePath =
+        this.resolveSubsystemFilePath(sub.ref, sub.fromFile, docFilePath) ||
         subsystemMap.get(sub.ref) ||
         (sub.fromFile ? subsystemMap.get(sub.fromFile) : undefined) ||
         (sub.fromFile ? subsystemMap.get(path.basename(sub.fromFile, '.rossystem')) : undefined) ||
@@ -392,66 +407,88 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             const existingNode = project.nodes.find(
               (n) => (n.subRef === sub.ref && n.label === subNode.label) || n.id === `n_${sub.ref}_${subNode.label}`
             );
+            const targetNode = existingNode || subNode;
             if (!existingNode) {
               subNode.id = `n_${sub.ref}_${subNode.label}`;
               subNode.subRef = sub.ref;
               subNode.backing = 'sub';
+            } else {
+              existingNode.subRef = sub.ref;
+              existingNode.backing = 'sub';
+              if (!existingNode.id.startsWith(`n_${sub.ref}_`)) {
+                existingNode.id = `n_${sub.ref}_${subNode.label}`;
+              }
+            }
 
-              const fromKey = subNode.from || '';
-              const declaredArt =
-                artifactMap.get(fromKey) ||
-                artifactMap.get(subNode.artifact || '') ||
-                artifactMap.get(subNode.label);
+            const fromKey = targetNode.from || '';
+            const declaredArt =
+              artifactMap.get(fromKey) ||
+              artifactMap.get(targetNode.artifact || '') ||
+              artifactMap.get(targetNode.label);
 
-              if (declaredArt) {
-                if (subNode.ifaces.length === 0) {
-                  subNode.ifaces = (declaredArt.ifaces || []).map((f) => ({
-                    ...f,
-                    id: `i_${subNode.id}_${f.name || f.label}`,
-                    exposed: true,
-                  }));
-                } else {
-                  const artIfaces = new Map(declaredArt.ifaces.map((f) => [f.name, f]));
-                  for (const iface of subNode.ifaces) {
-                    const match = artIfaces.get(iface.name);
-                    if (match) {
-                      iface.kind = match.kind;
-                      iface.type = match.type || iface.type;
-                      iface.qos = match.qos || iface.qos;
-                    }
+            if (declaredArt) {
+              if (targetNode.ifaces.length === 0) {
+                targetNode.ifaces = (declaredArt.ifaces || []).map((f) => ({
+                  ...f,
+                  id: `i_${targetNode.id}_${f.name || f.label}`,
+                  exposed: true,
+                }));
+              } else {
+                const artIfaces = new Map(declaredArt.ifaces.map((f) => [f.name, f]));
+                for (const iface of targetNode.ifaces) {
+                  const match = artIfaces.get(iface.name);
+                  if (match) {
+                    iface.kind = match.kind;
+                    iface.type = match.type || iface.type;
+                    iface.qos = match.qos || iface.qos;
                   }
                 }
-                if (subNode.params.length === 0) {
-                  subNode.params = (declaredArt.params || []).map((p) => ({
-                    ...p,
-                    id: `p_${subNode.id}_${p.name}`,
-                    exposed: true,
-                  }));
+              }
+              if (targetNode.params.length === 0) {
+                targetNode.params = (declaredArt.params || []).map((p) => ({
+                  ...p,
+                  id: `p_${targetNode.id}_${p.name}`,
+                  exposed: true,
+                }));
+              }
+            } else if (catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || '']) {
+              const catEntry = catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || ''];
+              const normalized = this.normalizeInterfaces(catEntry.interfaces);
+              if (targetNode.ifaces.length === 0) {
+                targetNode.ifaces = normalized.map((f) => ({
+                  id: `i_${targetNode.id}_${f.name || f.label}`,
+                  name: f.name || f.label || '',
+                  label: f.label || f.name || '',
+                  kind: (f.kind as RosInterface['kind']) || 'pub',
+                  type: f.type || '',
+                  exposed: true,
+                }));
+              } else {
+                const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
+                for (const f of normalized) {
+                  const nm = f.name || f.label || '';
+                  if (nm) catIfacesByName.set(nm, f);
                 }
-              } else if (catNodes[fromKey] || catNodes[subNode.label] || catNodes[subNode.artifact || '']) {
-                const catEntry = catNodes[fromKey] || catNodes[subNode.label] || catNodes[subNode.artifact || ''];
-                const normalized = this.normalizeInterfaces(catEntry.interfaces);
-                if (subNode.ifaces.length === 0) {
-                  subNode.ifaces = normalized.map((f) => ({
-                    id: `i_${subNode.id}_${f.name || f.label}`,
-                    name: f.name || f.label || '',
-                    label: f.label || f.name || '',
-                    kind: (f.kind as RosInterface['kind']) || 'pub',
-                    type: f.type || '',
-                    exposed: true,
-                  }));
-                }
-                if (subNode.params.length === 0 && catEntry.parameters) {
-                  subNode.params = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
-                    id: `p_${subNode.id}_${pName}`,
-                    name: pName,
-                    ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
-                    value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
-                    exposed: true,
-                  }));
+                for (const iface of targetNode.ifaces) {
+                  const match = catIfacesByName.get(iface.name);
+                  if (match && match.kind) {
+                    iface.kind = match.kind as RosInterface['kind'];
+                    iface.type = match.type || iface.type;
+                  }
                 }
               }
-              project.nodes.push(subNode);
+              if (targetNode.params.length === 0 && catEntry.parameters) {
+                targetNode.params = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
+                  id: `p_${targetNode.id}_${pName}`,
+                  name: pName,
+                  ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
+                  value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
+                  exposed: true,
+                }));
+              }
+            }
+            if (!existingNode) {
+              project.nodes.push(targetNode);
               loadedNodes++;
             }
           }
@@ -686,6 +723,67 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
       }
     }
+
+    // 3. Resolve connection endpoints across all nodes (including subsystem nodes)
+    for (const conn of project.connections || []) {
+      const fromLookup = conn.rawFrom || (!conn.from.n ? conn.from.i : undefined);
+      const toLookup = conn.rawTo || (!conn.to.n ? conn.to.i : undefined);
+
+      let fromNode = project.nodes.find((n) => n.id === conn.from.n);
+      let fromIface = fromNode?.ifaces?.find(
+        (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+      );
+      let toNode = project.nodes.find((n) => n.id === conn.to.n);
+      let toIface = toNode?.ifaces?.find(
+        (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+      );
+
+      if (!fromNode || !fromIface) {
+        const targetLabel = fromLookup || conn.from.i;
+        for (const n of project.nodes) {
+          const matchIface = n.ifaces?.find(
+            (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+          );
+          if (matchIface) {
+            conn.from.n = n.id;
+            conn.from.i = matchIface.id;
+            fromNode = n;
+            fromIface = matchIface;
+            break;
+          }
+        }
+      }
+
+      if (!toNode || !toIface) {
+        const targetLabel = toLookup || conn.to.i;
+        for (const n of project.nodes) {
+          const matchIface = n.ifaces?.find(
+            (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+          );
+          if (matchIface) {
+            conn.to.n = n.id;
+            conn.to.i = matchIface.id;
+            toNode = n;
+            toIface = matchIface;
+            break;
+          }
+        }
+      }
+
+      // Canonical orientation check: ensure from is source (pub/ss/as) and to is sink (sub/sc/ac)
+      if (fromIface && toIface) {
+        const srcSideFrom = SRC_SIDE[fromIface.kind];
+        const srcSideTo = SRC_SIDE[toIface.kind];
+        if (srcSideFrom === false && srcSideTo === true) {
+          const tmpEnd = conn.from;
+          conn.from = conn.to;
+          conn.to = tmpEnd;
+          const tmpRaw = conn.rawFrom;
+          conn.rawFrom = conn.rawTo;
+          conn.rawTo = tmpRaw;
+        }
+      }
+    }
   }
 
   public normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
@@ -816,6 +914,23 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       const savedMidX = connMap.get(c.id) || connMap.get(key);
       if (savedMidX != null) {
         c.midX = savedMidX;
+      }
+    }
+
+    // Preserve connections from source if not already present in target
+    for (const sc of source.connections || []) {
+      const exists = target.connections.some(
+        (tc) =>
+          tc.id === sc.id ||
+          (tc.from.n === sc.from.n && tc.from.i === sc.from.i && tc.to.n === sc.to.n && tc.to.i === sc.to.i) ||
+          ((tc.rawFrom || tc.from.i) === (sc.rawFrom || sc.from.i) && (tc.rawTo || tc.to.i) === (sc.rawTo || sc.to.i))
+      );
+      if (!exists && sc.from?.n && sc.to?.n) {
+        const fromExists = target.nodes.some((n) => n.id === sc.from.n);
+        const toExists = target.nodes.some((n) => n.id === sc.to.n);
+        if (fromExists && toExists) {
+          target.connections.push({ ...sc });
+        }
       }
     }
 

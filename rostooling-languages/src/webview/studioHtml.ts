@@ -2343,7 +2343,7 @@ export function getStudioHtml(
         var subBox = canvas.querySelector('.node.subbox[data-sub="' + n.subRef + '"]');
         if (subBox) {
           var iface = ifaceById(n, ifaceId);
-          var subPort = subBox.querySelector('.port[data-label="' + (iface ? (iface.label || iface.name) : '') + '"]') || subBox.querySelector('.port');
+          var subPort = subBox.querySelector('.port[data-label="' + (iface ? (iface.label || iface.name) : ifaceId) + '"]') || subBox.querySelector('.port[data-i="' + ifaceId + '"]') || subBox.querySelector('.port');
           var cr = canvas.getBoundingClientRect();
           if (subPort) {
             var pr = subPort.getBoundingClientRect();
@@ -2364,6 +2364,19 @@ export function getStudioHtml(
             side: "right"
           };
         }
+      }
+
+      var anyPort = canvas.querySelector('.port[data-label="' + ifaceId + '"], .port[data-i="' + ifaceId + '"]');
+      if (anyPort) {
+        var cr2 = canvas.getBoundingClientRect();
+        var pr2 = anyPort.getBoundingClientRect();
+        return {
+          x: (pr2.left + pr2.width / 2 - cr2.left) / view.k,
+          y: (pr2.top + pr2.height / 2 - cr2.top) / view.k,
+          isAbstracted: !!anyPort.dataset.sub,
+          nodeId: anyPort.dataset.n || nodeId,
+          side: anyPort.classList.contains("src") ? "right" : "left"
+        };
       }
       return null;
     }
