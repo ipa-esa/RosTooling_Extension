@@ -1,4 +1,6 @@
 test_system:
+  subSystems:
+    ur_robot
   nodes:
     node1:
       from: "test_system.image_filter"
@@ -17,9 +19,10 @@ test_system:
         - description_sub: sub-> "consumer::description_in"
         - inferenced_image_pub: pub-> "consumer::image_out"
   connections:
-    - [ "filtered_image_pub", "filtered_image_sub" ]
-    - [ description_pub, description_sub ]
+    - ["filtered_image_pub", "filtered_image_sub"]
+    - ["description_pub", "description_sub"]
+    - ["inferenced_image_pub", "image_sub"]
   processes:
     process1:
-      nodes: ["node1", node2]
+      nodes: [ node1, node2 ]
       threads: 2

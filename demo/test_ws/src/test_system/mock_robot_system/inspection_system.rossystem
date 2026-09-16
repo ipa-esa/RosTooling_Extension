@@ -1,0 +1,56 @@
+inspection_system:
+  subSystems:
+    ur_robot
+    perception_bringup
+    hardware_bringup
+    arm_controller
+  nodes:
+    safety_mgr:
+      from: "inspection_nodes.safety_supervisor"
+      interfaces:
+        - safety_pub: pub-> "safety_supervisor::safety_status_pub"
+        - safe_cmd_pub: pub-> "safety_supervisor::cmd_vel_safe"
+        - laser_sub: sub-> "safety_supervisor::scan_in"
+        - reset_srv: ss-> "safety_supervisor::reset_safety_srv"
+        - raw_cmd_sub: sub-> "safety_supervisor::raw_cmd_in"
+    mission_exec:
+      from: "inspection_nodes.mission_executive"
+      interfaces:
+        - raw_cmd_pub: pub-> "mission_executive::raw_cmd_out"
+        - mission_log_pub: pub-> "mission_executive::mission_log_pub"
+        - odom_sub: sub-> "mission_executive::odom_in"
+        - safety_sub: sub-> "mission_executive::safety_status_sub"
+        - defect_sub: sub-> "mission_executive::defect_report_sub"
+        - arm_state_sub: sub-> "mission_executive::arm_state_sub"
+        - trigger_client: sc-> "mission_executive::inspect_target_client"
+        - reset_client: sc-> "mission_executive::reset_safety_client"
+        - mission_as: as-> "mission_executive::mission_action_server"
+        - arm_action_client: ac-> "mission_executive::arm_action_client"
+    fleet_bridge:
+      from: "inspection_nodes.fleet_telemetry_bridge"
+      interfaces:
+        - mission_log_sub: sub-> "fleet_telemetry_bridge::mission_log_sub"
+        - mission_ac: ac-> "fleet_telemetry_bridge::mission_action_client"
+  connections:
+    - ["scan_out", "laser_sub"]
+    - ["safe_cmd_pub", "cmd_vel_in"]
+    - ["odom_out", "odom_sub"]
+    - ["raw_cmd_pub", "raw_cmd_sub"]
+    - ["safety_pub", "safety_sub"]
+    - ["reset_srv", "reset_client"]
+    - ["defect_pub", "defect_sub"]
+    - ["trigger_srv", "trigger_client"]
+    - ["arm_controller/follow_joint_trajectory", "arm_action_client"]
+    - ["arm_controller/state", "arm_state_sub"]
+    - ["mission_as", "mission_ac"]
+    - ["mission_log_pub", "mission_log_sub"]
+  processes:
+    safety_process:
+      nodes: [ safety_mgr ]
+      threads: 2
+    mission_process:
+      nodes: [ mission_exec ]
+      threads: 4
+    telemetry_process:
+      nodes: [ fleet_bridge ]
+      threads: 1

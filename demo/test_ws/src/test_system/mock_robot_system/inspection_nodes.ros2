@@ -1,0 +1,82 @@
+inspection_nodes:
+  artifacts:
+    ai_defect_detector:
+      node: ai_defect_detector
+      publishers:
+        defect_report_pub:
+          type: 'inspection_msgs/msg/DefectReport'
+      subscribers:
+        camera_image:
+          type: 'sensor_msgs/msg/Image'
+          qos:
+            profile: sensor_qos
+      serviceservers:
+        trigger_inspection_srv:
+          type: 'inspection_msgs/srv/TriggerInspection'
+      parameters:
+        confidence_threshold:
+          type: Double
+          default: 0.75
+        model_path:
+          type: String
+          default: "/opt/models/defect_net.onnx"
+    safety_supervisor:
+      node: safety_supervisor
+      publishers:
+        safety_status_pub:
+          type: 'inspection_msgs/msg/SafetyStatus'
+        cmd_vel_safe:
+          type: 'geometry_msgs/msg/Twist'
+      subscribers:
+        raw_cmd_in:
+          type: 'geometry_msgs/msg/Twist'
+        scan_in:
+          type: 'sensor_msgs/msg/LaserScan'
+          qos:
+            profile: sensor_qos
+            reliability: reliable
+      serviceservers:
+        reset_safety_srv:
+          type: 'inspection_msgs/srv/ResetSafetyZone'
+      parameters:
+        slowdown_radius:
+          type: Double
+          default: 1.2
+        emergency_stop_radius:
+          type: Double
+          default: 0.45
+    mission_executive:
+      node: mission_executive
+      publishers:
+        raw_cmd_out:
+          type: 'geometry_msgs/msg/Twist'
+        mission_log_pub:
+          type: 'std_msgs/msg/String'
+      subscribers:
+        odom_in:
+          type: 'nav_msgs/msg/Odometry'
+        safety_status_sub:
+          type: 'inspection_msgs/msg/SafetyStatus'
+        defect_report_sub:
+          type: 'inspection_msgs/msg/DefectReport'
+        arm_state_sub:
+          type: 'control_msgs/msg/JointTrajectoryControllerState'
+      serviceclients:
+        inspect_target_client:
+          type: 'inspection_msgs/srv/TriggerInspection'
+        reset_safety_client:
+          type: 'inspection_msgs/srv/ResetSafetyZone'
+      actionservers:
+        mission_action_server:
+          type: 'inspection_msgs/action/ExecuteInspectionMission'
+      actionclients:
+        arm_action_client:
+          type: 'control_msgs/action/FollowJointTrajectory'
+    fleet_telemetry_bridge:
+      node: fleet_telemetry_bridge
+      subscribers:
+        mission_log_sub:
+          type: 'std_msgs/msg/String'
+      actionclients:
+        mission_action_client:
+          type: 'inspection_msgs/action/ExecuteInspectionMission'

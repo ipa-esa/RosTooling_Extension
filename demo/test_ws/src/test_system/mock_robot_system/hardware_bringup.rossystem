@@ -1,0 +1,15 @@
+hardware_bringup:
+  nodes:
+    diff_drive_node:
+      from: "diff_drive_controller.diff_drive_controller"
+      interfaces:
+        - cmd_vel_in: sub-> "diff_drive_controller::cmd_vel"
+        - odom_out: pub-> "diff_drive_controller::odom"
+        - tf_out: pub-> "diff_drive_controller::tf"
+      parameters:
+        - wheel_separation: "diff_drive_controller::wheel_separation"
+          value: 0.293
+    lidar_node:
+      from: "turtlebot3_laserscan.turtlebot3_laserscan"
+      interfaces:
+        - scan_out: pub-> "turtlebot3_laserscan::scan"

@@ -1,0 +1,25 @@
+perception_bringup:
+  nodes:
+    cv_camera_node:
+      from: "cv_camera.cv_camera_node"
+      interfaces:
+        - camera_info: pub-> "cv_camera_node::camera_info"
+        - image_raw_out: pub-> "cv_camera_node::image_raw"
+        - set_camera_info: ss-> "cv_camera_node::set_camera_info"
+      parameters:
+        - device_path: "cv_camera_node::device_path"
+          value: "test_path"
+        - frame_id: "cv_camera_node::frame_id"
+          value: "world"
+        - image_width: "cv_camera_node::image_width"
+          value: 1080
+        - image_height: "cv_camera_node::image_height"
+          value: 1920
+    defect_detector:
+      from: "inspection_nodes.ai_defect_detector"
+      interfaces:
+        - defect_pub: pub-> "ai_defect_detector::defect_report_pub"
+        - camera_sub: sub-> "ai_defect_detector::camera_image"
+        - trigger_srv: ss-> "ai_defect_detector::trigger_inspection_srv"
+  connections:
+    - ["image_raw_out", "camera_sub"]
