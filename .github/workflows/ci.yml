@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          server-id: github
+          settings-path: ${{ github.workspace }}
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'rostooling-languages/package-lock.json'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Language Server JAR
+        run: ./gradlew :rostooling-languages:copyFatJar
+        env:
+          USERNAME: ${{ github.actor }}
+          TOKEN: ${{ secrets.GPR_KEY || secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Setup RosTooling Catalogues
+        run: |
+          mkdir -p $HOME/.rostooling/catalogue_repos
+          git clone --depth 1 https://github.com/ipa-nhg/RosModelsCatalog.git $HOME/.rostooling/catalogue_repos/RosModelsCatalog
+          git clone --depth 1 https://github.com/ipa320/RosCommonObjects.git $HOME/.rostooling/catalogue_repos/RosCommonObjects
+          echo '{"customFolders":[],"lastSyncTimestamp":'$(date +%s%3N)'}' > $HOME/.rostooling/catalogue_repos/catalogue_config.json
+
+      - name: Install npm dependencies
+        working-directory: rostooling-languages
+        run: npm ci
+
+      - name: Compile TypeScript
+        working-directory: rostooling-languages
+        run: npm run compile
+
+      - name: Run ESLint
+        working-directory: rostooling-languages
+        run: npm run lint
+
+      - name: Run VS Code Extension Tests
+        working-directory: rostooling-languages
+        run: xvfb-run -a npm test
+        env:
+          ROSTOOLING_CATALOGUE_PATH: /home/runner/.rostooling/catalogue_repos

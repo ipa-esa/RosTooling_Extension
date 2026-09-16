@@ -10,14 +10,24 @@ import { RosProject } from '../model/RosModelTypes';
 suite('LSP Protocol Model Validation Test Suite', () => {
   let lspValidator: LspValidator;
   const extensionRoot = path.resolve(__dirname, '..', '..');
-  const cataloguePath = fs.existsSync(
-    '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/fraunhoferipa.rostooling-languages/catalogue_repos'
-  )
-    ? '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/fraunhoferipa.rostooling-languages/catalogue_repos'
-    : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+  const defaultUserPath = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+  const ideStoragePath =
+    '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/fraunhoferipa.rostooling-languages/catalogue_repos';
+  const cataloguePath =
+    process.env.ROSTOOLING_CATALOGUE_PATH ||
+    (fs.existsSync(defaultUserPath) && fs.readdirSync(defaultUserPath).length > 0
+      ? defaultUserPath
+      : fs.existsSync(ideStoragePath)
+        ? ideStoragePath
+        : defaultUserPath);
 
   suiteSetup(async function () {
     this.timeout(15000);
+    if (!LspValidator.hasServerJar(extensionRoot)) {
+      console.warn('Language Server JAR not found; skipping LSP validation tests.');
+      this.skip();
+      return;
+    }
     lspValidator = new LspValidator(extensionRoot, cataloguePath);
     await lspValidator.init();
   });

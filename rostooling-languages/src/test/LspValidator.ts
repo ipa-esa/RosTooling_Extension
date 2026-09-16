@@ -1,5 +1,6 @@
 import * as cp from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export interface LspDiagnostic {
   range: {
@@ -16,8 +17,30 @@ export class LspValidator {
   private buffer = Buffer.alloc(0);
   private listeners = new Map<string, (diags: LspDiagnostic[]) => void>();
 
+  public static hasServerJar(extensionRoot: string): boolean {
+    const defaultJar = path.join(extensionRoot, 'server', 'rostooling_extension-1.2.1.jar');
+    if (fs.existsSync(defaultJar)) return true;
+    const serverDir = path.join(extensionRoot, 'server');
+    if (fs.existsSync(serverDir)) {
+      return fs.readdirSync(serverDir).some((f) => f.endsWith('.jar'));
+    }
+    return false;
+  }
+
   constructor(extensionRoot: string, cataloguePath?: string) {
-    const jarPath = path.join(extensionRoot, 'server', 'rostooling_extension-1.2.1.jar');
+    let jarPath = path.join(extensionRoot, 'server', 'rostooling_extension-1.2.1.jar');
+    if (!fs.existsSync(jarPath)) {
+      const serverDir = path.join(extensionRoot, 'server');
+      if (fs.existsSync(serverDir)) {
+        const jars = fs.readdirSync(serverDir).filter((f) => f.endsWith('.jar'));
+        if (jars.length > 0) {
+          jarPath = path.join(serverDir, jars[0]);
+        }
+      }
+    }
+    if (!fs.existsSync(jarPath)) {
+      throw new Error(`Language Server JAR not found at ${jarPath}. Please run './gradlew copyFatJar' first.`);
+    }
     const args = [
       '--add-opens=java.base/java.lang=ALL-UNNAMED',
       '--add-opens=java.base/java.util=ALL-UNNAMED',
