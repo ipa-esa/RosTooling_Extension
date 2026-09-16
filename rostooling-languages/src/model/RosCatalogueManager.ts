@@ -29,13 +29,14 @@ export class RosCatalogueManager {
       id: 'ros_common_objects',
       name: 'RosCommonObjects',
       url: 'https://github.com/ipa320/RosCommonObjects.git',
-      branch: 'master',
+      branch: 'main',
     },
   ];
 
   private storageDir: string;
   private customFolders: RosCatalogueFolder[] = [];
   private lastSyncTimestamp = 0;
+  private syncPromise: Promise<{ success: boolean; updated: string[]; errors: string[] }> | null = null;
   private cacheIndex: RosCatalogueIndex | null = null;
   private cachedRootsKey = '';
   private fileCache = new Map<string, { mtime: number; data: unknown }>();
@@ -152,6 +153,19 @@ export class RosCatalogueManager {
     force = false,
     progressCallback?: (msg: string) => void
   ): Promise<{ success: boolean; updated: string[]; errors: string[] }> {
+    if (this.syncPromise) {
+      return this.syncPromise;
+    }
+    this.syncPromise = this.doSyncRepositories(force, progressCallback).finally(() => {
+      this.syncPromise = null;
+    });
+    return this.syncPromise;
+  }
+
+  private async doSyncRepositories(
+    force = false,
+    progressCallback?: (msg: string) => void
+  ): Promise<{ success: boolean; updated: string[]; errors: string[] }> {
     const now = Date.now();
     const oneDay = 24 * 60 * 60 * 1000;
     if (!force && this.lastSyncTimestamp && now - this.lastSyncTimestamp < oneDay) {
@@ -163,24 +177,60 @@ export class RosCatalogueManager {
 
     for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
       const repoTargetDir = path.join(this.storageDir, repo.name);
+      const branch = repo.branch || 'main';
       if (progressCallback) {
         progressCallback(`Updating ${repo.name}...`);
       }
 
       try {
-        if (!fs.existsSync(repoTargetDir)) {
-          // Clone shallow depth 1
-          await this.execGit(['clone', '--depth', '1', repo.url, repoTargetDir]);
+        const gitDir = path.join(repoTargetDir, '.git');
+        if (!fs.existsSync(repoTargetDir) || !fs.existsSync(gitDir)) {
+          // Remove incomplete directory if present
+          if (fs.existsSync(repoTargetDir)) {
+            try {
+              fs.rmSync(repoTargetDir, { recursive: true, force: true });
+            } catch {
+              // ignore
+            }
+          }
+          // Clone shallow depth 1 on specific branch
+          await this.execGit(['clone', '--depth', '1', '-b', branch, repo.url, repoTargetDir]);
           updated.push(repo.name);
         } else {
-          // Pull fast-forward
-          await this.execGit(['-C', repoTargetDir, 'pull', '--ff-only']);
+          // Remove stale lock files if an earlier process terminated unexpectedly
+          const lockFiles = [
+            path.join(gitDir, 'shallow.lock'),
+            path.join(gitDir, 'index.lock'),
+          ];
+          for (const lock of lockFiles) {
+            if (fs.existsSync(lock)) {
+              try { fs.unlinkSync(lock); } catch { /* ignore */ }
+            }
+          }
+
+          // Strictly enforce read-only catalogue state: discard any accidental modifications or untracked files
+          await this.execGit(['-C', repoTargetDir, 'reset', '--hard', 'HEAD']);
+          await this.execGit(['-C', repoTargetDir, 'clean', '-fd']);
+
+          // Fetch latest revision and align local branch with upstream
+          await this.execGit(['-C', repoTargetDir, 'fetch', '--depth', '1', 'origin', branch]);
+          await this.execGit(['-C', repoTargetDir, 'checkout', '-B', branch, `origin/${branch}`]);
+          await this.execGit(['-C', repoTargetDir, 'reset', '--hard', `origin/${branch}`]);
           updated.push(repo.name);
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`Could not pull repository ${repo.name}: ${msg}`);
-        errors.push(`${repo.name}: ${msg}`);
+      } catch {
+        // Fallback: If git update failed due to corruption or incompatible history, re-clone clean
+        try {
+          if (fs.existsSync(repoTargetDir)) {
+            fs.rmSync(repoTargetDir, { recursive: true, force: true });
+          }
+          await this.execGit(['clone', '--depth', '1', '-b', branch, repo.url, repoTargetDir]);
+          updated.push(repo.name);
+        } catch (cloneErr) {
+          const msg = cloneErr instanceof Error ? cloneErr.message : String(cloneErr);
+          console.warn(`Could not pull repository ${repo.name}: ${msg}`);
+          errors.push(`${repo.name}: ${msg}`);
+        }
       }
     }
 

@@ -8,6 +8,7 @@ import { RosModelEmitter } from '../model/RosModelEmitter';
 import { ConnectionValidator } from '../model/ConnectionValidator';
 import { RosCustomEditorProvider } from '../editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from '../model/RosCatalogueManager';
+import { RosLayoutManager } from '../model/RosLayoutManager';
 import { getStudioHtml } from '../webview/studioHtml';
 import {
   RosProject,
@@ -2059,6 +2060,40 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.ok(html.includes('var isReadOnly = true;'), 'Client script must have isReadOnly set to true');
       assert.ok(!html.includes('id="btnOpenCatalogue"'), 'Catalogue add button must be omitted in read-only mode');
       assert.ok(html.includes('sysNameInput" class="sysname-input" value="cv_camera" placeholder="Enter package name..." disabled'), 'Model name input must be disabled in read-only mode');
+    });
+
+    test('Core catalogue models strictly disallow layout persistence and disk modification', async () => {
+      const mockContext = {
+        extensionPath: '/mock/ext',
+        globalStorageUri: vscode.Uri.file('/mock/storage'),
+      } as unknown as vscode.ExtensionContext;
+
+      const provider = new RosCustomEditorProvider(mockContext);
+      const catFile = '/home/user/.rostooling/catalogue_repos/RosModelsCatalog/models.ros2';
+      assert.strictEqual(provider.isCoreCatalogue(catFile), true);
+
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'cat_test' },
+        subSystems: [],
+        nodes: [],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      await provider.saveLayoutSchematic(catFile, project);
+      await RosLayoutManager.saveLayoutSchematic(catFile, project);
+
+      const layoutPath = RosLayoutManager.getLayoutFilePath(catFile);
+      assert.ok(!layoutPath.includes('.rostooling/catalogue_repos/RosModelsCatalog/.rostooling'), 'Layout file must not be placed inside catalogue repo');
+      assert.ok(RosLayoutManager.isCataloguePath(catFile), 'isCataloguePath must identify catalogue path');
+    });
+
+    test('RosCatalogueManager repository configuration specifies correct main branch for RosCommonObjects', () => {
+      const commonObjects = RosCatalogueManager.DEFAULT_REPOSITORIES.find((r) => r.id === 'ros_common_objects');
+      assert.ok(commonObjects, 'ros_common_objects must be in default repositories');
+      assert.strictEqual(commonObjects?.branch, 'main', 'ros_common_objects branch must be main');
     });
 
     test('System view disallows blank node creation and enables catalogue and workspace node import', () => {

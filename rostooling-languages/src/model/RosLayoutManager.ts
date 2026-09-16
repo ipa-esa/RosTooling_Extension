@@ -1,8 +1,27 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { RosProject, RosLayoutSchematic } from './RosModelTypes';
 
 export const RosLayoutManager = {
+  /**
+   * Determine whether a path belongs to a read-only catalogue repository or assets directory
+   */
+  isCataloguePath(filePath?: string): boolean {
+    if (!filePath) return false;
+    const normalized = filePath.replace(/\\/g, '/');
+    return (
+      normalized.includes('/RosModelsCatalog/') ||
+      normalized.endsWith('/RosModelsCatalog') ||
+      normalized.includes('/RosCommonObjects/') ||
+      normalized.endsWith('/RosCommonObjects') ||
+      normalized.includes('/.rostooling/catalogue_repos/') ||
+      normalized.includes('/catalogue_repos/') ||
+      normalized.includes('/assets/nodes/') ||
+      normalized.includes('/assets/types/')
+    );
+  },
+
   /**
    * Safely normalize interfaces from various catalogue formats:
    * 1. Object map format: { "odom_cart": "sub", "scan_cart": "sub" } or { "cmd_vel": { kind: "sub", type: "Twist" } }
@@ -55,6 +74,9 @@ export const RosLayoutManager = {
 
     // 2. Otherwise default to workspaceRoot or document directory
     const rootDir = workspaceRoot || path.dirname(docFilePath);
+    if (this.isCataloguePath(rootDir) || this.isCataloguePath(docFilePath)) {
+      return path.join(os.tmpdir(), `${baseName}.layout.json`);
+    }
     const layoutDir = path.join(rootDir, '.rostooling', 'layout');
     try {
       if (!fs.existsSync(layoutDir)) {
@@ -223,6 +245,9 @@ export const RosLayoutManager = {
    * Save layout JSON schematic adhering to standard schema to Option 2 path
    */
   async saveLayoutSchematic(docFilePath: string, project: RosProject, workspaceRoot?: string): Promise<void> {
+    if (this.isCataloguePath(docFilePath) || (workspaceRoot && this.isCataloguePath(workspaceRoot))) {
+      return;
+    }
     try {
       const layoutPath = this.getLayoutFilePath(docFilePath, workspaceRoot);
       const isRos = Boolean(project.isRos || docFilePath.endsWith('.ros'));

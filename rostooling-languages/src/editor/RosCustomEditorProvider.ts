@@ -113,12 +113,15 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
       }
 
-      // Check 24-hour sync in background
-      this.catalogueManager.syncRepositories(false).then((res) => {
-        if (res.updated.length > 0) {
-          this.refreshCatalogues();
-        }
-      });
+      // Check 24-hour sync in background (skip in test mode to avoid uncoordinated git processes)
+      const isTestEnv = this.context.extensionMode === vscode.ExtensionMode.Test || process.env.VSCODE_TEST_RUN === '1';
+      if (!isTestEnv) {
+        this.catalogueManager.syncRepositories(false).then((res) => {
+          if (res.updated.length > 0) {
+            this.refreshCatalogues();
+          }
+        });
+      }
     } catch (e) {
       console.warn('Failed to load dynamic catalogue:', e);
     }
@@ -149,11 +152,17 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     const normalized = filePath.replace(/\\/g, '/');
     if (normalized.includes('/RosModelsCatalog/') || normalized.endsWith('/RosModelsCatalog')) return true;
     if (normalized.includes('/RosCommonObjects/') || normalized.endsWith('/RosCommonObjects')) return true;
-    if (normalized.includes('/.rostooling/catalogue_repos/')) return true;
+    if (normalized.includes('/.rostooling/catalogue_repos/') || normalized.includes('/catalogue_repos/')) return true;
     if (normalized.includes('/assets/nodes/') || normalized.includes('/assets/types/')) return true;
     if (this.catalogueManager) {
       const storage = this.catalogueManager.getStorageDir().replace(/\\/g, '/');
-      if (storage && normalized.startsWith(storage)) return true;
+      if (storage && (normalized.startsWith(storage) || normalized.includes(storage))) return true;
+      for (const cf of this.catalogueManager.getCustomFolders()) {
+        const cfPath = cf.path.replace(/\\/g, '/');
+        if (cfPath && (normalized.startsWith(cfPath + '/') || normalized === cfPath)) {
+          return true;
+        }
+      }
     }
     return false;
   }
@@ -942,8 +951,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   }
 
   public async saveLayoutSchematic(docFilePath: string, project: RosProject): Promise<void> {
+    if (this.isCoreCatalogue(docFilePath)) {
+      return;
+    }
     const roots = this.getWorkspaceRoots(docFilePath);
     const rootDir = roots.length > 0 ? roots[0] : path.dirname(docFilePath);
+    if (this.isCoreCatalogue(rootDir)) {
+      return;
+    }
     await RosLayoutManager.saveLayoutSchematic(docFilePath, project, rootDir);
   }
 
