@@ -187,19 +187,42 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
 
-    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async () => {
-        const activeEditor = window.activeTextEditor;
-        if (!activeEditor || !lc) {
-            window.showErrorMessage('No active ROS editor or LSP not ready');
+    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
+        if (!lc) {
+            window.showErrorMessage('ROS LSP not ready');
             return;
         }
-        
+
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            const activeTab = window.tabGroups?.activeTabGroup?.activeTab;
+            if (activeTab?.input && typeof activeTab.input === 'object' && 'uri' in activeTab.input && (activeTab.input as { uri: unknown }).uri instanceof Uri) {
+                targetUri = (activeTab.input as { uri: Uri }).uri;
+            }
+        }
+        if (!targetUri && RosCustomEditorProvider.activeCustomDocument) {
+            targetUri = RosCustomEditorProvider.activeCustomDocument.uri;
+        }
+
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS editor or model file selected');
+            return;
+        }
+
+        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri!.toString());
+        if (doc?.isDirty) {
+            await doc.save();
+        }
+
         try {
-            const targetUri = activeEditor.document.uri.toString();
-            console.log('Sending execute Command to server...')
+            const targetUriStr = targetUri.toString();
+            console.log('Sending execute Command to server...');
             const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
-                arguments: [targetUri]
+                arguments: [targetUriStr]
             });
             
             // Safe access
@@ -211,7 +234,7 @@ export async function activate(context: ExtensionContext) {
             } else if (count > 0) {
                 window.showInformationMessage(`Generated ${count} file(s)`);
 
-                const workspaceFolder = workspace.getWorkspaceFolder(activeEditor.document.uri);
+                const workspaceFolder = workspace.getWorkspaceFolder(targetUri);
                 if (!workspaceFolder) {
                     window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
                     return;
@@ -225,7 +248,7 @@ export async function activate(context: ExtensionContext) {
                     const encoder = new TextEncoder();
                     await workspace.fs.writeFile(filePath, encoder.encode(content));
                 }
-                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`)
+                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`);
             } else {
                 window.showInformationMessage('No files generated');
             }

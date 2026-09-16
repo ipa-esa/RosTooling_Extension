@@ -21,6 +21,7 @@ interface DeclaredArtifact {
 
 export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'rostooling.visualStudio';
+  public static activeCustomDocument?: vscode.TextDocument;
 
   private catalogueManager: RosCatalogueManager | null = null;
   private nodeIndex: Record<string, unknown> | null = null;
@@ -1247,6 +1248,15 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       localResourceRoots: [this.context.extensionUri],
     };
 
+    RosCustomEditorProvider.activeCustomDocument = document;
+    const viewStateSubscription = webviewPanel.onDidChangeViewState((e) => {
+      if (e.webviewPanel.active) {
+        RosCustomEditorProvider.activeCustomDocument = document;
+      } else if (RosCustomEditorProvider.activeCustomDocument === document) {
+        RosCustomEditorProvider.activeCustomDocument = undefined;
+      }
+    });
+
     const docKey = document.uri.toString();
     const initialText = document.getText();
     const isRosSystem = document.fileName.endsWith('.rossystem');
@@ -1405,7 +1415,10 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
 
         case 'generateCode': {
-          await vscode.commands.executeCommand('rossystem.triggerCodeGeneration');
+          if (document.isDirty) {
+            await document.save();
+          }
+          await vscode.commands.executeCommand('rossystem.triggerCodeGeneration', document.uri);
           break;
         }
 
@@ -1558,10 +1571,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     });
 
     webviewPanel.onDidDispose(() => {
+      viewStateSubscription.dispose();
       messageListener.dispose();
       changeDocSubscription.dispose();
       saveDocSubscription.dispose();
       diagSubscription.dispose();
+      if (RosCustomEditorProvider.activeCustomDocument === document) {
+        RosCustomEditorProvider.activeCustomDocument = undefined;
+      }
       this.projectCache.delete(docKey);
     });
   }
