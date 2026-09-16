@@ -219,6 +219,11 @@ export async function activate(context: ExtensionContext) {
 
         try {
             const targetUriStr = targetUri.toString();
+            const filedEnd = targetUriStr.split('.').pop();
+            if (filedEnd !== 'rossystem') {
+                window.showErrorMessage('File is not a ROS system file');
+                return;
+            }
             console.log('Sending execute Command to server...');
             const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',

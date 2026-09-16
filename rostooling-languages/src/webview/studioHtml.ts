@@ -1247,7 +1247,7 @@ export function getStudioHtml(
     <button class="mode-btn" id="btnWireSpline" title="Spline Connectors">∿ Spline</button>
   </div>
   ${isReadOnly ? '' : '<button class="btn" id="btnOpenCatalogue" title="Browse Catalogue">+ Add from Catalogue</button>'}
-  <button class="btn primary" id="btnGenerate" title="Generate ROS 2 Package & Launch Files">⚡ Generate & Launch</button>
+  ${!isReadOnly && isRosSystem ? '<button class="btn primary" id="btnGenerate" title="Generate ROS 2 Package & Launch Files">⚡ Generate & Launch</button>' : ''}
   <button class="btn" id="btnSwitchToCode" title="View Source Code">📝 Code</button>
   <div id="diagPillContainer" style="margin-left:8px; display:flex; align-items:center;"></div>
 </div>
