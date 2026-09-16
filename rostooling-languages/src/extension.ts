@@ -212,7 +212,7 @@ export async function activate(context: ExtensionContext) {
             return;
         }
 
-        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri!.toString());
+        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri.toString());
         if (doc?.isDirty) {
             await doc.save();
         }
