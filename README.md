@@ -1,7 +1,6 @@
 # RosTooling Extension for Visual Studio Code
 
 [![CI](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/ci.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/ci.yml)
-[![ESLint](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/eslint.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/eslint.yml)
 [![Gradle Package](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml)
 
 ![RosTooling Extension](rostooling-languages/images/RosTooling_Badge.png)
