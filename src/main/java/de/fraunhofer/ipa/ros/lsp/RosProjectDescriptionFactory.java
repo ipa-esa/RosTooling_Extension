@@ -14,9 +14,15 @@ public class RosProjectDescriptionFactory extends DefaultProjectDescriptionFacto
     public ProjectDescription getProjectDescription(IProjectConfig config) {
         ProjectDescription description = super.getProjectDescription(config);
 
-        // If this is the catalogue library itself, it has no dependencies on user projects
-        if (RosMultiRootWorkspaceConfigFactory.CATALOGUE_PROJECT_NAME.equals(config.getName())
-                || (config.getName() != null && config.getName().startsWith("RosCatalogueCustom_"))) {
+        if (config == null || config.getName() == null) {
+            return description;
+        }
+
+        String currentName = config.getName();
+
+        // Catalogue libraries themselves have no dependencies on user projects or anything else
+        if (RosMultiRootWorkspaceConfigFactory.CATALOGUE_PROJECT_NAME.equals(currentName)
+                || currentName.startsWith("RosCatalogueCustom_")) {
             return description;
         }
 
@@ -27,13 +33,27 @@ public class RosProjectDescriptionFactory extends DefaultProjectDescriptionFacto
             deps.add(RosMultiRootWorkspaceConfigFactory.CATALOGUE_PROJECT_NAME);
         }
 
-        // Add any other projects in the workspace (including custom catalogue folders and sibling user projects)
+        // Add any other projects in the workspace without introducing cycles
         IWorkspaceConfig wsConfig = config.getWorkspaceConfig();
         if (wsConfig != null) {
             for (IProjectConfig other : wsConfig.getProjects()) {
                 String otherName = other.getName();
-                if (otherName != null && !otherName.equals(config.getName()) && !deps.contains(otherName)) {
-                    deps.add(otherName);
+                if (otherName == null || otherName.equals(currentName) || "__unknown_project".equals(otherName)) {
+                    continue;
+                }
+
+                // Custom catalogues are external libraries with no dependencies, always safe to depend on
+                if (otherName.startsWith("RosCatalogueCustom_")) {
+                    if (!deps.contains(otherName)) {
+                        deps.add(otherName);
+                    }
+                } else if (!"__unknown_project".equals(currentName)
+                        && !RosMultiRootWorkspaceConfigFactory.CATALOGUE_PROJECT_NAME.equals(otherName)) {
+                    // Sibling user workspace projects: enforce strict DAG ordering by name to prevent mutual cycles
+                    // (Note: __unknown_project must never depend on user projects)
+                    if (otherName.compareTo(currentName) < 0 && !deps.contains(otherName)) {
+                        deps.add(otherName);
+                    }
                 }
             }
         }

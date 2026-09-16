@@ -465,4 +465,43 @@ suite('LSP Protocol Model Validation Test Suite', () => {
       `Expected ur_robot subsystem reference to resolve cleanly from catalogue library, but got: ${JSON.stringify(errors, null, 2)}`
     );
   });
+
+  test('Validate workspace models index on startup: test_system.rossystem resolves test_system.image_filter without opening test_node.ros2', async function () {
+    this.timeout(15000);
+
+    const testWsDir = path.resolve(extensionRoot, '..', 'demo', 'test_ws');
+    const wsValidator = new LspValidator(extensionRoot, cataloguePath);
+    await wsValidator.init('file://' + testWsDir, [
+      { uri: 'file://' + testWsDir, name: 'test_ws' },
+    ]);
+
+    const testSystemPath = path.resolve(
+      testWsDir,
+      'src',
+      'test_system',
+      'test_system.rossystem'
+    );
+    assert.ok(fs.existsSync(testSystemPath), `File not found: ${testSystemPath}`);
+    const content = fs.readFileSync(testSystemPath, 'utf-8');
+
+    // Validate test_system.rossystem WITHOUT opening test_node.ros2
+    const diags = await wsValidator.validate(
+      'file://' + testSystemPath,
+      'rossystem',
+      content
+    );
+
+    const errors = diags.filter((d) => d.severity === 1);
+    const unresolvedNodeErrors = errors.filter((d) =>
+      d.message.includes("Couldn't resolve reference to Node 'test_system.image_filter'")
+    );
+
+    wsValidator.stop();
+
+    assert.strictEqual(
+      unresolvedNodeErrors.length,
+      0,
+      `Expected test_system.image_filter to resolve from disk index without opening test_node.ros2, but got: ${JSON.stringify(errors, null, 2)}`
+    );
+  });
 });
