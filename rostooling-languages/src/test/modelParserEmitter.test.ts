@@ -278,4 +278,35 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.strictEqual(roundTripped.system.name, 'inspection_msgs');
     assert.strictEqual(roundTripped.nodes.length, 1);
   });
+
+  test('Preserve distinct artifact target references in .rossystem when node label, from:, and artifact differ', () => {
+    const doc = `ros2_control_simulation:
+  fromFile: "ros2_control_simulation.rossystem"
+  nodes:
+    setup_scene:
+      from: "coverless_machine_simulation.setup_scene_node"
+      interfaces:
+        - "/joint_states_sub": sub-> "setup_scene::/joint_states"
+        - "/robot_description_semantic_sub": sub-> "setup_scene::/robot_description_semantic"
+      parameters:
+        - "use_sim_time": "setup_scene::use_sim_time"
+          value: false
+`;
+    const parsed = RosModelParser.parseRosSystem(doc, 'ros2_control_simulation.rossystem');
+    assert.strictEqual(parsed.nodes.length, 1);
+    const node = parsed.nodes[0];
+    assert.strictEqual(node.label, 'setup_scene');
+    assert.strictEqual(node.from, 'coverless_machine_simulation.setup_scene_node');
+    assert.strictEqual(node.artifact, 'setup_scene');
+    assert.strictEqual(node.ifaces[0].artifact, 'setup_scene');
+    assert.strictEqual(node.params[0].artifact, 'setup_scene');
+
+    const emitted = RosModelEmitter.emitRosSystem(parsed);
+    assert.ok(emitted.includes('from: "coverless_machine_simulation.setup_scene_node"'));
+    assert.ok(emitted.includes('- "/joint_states_sub": sub-> "setup_scene::/joint_states"'));
+    assert.ok(emitted.includes('- "/robot_description_semantic_sub": sub-> "setup_scene::/robot_description_semantic"'));
+    assert.ok(emitted.includes('- use_sim_time: "setup_scene::use_sim_time"'));
+    assert.strictEqual(emitted.includes('setup_scene_node::'), false, 'Must not emit node name as artifact target reference');
+  });
 });
+

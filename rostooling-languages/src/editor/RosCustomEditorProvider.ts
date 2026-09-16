@@ -384,6 +384,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     catEntry?: { interfaces?: unknown; parameters?: Record<string, unknown> }
   ): void {
     if (declaredArt) {
+      if (declaredArt.name) {
+        node.artifact = declaredArt.name;
+      }
       const declaredIfacesByName = new Map<string, RosInterface>();
       for (const iface of declaredArt.ifaces || []) {
         declaredIfacesByName.set(iface.name, iface);
@@ -398,6 +401,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           iface.type = match.type || iface.type;
           iface.qos = match.qos || iface.qos;
         }
+        if (!iface.artifact && declaredArt.name) {
+          iface.artifact = declaredArt.name;
+        }
         if (iface.name) existingIfacesByName.add(iface.name);
         if (iface.label) existingIfacesByName.add(iface.label);
       }
@@ -409,6 +415,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             ...decF,
             id: `i_${node.id || node.label}_${decF.name || decF.label}`,
             exposed: true,
+            artifact: declaredArt.name,
           });
           existingIfacesByName.add(decF.name);
           if (decF.label) existingIfacesByName.add(decF.label);
@@ -418,6 +425,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       // Merge parameters
       const existingParamsByName = new Map<string, RosParameter>();
       for (const p of node.params || []) {
+        if (!p.artifact && declaredArt.name) {
+          p.artifact = declaredArt.name;
+        }
         existingParamsByName.set(p.name, p);
         if (p.label) existingParamsByName.set(p.label, p);
       }
@@ -434,6 +444,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             value: decP.value,
             sysValue: existing.sysValue,
             exposed: existing.exposed !== undefined ? existing.exposed : true,
+            artifact: existing.artifact || declaredArt.name,
           });
           existingParamsByName.delete(decP.name);
           if (decP.label) existingParamsByName.delete(decP.label);
@@ -446,6 +457,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             value: decP.value,
             sysValue: undefined,
             exposed: false,
+            artifact: declaredArt.name,
           });
         }
       }

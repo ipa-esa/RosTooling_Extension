@@ -291,7 +291,9 @@ export const RosModelParser = {
             const parts = (curNode.from || '').split('.');
             if (parts.length >= 2) {
               curNode.pkg = parts[0];
-              curNode.artifact = parts[1];
+              if (!curNode.artifact) {
+                curNode.artifact = parts[1];
+              }
             }
             leadComments = [];
             continue;
@@ -321,13 +323,18 @@ export const RosModelParser = {
               const expLabel = this.unquote(arrowMatch[1]);
               const kind = arrowMatch[2] as RosInteractionKind;
               const refTarget = this.unquote(arrowMatch[3]);
+              const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const ifaceName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
+              if (targetArt) {
+                curNode.artifact = targetArt;
+              }
               const iface: RosInterface = {
                 id: `i_${curNode.label}_${expLabel}`,
                 name: ifaceName,
                 label: expLabel,
                 kind: kind,
                 exposed: true,
+                artifact: targetArt,
                 line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
@@ -341,7 +348,11 @@ export const RosModelParser = {
             if (ifaceMatch) {
               const expLabel = this.unquote(ifaceMatch[1]);
               const refTarget = this.unquote(ifaceMatch[2]);
+              const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const ifaceName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
+              if (targetArt) {
+                curNode.artifact = targetArt;
+              }
               const guessedKind = this.inferKindFromName(`${expLabel}_${ifaceName}`);
               const iface: RosInterface = {
                 id: `i_${curNode.label}_${expLabel}`,
@@ -349,6 +360,7 @@ export const RosModelParser = {
                 label: expLabel,
                 kind: guessedKind,
                 exposed: true,
+                artifact: targetArt,
                 line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
@@ -364,13 +376,18 @@ export const RosModelParser = {
             if (paramMatch) {
               const paramLabel = this.unquote(paramMatch[1]);
               const refTarget = this.unquote(paramMatch[2]);
+              const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const paramName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
+              if (targetArt) {
+                curNode.artifact = targetArt;
+              }
               const param: RosParameter = {
                 id: `p_${curNode.label}_${paramLabel}`,
                 name: paramName,
                 label: paramLabel,
                 exposed: true,
                 ptype: 'String',
+                artifact: targetArt,
                 line: lineNo,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };

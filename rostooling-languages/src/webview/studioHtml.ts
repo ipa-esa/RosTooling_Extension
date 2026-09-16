@@ -2317,7 +2317,6 @@ export function getStudioHtml(
 
     ensureCanvasEncompasses();
     render();
-    syncDoc();
     saveLayout(true);
     showToastSuccess("Auto-layout applied");
   }
@@ -4000,7 +3999,6 @@ export function getStudioHtml(
           pushUndoSnapshot(interactionSnapshot);
           interactionSnapshot = null;
         }
-        syncDoc();
         saveLayout(true);
       }
 
@@ -4065,7 +4063,6 @@ export function getStudioHtml(
             pushUndoSnapshot(interactionSnapshot);
             interactionSnapshot = null;
           }
-          syncDoc();
           saveLayout(true);
         } else {
           interactionSnapshot = null;

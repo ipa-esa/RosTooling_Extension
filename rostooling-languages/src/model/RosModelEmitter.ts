@@ -151,7 +151,7 @@ export const RosModelEmitter = {
           lines.push('      interfaces:');
           for (const iface of exposedIfaces) {
             const expLabel = iface.label || iface.name;
-            const artName = node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+            const artName = iface.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
             const targetRef = artName ? `${artName}::${iface.name}` : iface.name;
             const kindArrow = `${iface.kind || 'pub'}->`;
             lines.push(`        - ${this.formatKey(expLabel)}: ${kindArrow} ${this.qDouble(targetRef)}`);
@@ -172,7 +172,7 @@ export const RosModelEmitter = {
           lines.push('      parameters:');
           for (const param of exposedParams) {
             const expLabel = param.label || param.name;
-            const artName = node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+            const artName = param.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
             const targetRef = artName ? `${artName}::${param.name}` : param.name;
             const val = (param.sysValue !== undefined && param.sysValue !== null && String(param.sysValue).trim() !== '')
               ? param.sysValue

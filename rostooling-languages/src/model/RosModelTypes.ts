@@ -8,6 +8,7 @@ export interface RosInterface {
   qos?: Record<string, string>;
   label?: string;
   exposed?: boolean;
+  artifact?: string;
   line?: number;
   comments?: Record<string, unknown>;
 }
@@ -20,6 +21,7 @@ export interface RosParameter {
   label?: string;
   exposed?: boolean;
   sysValue?: string | number | boolean;
+  artifact?: string;
   line?: number;
   comments?: Record<string, unknown>;
 }
