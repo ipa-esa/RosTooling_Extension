@@ -588,6 +588,16 @@ export function getStudioHtml(
     opacity: 1 !important;
     color: var(--dead) !important;
   }
+  .btn-open-sub {
+    font-size: 0.75rem;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  .btn-open-sub:hover {
+    opacity: 1 !important;
+    transform: scale(1.15);
+  }
 
   /* Process Grouping & Focus Halos */
   .node.proc-focus {
@@ -1392,6 +1402,7 @@ export function getStudioHtml(
   var isRos = !!(project && project.isRos);
   var isRosSystem = (project.isRosSystem !== false && !isRos);
   var docBaseName = ${JSON.stringify(docBaseName)};
+  var currentDocFileName = ${JSON.stringify(docFileName || '')};
   var isReadOnly = ${Boolean(isReadOnly)};
   var activeCatSource = "all";
   var renderCatalogue = function() {};
@@ -2910,7 +2921,8 @@ export function getStudioHtml(
       + '<span class="ntitle">' + esc(sub.ref) + '</span>'
       + '<span class="badge" style="background:var(--k-subsystem-bg); color:var(--k-subsystem);">Subsystem</span>'
       + subBadgeHtml
-      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="margin-left:auto; padding:0 4px;">✕</span>'
+      + '<span class="btn-open-sub" data-open-sub="' + esc(sub.ref) + '" title="Open subsystem in .rossystem view" style="margin-left:auto; cursor:pointer; padding:0 4px;">📦</span>'
+      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="padding:0 4px;">✕</span>'
       + '</div>'
       + '<div class="nmeta">' + members.length + ' node(s) collapsed | ' + esc(sub.fromFile || sub.ref + '.rossystem') + '</div>'
       + '<div class="ifaces">';
@@ -3004,7 +3016,8 @@ export function getStudioHtml(
       + '<span style="font-weight:600;">' + esc(sub.ref) + ' (Expanded)</span>'
       + '<span class="badge" style="background:var(--k-subsystem-bg); color:var(--k-subsystem); font-size:0.65rem; padding:1px 6px;">Subsystem</span>'
       + frameBadgeHtml
-      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="margin-left:auto; padding:0 4px;">✕</span>'
+      + '<span class="btn-open-sub" data-open-sub="' + esc(sub.ref) + '" title="Open subsystem in .rossystem view" style="margin-left:auto; cursor:pointer; padding:0 4px;">📦</span>'
+      + '<span class="btn-del-sub" data-del-sub="' + esc(sub.ref) + '" title="Remove Subsystem" style="padding:0 4px;">✕</span>'
       + '</div>'
       + (!members.length ? '<div class="sf-empty-hint" style="position:absolute; inset:36px 12px 12px 12px; display:flex; align-items:center; justify-content:center; color:var(--ink-3); font-style:italic; font-size:0.75rem; border:1px dashed var(--rule); border-radius:8px; pointer-events:none;">Empty subsystem container (no nodes assigned)</div>' : '')
       + '<div class="resize-handle se" data-resize-frame="' + esc(sub.ref) + '" title="Drag to resize subsystem frame"></div>';
@@ -3531,6 +3544,22 @@ export function getStudioHtml(
   /* Real-time Connection Dragging & Verification */
   function setupWireInteractions() {
     canvasWrap.addEventListener("pointerdown", function(ev) {
+      // Check Subsystem Open Button
+      var openSubBtn = ev.target.closest(".btn-open-sub");
+      if (openSubBtn) {
+        ev.stopPropagation();
+        var subToOpen = openSubBtn.dataset.openSub;
+        if (subToOpen) {
+          var sObj = (project.subSystems || []).find(function(s) { return s.ref === subToOpen; });
+          vscode.postMessage({
+            type: 'openSubsystemRosSystem',
+            subRef: subToOpen,
+            fromFile: sObj && sObj.fromFile ? sObj.fromFile : undefined
+          });
+        }
+        return;
+      }
+
       // Check Subsystem Delete Button
       var delSubBtn = ev.target.closest(".btn-del-sub");
       if (delSubBtn) {
@@ -3687,7 +3716,7 @@ export function getStudioHtml(
       }
 
       var dragSubHead = ev.target.closest("[data-drag-sub]");
-      if (dragSubHead && !ev.target.closest(".resize-handle") && !ev.target.closest(".subtog") && !ev.target.closest(".btn-del-sub")) {
+      if (dragSubHead && !ev.target.closest(".resize-handle") && !ev.target.closest(".subtog") && !ev.target.closest(".btn-del-sub") && !ev.target.closest(".btn-open-sub")) {
         var sref = dragSubHead.dataset.dragSub;
         if (!project.view) project.view = {};
         if (!project.view.subPos) project.view.subPos = {};
@@ -4205,6 +4234,9 @@ export function getStudioHtml(
       var memberNodes = subMembers(selSub);
       var subDiags = getSubsystemDiagnostics(selSub);
       var h = renderDiagnosticsBannerHtml(subDiags)
+        + '<button class="btn btn-sm" id="btnOpenSubsystemRosSystem" style="width:100%; margin-bottom:0.8rem; background:var(--surface-3); border-color:var(--accent); color:var(--ink-1); display:flex; align-items:center; justify-content:center; gap:6px; font-weight:600; padding:6px 10px;" title="Open and edit subsystem in .rossystem view">'
+        + '📦 Edit Subsystem in .rossystem View'
+        + '</button>'
         + '<div class="fld"><label>Subsystem Reference</label><div class="sysname-input" style="font-weight:bold;">' + esc(selSub) + '</div></div>'
         + '<div class="fld"><label>Display State</label>'
         + '<select id="selSubDisplayState">'
@@ -4223,6 +4255,17 @@ export function getStudioHtml(
       h += '</div>'
         + '<button class="btn" id="btnDeleteSubsystem" style="margin-top:1.2rem; width:100%; color:var(--dead); border-color:var(--dead);">🗑️ Delete Subsystem</button>';
       container.innerHTML = h;
+
+      var btnOpenSubSys = document.getElementById("btnOpenSubsystemRosSystem");
+      if (btnOpenSubSys) {
+        btnOpenSubSys.onclick = function() {
+          vscode.postMessage({
+            type: 'openSubsystemRosSystem',
+            subRef: selSub,
+            fromFile: sObj && sObj.fromFile ? sObj.fromFile : undefined
+          });
+        };
+      }
 
       var selStateEl = document.getElementById("selSubDisplayState");
       if (selStateEl) {
@@ -4622,6 +4665,11 @@ export function getStudioHtml(
         h += '<button class="btn btn-sm" id="btnOpenComponentRos2" style="width:100%; margin-bottom:0.8rem; background:var(--accent); color:var(--accent-text); display:flex; align-items:center; justify-content:center; gap:6px; font-weight:600; padding:6px 10px;" title="Open and edit component in .ros2 view">'
           + '📦 Edit Component in .ros2 View'
           + '</button>';
+        if (n.subRef) {
+          h += '<button class="btn btn-sm" id="btnOpenParentSubsystemRosSystem" style="width:100%; margin-bottom:0.8rem; background:var(--surface-3); border-color:var(--accent); color:var(--ink-1); display:flex; align-items:center; justify-content:center; gap:6px; font-weight:600; padding:6px 10px;" title="Open and edit subsystem in .rossystem view">'
+            + '📦 Edit Subsystem (' + esc(n.subRef) + ') in .rossystem View'
+            + '</button>';
+        }
       }
 
       h += '<div class="fld"><label>Node Label</label><input type="text" id="inpNodeLabel" value="' + esc(n.label) + '"' + (isReadOnly ? ' disabled' : '') + '></div>';
@@ -5215,6 +5263,18 @@ export function getStudioHtml(
             pkg: n.pkg,
             artifact: n.artifact,
             label: n.label
+          });
+        };
+      }
+
+      var btnOpenParentSub = document.getElementById("btnOpenParentSubsystemRosSystem");
+      if (btnOpenParentSub) {
+        btnOpenParentSub.onclick = function() {
+          var sObj = (project.subSystems || []).find(function(s) { return s.ref === n.subRef; });
+          vscode.postMessage({
+            type: 'openSubsystemRosSystem',
+            subRef: n.subRef,
+            fromFile: sObj && sObj.fromFile ? sObj.fromFile : undefined
           });
         };
       }
@@ -6047,10 +6107,13 @@ export function getStudioHtml(
             // Subsystems tab
             var systems = (nodeCatalog && nodeCatalog._systems) || [];
             var count = 0;
+            var currentSysName = (project.system && project.system.name) || docBaseName || "";
 
             systems.forEach(function(sys) {
               if (activeCatSource !== "all" && sys.source && sys.source !== activeCatSource) return;
               var sysName = sys.system || "subsystem";
+              if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;
+              if (currentDocFileName && sys.fullPath && sys.fullPath === currentDocFileName) return;
               var searchable = (sysName + " " + (sys.file || "")).toLowerCase();
               if (q && !searchable.includes(q)) return;
               count++;

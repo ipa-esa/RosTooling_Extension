@@ -37,6 +37,7 @@ export class RosCatalogueManager {
   private customFolders: RosCatalogueFolder[] = [];
   private lastSyncTimestamp = 0;
   private cacheIndex: RosCatalogueIndex | null = null;
+  private cachedRootsKey = '';
   private fileCache = new Map<string, { mtime: number; data: unknown }>();
 
   constructor(storageDir?: string) {
@@ -141,6 +142,7 @@ export class RosCatalogueManager {
 
   public invalidateCache(): void {
     this.cacheIndex = null;
+    this.cachedRootsKey = '';
   }
 
   /**
@@ -209,9 +211,11 @@ export class RosCatalogueManager {
    * Search for all model files in candidate directories and build a live index
    */
   public buildCatalogueIndex(extraSearchRoots: string[] = []): RosCatalogueIndex {
-    if (this.cacheIndex) {
+    const rootsKey = extraSearchRoots.slice().sort().join('|');
+    if (this.cacheIndex && this.cachedRootsKey === rootsKey) {
       return this.cacheIndex;
     }
+    this.cachedRootsKey = rootsKey;
 
     const index: RosCatalogueIndex = {
       types: {},
@@ -247,12 +251,15 @@ export class RosCatalogueManager {
     }
 
     const uniqueSources = new Set<string>();
+    const seenFilePaths = new Set<string>();
 
     for (const { root, sourceName } of searchRoots) {
       uniqueSources.add(sourceName);
       const modelFiles = this.findModelFilesRecursively(root);
 
       for (const filePath of modelFiles) {
+        if (seenFilePaths.has(filePath)) continue;
+        seenFilePaths.add(filePath);
         try {
           const stats = fs.statSync(filePath);
           const ext = path.extname(filePath).toLowerCase();
@@ -340,6 +347,7 @@ export class RosCatalogueManager {
             index.systems.push({
               system: sysName,
               file: relPath,
+              fullPath: filePath,
               source: sourceName,
               domain,
               nodes: nodesMap,
@@ -363,7 +371,7 @@ export class RosCatalogueManager {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'build') {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'build' || entry.name === 'install' || entry.name === 'log') {
           continue;
         }
         const fullPath = path.join(dir, entry.name);

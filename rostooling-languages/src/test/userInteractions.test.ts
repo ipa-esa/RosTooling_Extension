@@ -7,6 +7,7 @@ import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
 import { ConnectionValidator } from '../model/ConnectionValidator';
 import { RosCustomEditorProvider } from '../editor/RosCustomEditorProvider';
+import { RosCatalogueManager } from '../model/RosCatalogueManager';
 import { getStudioHtml } from '../webview/studioHtml';
 import {
   RosProject,
@@ -2122,6 +2123,87 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
       assert.ok(html.includes('if (!isRosSystem && !isRos)'), 'Inspector label change handler must guard from/artifact mutation against system mode');
       assert.ok(html.includes('updateNodePackageAndArtifact(node, pkgVal, artVal) {\n        if (isRosSystem) return;'), 'updateNodePackageAndArtifact must guard against modifying component definition in system mode');
+    });
+
+    test('Subsystem catalogue discovery, file resolution, and subsystem edit navigation buttons', () => {
+      const mockUri = vscode.Uri.file('/tmp');
+      const mockWebview = {} as vscode.Webview;
+      const project: RosProject = {
+        formatVersion: 4,
+        isRos: false,
+        isRosSystem: true,
+        system: { name: 'inspection_system' },
+        subSystems: [
+          { ref: 'hardware_bringup', state: 'collapsed', fromFile: 'hardware_bringup.rossystem' },
+        ],
+        nodes: [
+          {
+            id: 'n_diff_drive_node',
+            label: 'diff_drive_node',
+            subRef: 'hardware_bringup',
+            from: 'diff_drive_controller.diff_drive_controller',
+            artifact: 'diff_drive_controller',
+            pkg: 'diff_drive_controller',
+            ifaces: [
+              { id: 'i1', name: 'cmd_vel', label: 'cmd_vel', kind: 'sub', type: 'geometry_msgs/msg/Twist', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+
+      const html = getStudioHtml(
+        project,
+        mockUri,
+        mockWebview,
+        {
+          _systems: [
+            {
+              system: 'hardware_bringup',
+              file: 'mock_robot_system/hardware_bringup.rossystem',
+              source: 'test_ws',
+              nodes: {
+                diff_drive_node: { from: 'diff_drive_controller.diff_drive_controller' },
+                lidar_node: { from: 'turtlebot3_laserscan.turtlebot3_laserscan' },
+              },
+            },
+          ],
+        },
+        {},
+        'inspection_system.rossystem',
+        false
+      );
+
+      // 1. Verify subsystem inspector contains "Edit Subsystem in .rossystem View" button
+      assert.ok(html.includes('id="btnOpenSubsystemRosSystem"'), 'Webview inspector must render btnOpenSubsystemRosSystem');
+      assert.ok(html.includes('📦 Edit Subsystem in .rossystem View'), 'Button label must be 📦 Edit Subsystem in .rossystem View');
+      assert.ok(html.includes("type: 'openSubsystemRosSystem'"), 'Webview must post openSubsystemRosSystem message to extension host');
+
+      // 2. Verify node inspector contains parent subsystem button for subsystem nodes
+      assert.ok(html.includes('id="btnOpenParentSubsystemRosSystem"'), 'Node inspector must render btnOpenParentSubsystemRosSystem for subsystem members');
+      assert.ok(html.includes('📦 Edit Subsystem ('), 'Parent subsystem edit button label must indicate parent subsystem');
+
+      // 3. Verify canvas subsystem headers contain open subsystem icon button
+      assert.ok(html.includes('class="btn-open-sub"'), 'Subsystem box and frame headers must render .btn-open-sub button');
+      assert.ok(html.includes('data-open-sub='), 'Subsystem box and frame headers must include data-open-sub attribute');
+
+      // 4. Verify catalogue subsystems list filters out current open system
+      assert.ok(html.includes('if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;'), 'Catalogue drawer must filter out open system from subsystems tab');
+
+      // 5. Verify RosCatalogueManager finds hardware_bringup in mock_robot_system
+      const mockWsDir = path.resolve(__dirname, '../../../demo/test_ws/src/test_system/mock_robot_system');
+      if (fs.existsSync(mockWsDir)) {
+        const catManager = new RosCatalogueManager('/tmp/rostooling_cat_test_' + Date.now());
+        const index = catManager.buildCatalogueIndex([mockWsDir]);
+        const foundSys = (index.systems || []).find((s) => s.system === 'hardware_bringup');
+        assert.ok(foundSys, 'RosCatalogueManager must discover hardware_bringup.rossystem in mock_robot_system');
+        assert.ok(foundSys.fullPath && foundSys.fullPath.endsWith('hardware_bringup.rossystem'), 'Indexed system must include fullPath');
+        assert.ok(foundSys.nodes['diff_drive_node'], 'Indexed hardware_bringup must contain diff_drive_node');
+        assert.ok(foundSys.nodes['lidar_node'], 'Indexed hardware_bringup must contain lidar_node');
+      }
     });
   });
 });

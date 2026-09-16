@@ -30,7 +30,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     this.loadCatalogues();
   }
 
-  private getSearchRoots(): string[] {
+  private getSearchRoots(docFilePath?: string): string[] {
     const roots = new Set<string>();
     for (const ws of vscode.workspace.workspaceFolders || []) {
       roots.add(ws.uri.fsPath);
@@ -44,17 +44,48 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     if (fs.existsSync(known1)) roots.add(known1);
     const known2 = '/home/adm-esa/coresense-ws/src/RosCommonObjects';
     if (fs.existsSync(known2)) roots.add(known2);
+
+    const targetDoc = docFilePath || vscode.window.activeTextEditor?.document.fileName;
+    if (targetDoc) {
+      let curDir = path.dirname(targetDoc);
+      let foundWsRoot: string | undefined;
+      for (let i = 0; i < 8; i++) {
+        if (!curDir || curDir === '/' || curDir === '.') break;
+        try {
+          const srcPath = path.join(curDir, 'src');
+          if (fs.existsSync(srcPath) && fs.statSync(srcPath).isDirectory()) {
+            foundWsRoot = curDir;
+          }
+        } catch {
+          // ignore
+        }
+        const sibModels = path.join(curDir, 'RosModelsCatalog');
+        if (fs.existsSync(sibModels)) roots.add(sibModels);
+        const sibCommon = path.join(curDir, 'RosCommonObjects');
+        if (fs.existsSync(sibCommon)) roots.add(sibCommon);
+        const parent = path.dirname(curDir);
+        if (parent === curDir) break;
+        curDir = parent;
+      }
+      if (foundWsRoot) {
+        roots.add(foundWsRoot);
+      }
+      const dirOfFile = path.dirname(targetDoc);
+      if (fs.existsSync(dirOfFile)) roots.add(dirOfFile);
+      const parentOfFile = path.dirname(dirOfFile);
+      if (fs.existsSync(parentOfFile) && parentOfFile !== '/') roots.add(parentOfFile);
+    }
     return Array.from(roots);
   }
 
-  private loadCatalogues() {
+  private loadCatalogues(docFilePath?: string) {
     try {
       const storageDir = this.context.globalStorageUri
         ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
         : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
       this.catalogueManager = RosCatalogueManager.getInstance(storageDir);
 
-      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots());
+      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
       const hasNodes = Object.keys(catIndex.nodes).length > 0;
       const hasTypes = Object.keys(catIndex.types).length > 0;
 
@@ -91,12 +122,12 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     }
   }
 
-  public refreshCatalogues(): { nodeIndex: Record<string, unknown>; typeIndex: Record<string, unknown> } {
+  public refreshCatalogues(docFilePath?: string): { nodeIndex: Record<string, unknown>; typeIndex: Record<string, unknown> } {
     if (!this.catalogueManager) {
-      this.loadCatalogues();
+      this.loadCatalogues(docFilePath);
     } else {
       this.catalogueManager.invalidateCache();
-      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots());
+      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
       this.nodeIndex = {
         nodes: catIndex.nodes,
         _systems: catIndex.systems,
@@ -147,6 +178,56 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         return art.filePath;
       }
     }
+    return undefined;
+  }
+
+  public resolveSubsystemFilePath(
+    subRef?: string,
+    fromFile?: string,
+    docFilePath?: string
+  ): string | undefined {
+    if (!subRef && !fromFile) return undefined;
+    const { subsystemMap } = this.loadCompanionArtifacts(docFilePath || '');
+    const keys = [
+      subRef,
+      fromFile,
+      fromFile ? path.basename(fromFile, '.rossystem') : undefined,
+      fromFile ? path.basename(fromFile) : undefined,
+      subRef ? path.basename(subRef, '.rossystem') : undefined,
+      subRef ? subRef.replace(/_\d+$/, '') : undefined,
+    ].filter(Boolean) as string[];
+
+    for (const k of keys) {
+      const match = subsystemMap.get(k);
+      if (match && fs.existsSync(match)) {
+        return match;
+      }
+    }
+
+    // Check catalogue index systems
+    const catSystems = (this.nodeIndex && (this.nodeIndex['_systems'] as {
+      system: string;
+      file?: string;
+      fullPath?: string;
+    }[])) || [];
+
+    for (const sys of catSystems) {
+      if (
+        (subRef && (sys.system === subRef || sys.system === subRef.replace(/_\d+$/, ''))) ||
+        (fromFile && (sys.file === fromFile || (sys.file && path.basename(sys.file) === path.basename(fromFile))))
+      ) {
+        if (sys.fullPath && fs.existsSync(sys.fullPath)) {
+          return sys.fullPath;
+        }
+      }
+    }
+
+    // Check relative to docFilePath
+    if (docFilePath && fromFile) {
+      const resolved = path.resolve(path.dirname(docFilePath), fromFile);
+      if (fs.existsSync(resolved)) return resolved;
+    }
+
     return undefined;
   }
 
@@ -1163,6 +1244,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       this.projectCache.set(docKey, project);
     }
 
+    this.refreshCatalogues(document.fileName);
     const isReadOnly = this.isCoreCatalogue(document.fileName);
     webviewPanel.webview.html = getStudioHtml(
       project,
@@ -1251,6 +1333,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             await vscode.commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
           } else {
             vscode.window.showWarningMessage(`Could not locate component source file for '${msg.from || msg.label || 'component'}'.`);
+          }
+          break;
+        }
+
+        case 'openSubsystemRosSystem': {
+          const subPath = this.resolveSubsystemFilePath(
+            msg.subRef,
+            msg.fromFile,
+            document.fileName
+          );
+          if (subPath && fs.existsSync(subPath)) {
+            const targetUri = vscode.Uri.file(subPath);
+            await vscode.commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+          } else {
+            vscode.window.showWarningMessage(`Could not locate subsystem source file for '${msg.subRef || msg.fromFile || 'subsystem'}'.`);
           }
           break;
         }

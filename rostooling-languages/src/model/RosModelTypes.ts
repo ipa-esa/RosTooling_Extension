@@ -165,6 +165,7 @@ export interface RosCatalogueIndex {
   systems: {
     system: string;
     file: string;
+    fullPath?: string;
     source?: string;
     domain?: string;
     nodes: Record<string, { from?: string; interfaces?: Record<string, string> }>;
