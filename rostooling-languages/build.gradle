@@ -12,6 +12,9 @@ clean {
 }
 
 npmInstall.dependsOn copyFatJar
+tasks.named('npm_test').configure {
+    dependsOn copyFatJar
+}
 
 task installExtension(type: Exec, dependsOn: vscodeExtension) {
     if (System.properties['os.name'].toLowerCase().contains('windows')) {

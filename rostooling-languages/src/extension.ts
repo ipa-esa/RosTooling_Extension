@@ -6,6 +6,9 @@ import * as fs from 'node:fs';
 import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
+import * as os from 'os';
+import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
+import { RosCatalogueManager } from './model/RosCatalogueManager';
 
 function checkJavaVersion(javaExecutable:string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -63,13 +66,22 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine('ABORTED: Invalid Java version detected.');
         return;
     }
-    outputChannel.appendLine("Java version is valid")
+    outputChannel.appendLine("Java version is valid");
+
+    const storageDir = context.globalStorageUri
+        ? path.join(context.globalStorageUri.fsPath, 'catalogue_repos')
+        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    const catalogueManager = RosCatalogueManager.getInstance(storageDir);
+    const cataloguePath = catalogueManager.getStorageDir();
+    outputChannel.appendLine(`Catalogue storage path: ${cataloguePath}`);
+
     const serverOptions: ServerOptions = {
         run : {
             command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
+                `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath                
             ]
         },
@@ -78,6 +90,7 @@ export async function activate(context: ExtensionContext) {
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
+                `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath,
                 '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp'  // optional debug flag
             ]            
@@ -174,19 +187,47 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
 
-    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async () => {
-        const activeEditor = window.activeTextEditor;
-        if (!activeEditor || !lc) {
-            window.showErrorMessage('No active ROS editor or LSP not ready');
+    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
+        if (!lc) {
+            window.showErrorMessage('ROS LSP not ready');
             return;
         }
-        
+
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            const activeTab = window.tabGroups?.activeTabGroup?.activeTab;
+            if (activeTab?.input && typeof activeTab.input === 'object' && 'uri' in activeTab.input && (activeTab.input as { uri: unknown }).uri instanceof Uri) {
+                targetUri = (activeTab.input as { uri: Uri }).uri;
+            }
+        }
+        if (!targetUri && RosCustomEditorProvider.activeCustomDocument) {
+            targetUri = RosCustomEditorProvider.activeCustomDocument.uri;
+        }
+
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS editor or model file selected');
+            return;
+        }
+
+        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri.toString());
+        if (doc?.isDirty) {
+            await doc.save();
+        }
+
         try {
-            const targetUri = activeEditor.document.uri.toString();
-            console.log('Sending execute Command to server...')
+            const targetUriStr = targetUri.toString();
+            const filedEnd = targetUriStr.split('.').pop();
+            if (filedEnd !== 'rossystem') {
+                window.showErrorMessage('File is not a ROS system file');
+                return;
+            }
+            console.log('Sending execute Command to server...');
             const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
-                arguments: [targetUri]
+                arguments: [targetUriStr]
             });
             
             // Safe access
@@ -198,7 +239,7 @@ export async function activate(context: ExtensionContext) {
             } else if (count > 0) {
                 window.showInformationMessage(`Generated ${count} file(s)`);
 
-                const workspaceFolder = workspace.getWorkspaceFolder(activeEditor.document.uri);
+                const workspaceFolder = workspace.getWorkspaceFolder(targetUri);
                 if (!workspaceFolder) {
                     window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
                     return;
@@ -212,7 +253,7 @@ export async function activate(context: ExtensionContext) {
                     const encoder = new TextEncoder();
                     await workspace.fs.writeFile(filePath, encoder.encode(content));
                 }
-                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`)
+                window.showInformationMessage(`Successfully generated and wrote ${count} file(s) to src-gen/`);
             } else {
                 window.showInformationMessage('No files generated');
             }
@@ -223,8 +264,32 @@ export async function activate(context: ExtensionContext) {
             console.error('Command failed:', error);
         }
     });
-    
     context.subscriptions.push(generateCodeCommand);
+    
+    const customEditorProvider = new RosCustomEditorProvider(context);
+    context.subscriptions.push(
+        window.registerCustomEditorProvider(
+            RosCustomEditorProvider.viewType,
+            customEditorProvider,
+            {
+                webviewOptions: { retainContextWhenHidden: true },
+                supportsMultipleEditorsPerDocument: false
+            }
+        )
+    );
+
+    const openVisualStudioCmd = commands.registerCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS model file selected to open in Visual Studio.');
+            return;
+        }
+        await commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+    });
+    context.subscriptions.push(openVisualStudioCmd);
 
     const rossdlCommand = commands.registerCommand('rossdl.buildPackage', async () => {
         try {

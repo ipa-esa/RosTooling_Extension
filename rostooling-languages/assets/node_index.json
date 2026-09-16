@@ -1,0 +1,881 @@
+{
+  "_meta": {
+    "generated_by": "scripts/build_node_index.py",
+    "node_count": 48,
+    "source": "assets/rosmodelscatalog/",
+    "system_count": 6
+  },
+  "_systems": [
+    {
+      "connections": [],
+      "file": "arms/UR/ur_robot.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "controller_manager": {
+          "from": "controller_manager.controller_manager",
+          "interfaces": {}
+        },
+        "controller_stopper": {
+          "from": "ur_robot_driver.controller_stopper_node",
+          "interfaces": {}
+        },
+        "dashboard_client": {
+          "from": "ur_robot_driver.dashboard_client",
+          "interfaces": {}
+        },
+        "initial_joint_controller": {
+          "from": "controller_manager.controller_manager",
+          "interfaces": {}
+        },
+        "initial_joint_controller_spawner_stopped": {
+          "from": "controller_manager.controller_manager",
+          "interfaces": {}
+        },
+        "robot_state_publisher_node": {
+          "from": "robot_state_publisher.robot_state_publisher",
+          "interfaces": {}
+        },
+        "ur_ros2_control_node": {
+          "from": "ur_robot_driver.ur_ros2_control_node",
+          "interfaces": {}
+        },
+        "urscript_interface": {
+          "from": "ur_robot_driver.urscript_interface",
+          "interfaces": {}
+        }
+      },
+      "system": "ur_robot"
+    },
+    {
+      "connections": [],
+      "file": "robots/turtlebot3/cartographer.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "cartographer_node": {
+          "from": "cartographer_node.cartographer_node",
+          "interfaces": {
+            "odom_cart": "sub",
+            "scan_cart": "sub"
+          }
+        },
+        "cartographer_occupancy_grid_node": {
+          "from": "cartographer_occupancy_grid_node.cartographer_occupancy_grid_node",
+          "interfaces": {}
+        }
+      },
+      "system": "cartographer"
+    },
+    {
+      "connections": [],
+      "file": "robots/turtlebot3/robot/arm.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "arm_controller": {
+          "from": "open_manipulator_x_controller.open_manipulator_x_controller",
+          "interfaces": {
+            "arm_controller/follow_joint_trajectory": "as",
+            "arm_controller/joint_trajectory": "sub",
+            "arm_controller/state": "pub"
+          }
+        }
+      },
+      "system": "arm_controller"
+    },
+    {
+      "connections": [],
+      "file": "robots/turtlebot3/robot/turtlebot.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "robot_state_publisher": {
+          "from": "robot_state_publisher.robot_state_publisher",
+          "interfaces": {
+            "joint_states": "sub",
+            "tf": "pub",
+            "tf_static": "pub"
+          }
+        },
+        "turtlebot3_laserscan": {
+          "from": "hlds_laser_publisher.hlds_laser_publisher",
+          "interfaces": {
+            "scan": "pub"
+          }
+        },
+        "turtlebot_node": {
+          "from": "turtlebot3_node.turtlebot3_node",
+          "interfaces": {
+            "cmd_vel": "sub",
+            "odom": "pub",
+            "tf": "pub"
+          }
+        }
+      },
+      "system": "turtlebot"
+    },
+    {
+      "connections": [],
+      "file": "robots/turtlebot3/simulation/turtlebot_gazebo.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "camera_driver": {
+          "from": "camera_driver.camera_driver",
+          "interfaces": {
+            "camera_info": "pub",
+            "image_raw": "pub",
+            "set_camera_info": "ss"
+          }
+        },
+        "gazebo": {
+          "from": "gazebo.gazebo",
+          "interfaces": {}
+        },
+        "robot_state_publisher": {
+          "from": "robot_state_publisher.robot_state_publisher",
+          "interfaces": {
+            "joint_states": "sub",
+            "tf": "pub",
+            "tf_static": "pub"
+          }
+        },
+        "turtlebot3_diff_drive": {
+          "from": "turtlebot3_diff_drive.turtlebot3_diff_drive",
+          "interfaces": {
+            "cmd_vel_diff": "sub",
+            "odom_diff": "pub",
+            "tf": "pub"
+          }
+        },
+        "turtlebot3_imu": {
+          "from": "turtlebot3_imu.turtlebot3_imu",
+          "interfaces": {
+            "imu": "pub"
+          }
+        },
+        "turtlebot3_joint_state": {
+          "from": "turtlebot3_joint_state.turtlebot3_joint_state",
+          "interfaces": {
+            "joint_states": "pub"
+          }
+        },
+        "turtlebot3_laserscan": {
+          "from": "turtlebot3_laserscan.turtlebot3_laserscan",
+          "interfaces": {
+            "scan_turtlebot": "pub"
+          }
+        }
+      },
+      "system": "turtlebot_gazebo"
+    },
+    {
+      "connections": [],
+      "file": "robots/turtlebot3/turtlebot3_navigation2.rossystem",
+      "hasOwnSubsystems": false,
+      "nodes": {
+        "amcl": {
+          "from": "amcl.amcl",
+          "interfaces": {}
+        },
+        "behavior_server": {
+          "from": "behavior_server.behavior_server",
+          "interfaces": {}
+        },
+        "bt_navigator": {
+          "from": "bt_navigator.bt_navigator",
+          "interfaces": {}
+        },
+        "controller_server": {
+          "from": "controller_server.controller_server",
+          "interfaces": {}
+        },
+        "global_costmap": {
+          "from": "global_costmap.global_costmap",
+          "interfaces": {}
+        },
+        "lifecycle_manager_localization": {
+          "from": "lifecycle_manager_localization.lifecycle_manager_localization",
+          "interfaces": {}
+        },
+        "lifecycle_manager_navigation": {
+          "from": "lifecycle_manager_navigation.lifecycle_manager_navigation",
+          "interfaces": {}
+        },
+        "local_costmap": {
+          "from": "local_costmap.local_costmap",
+          "interfaces": {}
+        },
+        "map_server": {
+          "from": "map_server.map_server",
+          "interfaces": {}
+        },
+        "planner_server": {
+          "from": "planner_server.planner_server",
+          "interfaces": {}
+        },
+        "rviz": {
+          "from": "rviz2.rviz2",
+          "interfaces": {}
+        },
+        "smoother_server": {
+          "from": "smoother_server.smoother_server",
+          "interfaces": {}
+        },
+        "velocity_smoother": {
+          "from": "velocity_smoother.velocity_smoother",
+          "interfaces": {}
+        },
+        "waypoint_follower": {
+          "from": "waypoint_follower.waypoint_follower",
+          "interfaces": {}
+        }
+      },
+      "system": "turtlebot3_navigation2"
+    }
+  ],
+  "nodes": {
+    "amcl.amcl": {
+      "artifact": "amcl",
+      "file": "navigation/amcl.ros2",
+      "interfaces": {
+        "initialpose": "sub",
+        "map": "sub",
+        "particle_cloud": "pub",
+        "reinitialize_global_localization": "ss",
+        "request_nomotion_update": "ss",
+        "scan": "sub",
+        "tf": "pub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub",
+        "~_pose": "pub"
+      }
+    },
+    "aruco_ros.marker_publisher": {
+      "artifact": "marker_publisher",
+      "file": "perception/aruco_ros.ros2",
+      "interfaces": {
+        "debug": "pub",
+        "image_raw": "sub",
+        "markers": "pub",
+        "markers_list": "pub",
+        "result": "pub"
+      }
+    },
+    "behavior_server.behavior_server": {
+      "artifact": "behavior_server",
+      "file": "navigation/behavior_server.ros2",
+      "interfaces": {
+        "backup": "as",
+        "cmd_vel": "pub",
+        "drive_on_heading": "as",
+        "local_costmap/costmap_raw": "sub",
+        "local_costmap/published_footprint": "sub",
+        "spin": "as",
+        "wait": "as",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "bt_navigator.bt_navigator": {
+      "artifact": "bt_navigator",
+      "file": "navigation/bt_navigator.ros2",
+      "interfaces": {
+        "goal_pose": "sub",
+        "navigate_through_poses": "as",
+        "navigate_to_pose": "as",
+        "odom": "sub",
+        "tf": "sub",
+        "tf_static": "sub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "camera_driver.camera_driver": {
+      "artifact": "camera_driver",
+      "file": "robots/turtlebot3/simulation/camera_driver.ros2",
+      "interfaces": {
+        "camera/camera_info": "pub",
+        "camera/image_raw": "pub",
+        "camera/image_raw/compressed": "pub",
+        "camera/image_raw/compressedDepth": "pub",
+        "camera/image_raw/theora": "pub",
+        "set_camera_info": "ss"
+      }
+    },
+    "cartographer_node.cartographer_node": {
+      "artifact": "cartographer_node",
+      "file": "navigation/cartographer/cartographer_node.ros2",
+      "interfaces": {
+        "constraint_list": "pub",
+        "finish_trajectory": "ss",
+        "get_trajectory_states": "ss",
+        "landmark_poses_list": "pub",
+        "odom": "sub",
+        "read_metrics": "ss",
+        "scan": "sub",
+        "scan_matched_points2": "pub",
+        "start_trajectory": "ss",
+        "submap_list": "pub",
+        "submap_query": "ss",
+        "tf": "pub",
+        "tf2_frames": "ss",
+        "trajectory_node_list": "pub",
+        "trajectory_query": "ss",
+        "write_state": "ss"
+      }
+    },
+    "cartographer_occupancy_grid_node.cartographer_occupancy_grid_node": {
+      "artifact": "cartographer_occupancy_grid_node",
+      "file": "navigation/cartographer/cartographer_occupancy_grid_node.ros2",
+      "interfaces": {
+        "map": "pub",
+        "submap_list": "sub",
+        "submap_query": "sc"
+      }
+    },
+    "controller_manager.controller_manager": {
+      "artifact": "spawner",
+      "file": "controllers/controller_manager.ros2",
+      "interfaces": {
+        "~/configure_controller": "ss",
+        "~/list_controller_types": "ss",
+        "~/list_controllers": "ss",
+        "~/list_hardware_components": "ss",
+        "~/list_hardware_interfaces": "ss",
+        "~/load_controller": "ss",
+        "~/reload_controller_libraries": "ss",
+        "~/set_hardware_component_state": "ss",
+        "~/switch_controller": "ss",
+        "~/unload_controller": "ss"
+      }
+    },
+    "controller_server.controller_server": {
+      "artifact": "controller_server",
+      "file": "navigation/controller_server.ros2",
+      "interfaces": {
+        "cmd_vel_nav": "pub",
+        "cost_cloud": "pub",
+        "evaluation": "pub",
+        "follow_path": "as",
+        "local_plan": "pub",
+        "marker": "pub",
+        "odom": "sub",
+        "received_global_plan": "pub",
+        "speed_limit": "sub",
+        "transformed_global_plan": "pub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "cv_camera.cv_camera_node": {
+      "artifact": "cv_camera_node",
+      "file": "cameras/cv_camera.ros2",
+      "interfaces": {
+        "camera_info": "pub",
+        "image_raw": "pub",
+        "set_camera_info": "ss"
+      }
+    },
+    "diff_drive_controller.diff_drive_controller": {
+      "artifact": "diff_drive_controller",
+      "file": "robots/turtlebot3/robot/diff_drive_controller.ros2",
+      "interfaces": {
+        "cmd_vel": "sub",
+        "odom": "pub",
+        "tf": "pub"
+      }
+    },
+    "force_torque_sensor_broadcaster.ForceTorqueSensorBroadcaster": {
+      "artifact": "plugin",
+      "file": "controllers/force_torque_sensor_broadcaster.ros2",
+      "interfaces": {
+        "wrench": "pub"
+      }
+    },
+    "gazebo.gazebo": {
+      "artifact": "gazebo",
+      "file": "robots/turtlebot3/simulation/gazebo.ros2",
+      "interfaces": {
+        "apply_joint_effort": "ss",
+        "apply_link_wrench": "ss",
+        "clear_joint_efforts": "ss",
+        "clear_link_wrenches": "ss",
+        "delete_entity": "ss",
+        "get_model_list": "ss",
+        "pause_physics": "ss",
+        "performance_metrics": "pub",
+        "reset_simulation": "ss",
+        "reset_world": "ss",
+        "spawn_entity": "ss",
+        "unpause_physics": "ss"
+      }
+    },
+    "global_costmap.global_costmap": {
+      "artifact": "global_costmap",
+      "file": "navigation/global_costmap.ros2",
+      "interfaces": {
+        "global_costmap/clear_around_global_costmap": "ss",
+        "global_costmap/clear_entirely_global_costmap": "ss",
+        "global_costmap/clear_except_global_costmap": "ss",
+        "global_costmap/clearing_endpoints": "pub",
+        "global_costmap/costmap": "pub",
+        "global_costmap/costmap_raw": "pub",
+        "global_costmap/costmap_updates": "pub",
+        "global_costmap/footprint": "sub",
+        "global_costmap/get_costmap": "ss",
+        "global_costmap/published_footprint": "pub",
+        "global_costmap/voxel_grid": "pub",
+        "map": "sub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "gripper_controller.gripper_controller": {
+      "artifact": "gripper_controller",
+      "file": "robots/turtlebot3/robot/gripper_controller.ros2",
+      "interfaces": {
+        "~/gripper_cmd": "as"
+      }
+    },
+    "hlds_laser_publisher.hlds_laser_publisher": {
+      "artifact": "hlds_laser_publisher",
+      "file": "robots/turtlebot3/robot/hlds_laser_publisher.ros2",
+      "interfaces": {
+        "scan": "pub"
+      }
+    },
+    "hls_lfcd_lds_driver.hlds_laser_publisher": {
+      "artifact": "hlds_laser_publisher",
+      "file": "lidar/hls_lfcd_lds_driver.ros2",
+      "interfaces": {
+        "scan": "pub"
+      }
+    },
+    "imu_broadcaster.imu_broadcaster": {
+      "artifact": "imu_broadcaster",
+      "file": "robots/turtlebot3/robot/imu_broadcaster.ros2",
+      "interfaces": {
+        "~/imu": "pub",
+        "~/transition_event": "pub"
+      }
+    },
+    "joint_state_broadcaster.joint_state_broadcaster": {
+      "artifact": "joint_state_broadcaster",
+      "file": "common/joint_state_broadcaster.ros2",
+      "interfaces": {
+        "dynamic_joint_states": "pub",
+        "joint_states": "pub"
+      }
+    },
+    "lifecycle_manager_localization.lifecycle_manager_localization": {
+      "artifact": "lifecycle_manager_localization",
+      "file": "navigation/lifecycle_manager_localization.ros2",
+      "interfaces": {
+        "amcl/change_state": "sc",
+        "amcl/get_state": "sc",
+        "diagnostics": "pub",
+        "map_server/change_state": "sc",
+        "map_server/get_state": "sc",
+        "~/is_active": "ss",
+        "~/manage_nodes": "ss"
+      }
+    },
+    "lifecycle_manager_navigation.lifecycle_manager_navigation": {
+      "artifact": "lifecycle_manager_navigation",
+      "file": "navigation/lifecycle_manager_navigation.ros2",
+      "interfaces": {
+        "behavior_server/change_state": "sc",
+        "behavior_server/get_state": "sc",
+        "bt_navigator/change_state": "sc",
+        "bt_navigator/get_state": "sc",
+        "controller_server/change_state": "sc",
+        "controller_server/get_state": "sc",
+        "diagnostics": "pub",
+        "planner_server/change_state": "sc",
+        "planner_server/get_state": "sc",
+        "smoother_server/change_state": "sc",
+        "smoother_server/get_state": "sc",
+        "velocity_smoother/change_state": "sc",
+        "velocity_smoother/get_state": "sc",
+        "waypoint_follower/change_state": "sc",
+        "waypoint_follower/get_state": "sc",
+        "~/is_active": "ss",
+        "~/manage_nodes": "ss"
+      }
+    },
+    "local_costmap.local_costmap": {
+      "artifact": "local_costmap",
+      "file": "navigation/local_costmap.ros2",
+      "interfaces": {
+        "local_costmap/clear_around_local_costmap": "ss",
+        "local_costmap/clear_entirely_local_costmap": "ss",
+        "local_costmap/clear_except_local_costmap": "ss",
+        "local_costmap/clearing_endpoints": "pub",
+        "local_costmap/costmap": "pub",
+        "local_costmap/costmap_raw": "pub",
+        "local_costmap/costmap_updates": "pub",
+        "local_costmap/footprint": "sub",
+        "local_costmap/get_costmap": "ss",
+        "local_costmap/published_footprint": "pub",
+        "local_costmap/voxel_grid": "pub",
+        "scan": "sub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "map_server.map_server": {
+      "artifact": "map_server",
+      "file": "navigation/map_server.ros2",
+      "interfaces": {
+        "map": "pub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/load_map": "ss",
+        "~/map": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "move_group.move_group": {
+      "artifact": "move_group",
+      "file": "manipulation/move_group.ros2",
+      "interfaces": {
+        "apply_planning_scene": "ss",
+        "attached_collision_object": "sub",
+        "check_state_validity": "ss",
+        "clear_octomap": "ss",
+        "collision_object": "sub",
+        "compute_cartesian_path": "ss",
+        "compute_fk": "ss",
+        "compute_ik": "ss",
+        "display_contacts": "pub",
+        "display_planned_path": "pub",
+        "execute_trajectory": "as",
+        "get_planner_params": "ss",
+        "get_planning_scene": "ss",
+        "joint_states": "sub",
+        "load_map": "ss",
+        "monitored_planning_scene": "pub",
+        "motion_plan_request": "pub",
+        "move_action": "as",
+        "plan_kinematic_path": "ss",
+        "planning_scene": "sub",
+        "planning_scene_world": "sub",
+        "query_planner_interface": "ss",
+        "robot_description_semantic": "pub",
+        "save_map": "ss",
+        "set_planner_params": "ss",
+        "trajectory_execution_event": "sub"
+      }
+    },
+    "moveit_simple_controller_manager.moveit_simple_controller_manager": {
+      "artifact": "moveit_simple_controller_manager",
+      "file": "manipulation/moveit_simple_controller_manager.ros2",
+      "interfaces": {
+        "joint_trajectory_controller/follow_joint_trajectory": "ac"
+      }
+    },
+    "open_manipulator_x_controller.open_manipulator_x_controller": {
+      "artifact": "open_manipulator_x_controller",
+      "file": "robots/turtlebot3/robot/arm_controller.ros2",
+      "interfaces": {
+        "~/controller_state": "pub",
+        "~/follow_joint_trajectory": "as",
+        "~/joint_trajectory": "sub",
+        "~/query_state": "ss",
+        "~/state": "pub"
+      }
+    },
+    "planner_server.planner_server": {
+      "artifact": "planner_server",
+      "file": "navigation/planner_server.ros2",
+      "interfaces": {
+        "compute_path_through_poses": "as",
+        "compute_path_to_pose": "as",
+        "plan": "pub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "position_controllers.JointGroupPositionController": {
+      "artifact": "plugin",
+      "file": "controllers/forward_position_controller.ros2",
+      "interfaces": {
+        "commands": "sub",
+        "transition_event": "pub"
+      }
+    },
+    "realsense2_camera.camera": {
+      "artifact": "realsense2_camera_node",
+      "file": "cameras/realsense2_camera.ros2",
+      "interfaces": {
+        "color/camera_info": "pub",
+        "color/image_raw": "pub",
+        "color/metadata": "pub",
+        "depth/camera_info": "pub",
+        "depth/image_rect_raw": "pub",
+        "depth/metadata": "pub",
+        "device_info": "ss",
+        "extrinsics/depth_to_color": "pub",
+        "imu": "pub",
+        "tf_static": "pub"
+      }
+    },
+    "robot_state_publisher.robot_state_publisher": {
+      "artifact": "robot_state_publisher",
+      "file": "common/robot_state_publisher.ros2",
+      "interfaces": {
+        "joint_states": "sub",
+        "robot_description": "pub",
+        "tf": "pub",
+        "tf_static": "pub"
+      }
+    },
+    "rviz2.rviz2": {
+      "artifact": "rviz2",
+      "file": "navigation/rviz2.ros2",
+      "interfaces": {
+        "clicked_point": "pub",
+        "downsampled_costmap": "sub",
+        "downsampled_costmap_updates": "sub",
+        "global_costmap/costmap": "sub",
+        "global_costmap/costmap_updates": "sub",
+        "global_costmap/voxel_marked_cloud": "sub",
+        "initialpose": "pub",
+        "local_costmap/costmap": "sub",
+        "local_costmap/costmap_updates": "sub",
+        "local_costmap/published_footprint": "sub",
+        "local_costmap/voxel_marked_cloud": "sub",
+        "local_plan": "sub",
+        "map": "sub",
+        "map_updates": "sub",
+        "mobile_base/sensors/bumper_pointcloud": "sub",
+        "navigate_through_poses": "ac",
+        "navigate_to_pose": "ac",
+        "particle_cloud": "sub",
+        "plan": "sub",
+        "scan": "sub",
+        "waypoints": "sub"
+      }
+    },
+    "rviz_navigation_dialog_action_client.rviz_navigation_dialog_action_client": {
+      "artifact": "rviz_navigation_dialog_action_client",
+      "file": "navigation/rviz_navigation_dialog_action_client.ros2",
+      "interfaces": {
+        "follow_waypoints": "ac",
+        "lifecycle_manager_localization/is_active": "sc",
+        "lifecycle_manager_localization/manage_nodes": "sc",
+        "lifecycle_manager_navigation/is_active": "sc",
+        "lifecycle_manager_navigation/manage_nodes": "sc",
+        "navigate_through_poses": "ac",
+        "navigate_to_pose": "ac",
+        "waypoints": "pub"
+      }
+    },
+    "smoother_server.smoother_server": {
+      "artifact": "smoother_server",
+      "file": "navigation/smoother_server.ros2",
+      "interfaces": {
+        "global_costmap/costmap_raw": "sub",
+        "global_costmap/published_footprint": "sub",
+        "plan_smoothed": "pub",
+        "smooth_path": "as",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "teleop_twist_keyboard.teleop_twist_keyboard": {
+      "artifact": "teleop_twist_keyboard",
+      "file": "common/teleop_twist_keyboard.ros2",
+      "interfaces": {
+        "cmd_vel": "pub"
+      }
+    },
+    "tf2_ros.static_transform_publisher": {
+      "artifact": "static_transform_publisher",
+      "file": "common/tf2_ros.ros2",
+      "interfaces": {
+        "tf_static": "pub"
+      }
+    },
+    "turtlebot3_diff_drive.turtlebot3_diff_drive": {
+      "artifact": "turtlebot3_diff_drive",
+      "file": "robots/turtlebot3/simulation/turtlebot3_diff_drive.ros2",
+      "interfaces": {
+        "cmd_vel": "sub",
+        "odom": "pub",
+        "tf": "pub"
+      }
+    },
+    "turtlebot3_imu.turtlebot3_imu": {
+      "artifact": "turtlebot3_imu",
+      "file": "robots/turtlebot3/simulation/turtlebot3_imu.ros2",
+      "interfaces": {
+        "imu": "pub"
+      }
+    },
+    "turtlebot3_joint_state.turtlebot3_joint_state": {
+      "artifact": "turtlebot3_joint_state",
+      "file": "robots/turtlebot3/simulation/turtlebot3_joint_state.ros2",
+      "interfaces": {
+        "joint_states": "pub"
+      }
+    },
+    "turtlebot3_laserscan.turtlebot3_laserscan": {
+      "artifact": "turtlebot3_laserscan",
+      "file": "lidar/turtlebot3_laserscan.ros2",
+      "interfaces": {
+        "scan": "pub"
+      }
+    },
+    "turtlebot3_node.turtlebot3_node": {
+      "artifact": "turtlebot3_node",
+      "file": "robots/turtlebot3/robot/turtlebot3_node.ros2",
+      "interfaces": {
+        "cmd_vel": "sub",
+        "odom": "pub",
+        "tf": "pub"
+      }
+    },
+    "turtlebot3_teleop.teleop_keyboard": {
+      "artifact": "teleop_keyboard",
+      "file": "robots/turtlebot3/turtlebot3_teleop.ros2",
+      "interfaces": {
+        "cmd_vel": "pub"
+      }
+    },
+    "ur_robot_driver.controller_stopper_node": {
+      "artifact": "controller_stopper_node",
+      "file": "arms/UR/ur_robot_driver.ros2",
+      "interfaces": {
+        "controller_manager/list_controllers": "sc",
+        "controller_manager/switch_controller": "sc",
+        "io_and_status_controller/robot_program_running": "sub"
+      }
+    },
+    "ur_robot_driver.dashboard_client": {
+      "artifact": "dashboard_client",
+      "file": "arms/UR/ur_robot_driver.ros2",
+      "interfaces": {
+        "add_to_log": "ss",
+        "brake_release": "ss",
+        "clear_operational_mode": "ss",
+        "close_popup": "ss",
+        "close_safety_popup": "ss",
+        "connect": "ss",
+        "get_loaded_program": "ss",
+        "get_robot_mode": "ss",
+        "get_safety_mode": "ss",
+        "load_installation": "ss",
+        "load_program": "ss",
+        "pause": "ss",
+        "play": "ss",
+        "popup": "ss",
+        "power_off": "ss",
+        "power_on": "ss",
+        "program_running": "ss",
+        "program_saved": "ss",
+        "program_state": "ss",
+        "quit": "ss",
+        "raw_request": "ss",
+        "restart_safety": "ss",
+        "shutdown": "ss",
+        "stop": "ss",
+        "unlock_protective_stop": "ss"
+      }
+    },
+    "ur_robot_driver.ur_ros2_control_node": {
+      "artifact": "ur_ros2_control_node",
+      "file": "arms/UR/ur_robot_driver.ros2",
+      "interfaces": {
+        "configure_controller": "ss",
+        "list_controller_types": "ss",
+        "list_controllers": "ss",
+        "list_hardware_components": "ss",
+        "list_hardware_interfaces": "ss",
+        "load_controller": "ss",
+        "reload_controller_libraries": "ss",
+        "set_hardware_component_state": "ss",
+        "switch_controller": "ss",
+        "unload_controller": "ss"
+      }
+    },
+    "ur_robot_driver.urscript_interface": {
+      "artifact": "urscript_interface",
+      "file": "arms/UR/ur_robot_driver.ros2",
+      "interfaces": {}
+    },
+    "usb_cam.usb_cam": {
+      "artifact": "usb_cam",
+      "file": "cameras/usb_cam.ros2",
+      "interfaces": {
+        "camera_info": "pub",
+        "image_raw": "pub",
+        "image_raw/compressed": "pub",
+        "image_raw/compressedDepth": "pub",
+        "image_raw/theora": "pub",
+        "set_camera_info": "ss",
+        "set_capture": "ss"
+      }
+    },
+    "velocity_smoother.velocity_smoother": {
+      "artifact": "velocity_smoother",
+      "file": "navigation/velocity_smoother.ros2",
+      "interfaces": {
+        "cmd_vel": "pub",
+        "cmd_vel_nav": "sub",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    },
+    "waypoint_follower.waypoint_follower": {
+      "artifact": "waypoint_follower",
+      "file": "navigation/waypoint_follower.ros2",
+      "interfaces": {
+        "follow_waypoints": "as",
+        "navigate_to_pose": "ac",
+        "~/change_state": "ss",
+        "~/get_available_states": "ss",
+        "~/get_available_transitions": "ss",
+        "~/get_state": "ss",
+        "~/get_transition_graph": "ss",
+        "~/transition_event": "pub"
+      }
+    }
+  }
+}

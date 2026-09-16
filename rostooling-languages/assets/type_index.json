@@ -1,0 +1,2418 @@
+{
+  "_meta": {
+    "generated_by": "scripts/build_type_index.py",
+    "package_count": 53,
+    "source": "assets/roscommonobjects/",
+    "type_count": 602
+  },
+  "types": {
+    "ackermann_msgs/msg/AckermannDrive": {
+      "file": "nav2_msgs/ackermann_msgs.ros",
+      "kind": "msg"
+    },
+    "ackermann_msgs/msg/AckermannDriveStamped": {
+      "file": "nav2_msgs/ackermann_msgs.ros",
+      "kind": "msg"
+    },
+    "action_tutorials_interfaces/action/Fibonacci": {
+      "file": "nav2_msgs/action_tutorials_interfaces.ros",
+      "kind": "action"
+    },
+    "actionlib_msgs/msg/GoalID": {
+      "file": "nav2_msgs/actionlib_msgs.ros",
+      "kind": "msg"
+    },
+    "actionlib_msgs/msg/GoalStatus": {
+      "file": "nav2_msgs/actionlib_msgs.ros",
+      "kind": "msg"
+    },
+    "actionlib_msgs/msg/GoalStatusArray": {
+      "file": "nav2_msgs/actionlib_msgs.ros",
+      "kind": "msg"
+    },
+    "aruco_msgs/msg/Marker": {
+      "file": "nav2_msgs/aruco_msgs.ros",
+      "kind": "msg"
+    },
+    "aruco_msgs/msg/MarkerArray": {
+      "file": "nav2_msgs/aruco_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/action/DetectArucoMarkers": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/FollowPath": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/FollowReference": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/GeneratePolynomialTrajectory": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/GoToWaypoint": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/Land": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/SetArmingState": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/SetOffboardMode": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/action/TakeOff": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "action"
+    },
+    "as2_msgs/msg/AlertEvent": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/BehaviorStatus": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/ControlMode": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/ControllerInfo": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/FollowTargetInfo": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/Geofence": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/MissionEvent": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/MissionUpdate": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/NodeStatus": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/PlatformInfo": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/PlatformStateMachineEvent": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/PlatformStatus": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/PoseStampedWithID": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/PoseWithID": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/Speed": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/Thrust": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/TrajGenInfo": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/TrajectoryPoint": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/msg/YawMode": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "msg"
+    },
+    "as2_msgs/srv/DynamicFollower": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/DynamicLand": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/GeopathToPath": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/GetGeofence": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/GetOrigin": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/ListControlModes": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/PackagePickUp": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/PackageUnPick": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/PathToGeopath": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/SetControlMode": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/SetGeofence": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/SetOrigin": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/SetPlatformStateMachineEvent": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "as2_msgs/srv/SetSpeed": {
+      "file": "nav2_msgs/as2_msgs.ros",
+      "kind": "srv"
+    },
+    "bond/msg/Constants": {
+      "file": "nav2_msgs/bond.ros",
+      "kind": "msg"
+    },
+    "bond/msg/Status": {
+      "file": "nav2_msgs/bond.ros",
+      "kind": "msg"
+    },
+    "builtin_interfaces/msg/Duration": {
+      "file": "nav2_msgs/builtin_interfaces.ros",
+      "kind": "msg"
+    },
+    "builtin_interfaces/msg/Time": {
+      "file": "nav2_msgs/builtin_interfaces.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/BagfileProgress": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/HistogramBucket": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/LandmarkEntry": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/LandmarkList": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/Metric": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/MetricFamily": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/MetricLabel": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/StatusCode": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/StatusResponse": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/SubmapEntry": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/SubmapList": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/SubmapTexture": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/msg/TrajectoryStates": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "msg"
+    },
+    "cartographer_ros_msgs/srv/FinishTrajectory": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/GetTrajectoryStates": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/ReadMetrics": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/StartTrajectory": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/SubmapQuery": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/TrajectoryQuery": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cartographer_ros_msgs/srv/WriteState": {
+      "file": "nav2_msgs/cartographer_ros_msgs.ros",
+      "kind": "srv"
+    },
+    "cascade_lifecycle_msgs/msg/Activation": {
+      "file": "nav2_msgs/cascade_lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "cascade_lifecycle_msgs/msg/State": {
+      "file": "nav2_msgs/cascade_lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "color_pose_estimation_skill/action/ColorPoseEstimation": {
+      "file": "nav2_msgs/color_pose_estimation_skill.ros",
+      "kind": "action"
+    },
+    "color_pose_msgs/msg/ColorPose": {
+      "file": "nav2_msgs/color_pose_msgs.ros",
+      "kind": "msg"
+    },
+    "color_pose_msgs/msg/ColorPoseArray": {
+      "file": "nav2_msgs/color_pose_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/action/FollowJointTrajectory": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/action/GripperCommand": {
+      "file": "basic_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/action/GripperCommandAct": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/action/JointTrajectory": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/action/PointHead": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/action/SingleJointPosition": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "action"
+    },
+    "control_msgs/msg/AdmittanceControllerState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/DynamicJointState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/GripperCommand": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/InterfaceValue": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/JointComponentTolerance": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/JointControllerState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/JointJog": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/JointTolerance": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/JointTrajectoryControllerState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/MecanumDriveControllerState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/PidState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/msg/SteeringControllerStatus": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "msg"
+    },
+    "control_msgs/srv/QueryCalibrationState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "srv"
+    },
+    "control_msgs/srv/QueryTrajectoryState": {
+      "file": "nav2_msgs/control_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/msg/ChainConnection": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "msg"
+    },
+    "controller_manager_msgs/msg/ControllerState": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "msg"
+    },
+    "controller_manager_msgs/msg/HardwareComponentState": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "msg"
+    },
+    "controller_manager_msgs/msg/HardwareInterface": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "msg"
+    },
+    "controller_manager_msgs/srv/ConfigureController": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/ListControllerTypes": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/ListControllers": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/ListHardwareComponents": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/ListHardwareInterfaces": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/LoadController": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/ReloadControllerLibraries": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/SetHardwareComponentState": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/SwitchController": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "controller_manager_msgs/srv/UnloadController": {
+      "file": "nav2_msgs/controller_manager_msgs.ros",
+      "kind": "srv"
+    },
+    "detect_aruco_marker_skill/action/ArucoMarkerDetection": {
+      "file": "nav2_msgs/detect_aruco_marker_skill.ros",
+      "kind": "action"
+    },
+    "diagnostic_msgs/msg/DiagnosticArray": {
+      "file": "nav2_msgs/diagnostic_msgs.ros",
+      "kind": "msg"
+    },
+    "diagnostic_msgs/msg/DiagnosticStatus": {
+      "file": "nav2_msgs/diagnostic_msgs.ros",
+      "kind": "msg"
+    },
+    "diagnostic_msgs/msg/KeyValue": {
+      "file": "nav2_msgs/diagnostic_msgs.ros",
+      "kind": "msg"
+    },
+    "diagnostic_msgs/srv/AddDiagnostics": {
+      "file": "nav2_msgs/diagnostic_msgs.ros",
+      "kind": "srv"
+    },
+    "diagnostic_msgs/srv/SelfTest": {
+      "file": "nav2_msgs/diagnostic_msgs.ros",
+      "kind": "srv"
+    },
+    "dwb_msgs/msg/CriticScore": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "msg"
+    },
+    "dwb_msgs/msg/LocalPlanEvaluation": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "msg"
+    },
+    "dwb_msgs/msg/Trajectory2D": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "msg"
+    },
+    "dwb_msgs/msg/TrajectoryScore": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "msg"
+    },
+    "dwb_msgs/srv/DebugLocalPlan": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "srv"
+    },
+    "dwb_msgs/srv/GenerateTrajectory": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "srv"
+    },
+    "dwb_msgs/srv/GenerateTwists": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "srv"
+    },
+    "dwb_msgs/srv/GetCriticScore": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "srv"
+    },
+    "dwb_msgs/srv/ScoreTrajectory": {
+      "file": "nav2_msgs/dwb_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/msg/ContactState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/ContactsState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/EntityState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/LinkState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/LinkStates": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/ModelState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/ModelStates": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/ODEJointProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/ODEPhysics": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/PerformanceMetrics": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/SensorPerformanceMetric": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/WheelSlip": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/msg/WorldState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "msg"
+    },
+    "gazebo_msgs/srv/ApplyBodyWrench": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/ApplyJointEffort": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/ApplyLinkWrench": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/BodyRequest": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/DeleteEntity": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/DeleteLight": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/DeleteModel": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetEntityState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetJointProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetLightProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetLinkProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetLinkState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetModelList": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetModelProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetModelState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetPhysicsProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/GetWorldProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/JointRequest": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/LinkRequest": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetEntityState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetJointProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetJointTrajectory": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetLightProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetLinkProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetLinkState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetModelConfiguration": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetModelState": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SetPhysicsProperties": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SpawnEntity": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "gazebo_msgs/srv/SpawnModel": {
+      "file": "basic_msgs/gazebo_msgs.ros",
+      "kind": "srv"
+    },
+    "geographic_msgs/msg/BoundingBox": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPath": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPoint": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPointStamped": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPose": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPoseStamped": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPoseWithCovariance": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeoPoseWithCovarianceStamped": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeographicMap": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/GeographicMapChanges": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/KeyValue": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/MapFeature": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/RouteNetwork": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/RoutePath": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/RouteSegment": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/msg/WayPoint": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "msg"
+    },
+    "geographic_msgs/srv/GetGeoPath": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "srv"
+    },
+    "geographic_msgs/srv/GetGeographicMap": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "srv"
+    },
+    "geographic_msgs/srv/GetRoutePlan": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "srv"
+    },
+    "geographic_msgs/srv/UpdateGeographicMap": {
+      "file": "nav2_msgs/geographic_msgs.ros",
+      "kind": "srv"
+    },
+    "geometry_msgs/msg/Accel": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/AccelStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/AccelWithCovariance": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/AccelWithCovarianceStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Inertia": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/InertiaStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Point": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Point32": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PointStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Polygon": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PolygonStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Pose": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Pose2D": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PoseArray": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PoseStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PoseWithCovariance": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/PoseWithCovarianceStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Quaternion": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/QuaternionStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Transform": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/TransformStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Twist": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/TwistStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/TwistWithCovariance": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/TwistWithCovarianceStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Vector3": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Vector3Stamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/Wrench": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "geometry_msgs/msg/WrenchStamped": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "io_control_gripper_skill/action/IOGripperCommand": {
+      "file": "nav2_msgs/io_control_gripper_skill.ros",
+      "kind": "action"
+    },
+    "lifecycle_msgs/msg/State": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "lifecycle_msgs/msg/Transition": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "lifecycle_msgs/msg/TransitionDescription": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "lifecycle_msgs/msg/TransitionEvent": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "msg"
+    },
+    "lifecycle_msgs/srv/ChangeState": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "srv"
+    },
+    "lifecycle_msgs/srv/GetAvailableStates": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "srv"
+    },
+    "lifecycle_msgs/srv/GetAvailableTransitions": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "srv"
+    },
+    "lifecycle_msgs/srv/GetState": {
+      "file": "nav2_msgs/lifecycle_msgs.ros",
+      "kind": "srv"
+    },
+    "logging_demo/srv/ConfigLogger": {
+      "file": "nav2_msgs/logging_demo.ros",
+      "kind": "srv"
+    },
+    "man2_msgs/action/RunApplication": {
+      "file": "nav2_msgs/man2_msgs.ros",
+      "kind": "action"
+    },
+    "map_msgs/msg/OccupancyGridUpdate": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "msg"
+    },
+    "map_msgs/msg/PointCloud2Update": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "msg"
+    },
+    "map_msgs/msg/ProjectedMap": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "msg"
+    },
+    "map_msgs/msg/ProjectedMapInfo": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "msg"
+    },
+    "map_msgs/srv/GetMapROI": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "map_msgs/srv/GetPointMap": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "map_msgs/srv/GetPointMapROI": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "map_msgs/srv/ProjectedMapsInfo": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "map_msgs/srv/SaveMap": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "map_msgs/srv/SetMapProjections": {
+      "file": "nav2_msgs/map_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/action/ExecuteTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/GlobalPlanner": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/HybridPlanner": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/LocalPlanner": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/MoveGroup": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/MoveGroupSequence": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/Pickup": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/action/Place": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "action"
+    },
+    "moveit_msgs/msg/AllowedCollisionEntry": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/AllowedCollisionMatrix": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/AttachedCollisionObject": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/BoundingVolume": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/CartesianPoint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/CartesianTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/CartesianTrajectoryPoint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/CollisionObject": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/ConstraintEvalResult": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/Constraints": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/ContactInformation": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/CostSource": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/DisplayRobotState": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/DisplayTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/GenericTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/Grasp": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/GripperTranslation": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/JointConstraint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/JointLimits": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/KinematicSolverInfo": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/LinkPadding": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/LinkScale": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionPlanDetailedResponse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionPlanRequest": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionPlanResponse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionSequenceItem": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionSequenceRequest": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MotionSequenceResponse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/MoveItErrorCodes": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/ObjectColor": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/OrientationConstraint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/OrientedBoundingBox": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlaceLocation": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlannerInterfaceDescription": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlannerParams": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlanningOptions": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlanningScene": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlanningSceneComponents": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PlanningSceneWorld": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PositionConstraint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/PositionIKRequest": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/RobotState": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/RobotTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/TrajectoryConstraints": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/VisibilityConstraint": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/msg/WorkspaceParameters": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "msg"
+    },
+    "moveit_msgs/srv/ApplyPlanningScene": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/ChangeControlDimensions": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/ChangeDriftDimensions": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/CheckIfRobotStateExistsInWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/DeleteRobotStateFromWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/ExecuteKnownTrajectory": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetCartesianPath": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetMotionPlan": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetMotionSequence": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetPlannerParams": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetPlanningScene": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetPositionFK": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetPositionIK": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetRobotStateFromWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GetStateValidity": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/GraspPlanning": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/ListRobotStatesInWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/LoadMap": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/QueryPlannerInterfaces": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/RenameRobotStateInWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/SaveMap": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/SaveRobotStateToWarehouse": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/SetPlannerParams": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "moveit_msgs/srv/UpdatePointcloudOctomap": {
+      "file": "basic_msgs/moveit_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/action/AssistedTeleop": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/BackUp": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/ComputePathThroughPoses": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/ComputePathToPose": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/DriveOnHeading": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/DummyBehavior": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/FollowPath": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/FollowWaypoints": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/NavigateThroughPoses": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/NavigateToPose": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/SmoothPath": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/Spin": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/action/Wait": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "action"
+    },
+    "nav2_msgs/msg/BehaviorTreeLog": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/BehaviorTreeStatusChange": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/Costmap": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/CostmapFilterInfo": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/CostmapMetaData": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/Particle": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/ParticleCloud": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/SpeedLimit": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/msg/VoxelGrid": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "msg"
+    },
+    "nav2_msgs/srv/ClearCostmapAroundRobot": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/ClearCostmapExceptRegion": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/ClearEntireCostmap": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/GetCostmap": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/IsPathValid": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/LoadMap": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/ManageLifecycleNodes": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav2_msgs/srv/SaveMap": {
+      "file": "nav2_msgs/nav2_msgs.ros",
+      "kind": "srv"
+    },
+    "nav_2d_msgs/msg/Path2D": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_2d_msgs/msg/Pose2D32": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_2d_msgs/msg/Pose2DStamped": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_2d_msgs/msg/Twist2D": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_2d_msgs/msg/Twist2D32": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_2d_msgs/msg/Twist2DStamped": {
+      "file": "nav2_msgs/nav_2d_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapAction": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapActionFeedback": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapActionGoal": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapActionResult": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapFeedback": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapGoal": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GetMapResult": {
+      "file": "basic_msgs/common_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/GridCells": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/MapMetaData": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/OccupancyGrid": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/Odometry": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/msg/Path": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "msg"
+    },
+    "nav_msgs/srv/GetMap": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "srv"
+    },
+    "nav_msgs/srv/GetPlan": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "srv"
+    },
+    "nav_msgs/srv/LoadMap": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "srv"
+    },
+    "nav_msgs/srv/SetMap": {
+      "file": "nav2_msgs/nav_msgs.ros",
+      "kind": "srv"
+    },
+    "object_recognition_msgs/action/ObjectRecognition": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "action"
+    },
+    "object_recognition_msgs/msg/ObjectInformation": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/msg/ObjectType": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/msg/RecognizedObject": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/msg/RecognizedObjectArray": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/msg/Table": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/msg/TableArray": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "msg"
+    },
+    "object_recognition_msgs/srv/GetObjectInformation": {
+      "file": "nav2_msgs/object_recognition_msgs.ros",
+      "kind": "srv"
+    },
+    "octomap_msgs/msg/Octomap": {
+      "file": "nav2_msgs/octomap_msgs.ros",
+      "kind": "msg"
+    },
+    "octomap_msgs/msg/OctomapWithPose": {
+      "file": "nav2_msgs/octomap_msgs.ros",
+      "kind": "msg"
+    },
+    "octomap_msgs/srv/BoundingBoxQuery": {
+      "file": "nav2_msgs/octomap_msgs.ros",
+      "kind": "srv"
+    },
+    "octomap_msgs/srv/GetOctomap": {
+      "file": "nav2_msgs/octomap_msgs.ros",
+      "kind": "srv"
+    },
+    "pcl_msgs/msg/ModelCoefficients": {
+      "file": "nav2_msgs/pcl_msgs.ros",
+      "kind": "msg"
+    },
+    "pcl_msgs/msg/PointIndices": {
+      "file": "nav2_msgs/pcl_msgs.ros",
+      "kind": "msg"
+    },
+    "pcl_msgs/msg/PolygonMesh": {
+      "file": "nav2_msgs/pcl_msgs.ros",
+      "kind": "msg"
+    },
+    "pcl_msgs/msg/Vertices": {
+      "file": "nav2_msgs/pcl_msgs.ros",
+      "kind": "msg"
+    },
+    "pcl_msgs/srv/UpdateFilename": {
+      "file": "nav2_msgs/pcl_msgs.ros",
+      "kind": "srv"
+    },
+    "pendulum_msgs/msg/JointCommand": {
+      "file": "nav2_msgs/pendulum_msgs.ros",
+      "kind": "msg"
+    },
+    "pendulum_msgs/msg/JointState": {
+      "file": "nav2_msgs/pendulum_msgs.ros",
+      "kind": "msg"
+    },
+    "pendulum_msgs/msg/RttestResults": {
+      "file": "nav2_msgs/pendulum_msgs.ros",
+      "kind": "msg"
+    },
+    "phidgets_msgs/msg/EncoderDecimatedSpeed": {
+      "file": "nav2_msgs/phidgets_msgs.ros",
+      "kind": "msg"
+    },
+    "phidgets_msgs/srv/SetAnalogOutput": {
+      "file": "nav2_msgs/phidgets_msgs.ros",
+      "kind": "srv"
+    },
+    "phidgets_msgs/srv/SetDigitalOutput": {
+      "file": "nav2_msgs/phidgets_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/action/ExecutePlan": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "action"
+    },
+    "plansys2_msgs/msg/Action": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/ActionExecution": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/ActionExecutionInfo": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/ActionPerformerStatus": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/DurativeAction": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/Knowledge": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/Node": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/Param": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/Plan": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/PlanItem": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/msg/Tree": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "msg"
+    },
+    "plansys2_msgs/srv/AddProblem": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/AddProblemGoal": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/AffectNode": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/AffectParam": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/ClearProblemKnowledge": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/ExistNode": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomain": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainActionDetails": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainActions": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainConstants": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainDurativeActionDetails": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainName": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetDomainTypes": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetNodeDetails": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetOrderedSubGoals": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetPlan": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetProblem": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetProblemGoal": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetProblemInstanceDetails": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetProblemInstances": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/GetStates": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/IsProblemGoalSatisfied": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "plansys2_msgs/srv/RemoveProblemGoal": {
+      "file": "nav2_msgs/plansys2_msgs.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/msg/FloatingPointRange": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/IntegerRange": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ListParametersResult": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/Log": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/Parameter": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ParameterDescriptor": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ParameterEvent": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ParameterEventDescriptors": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ParameterType": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/ParameterValue": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/msg/SetParametersResult": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "msg"
+    },
+    "rcl_interfaces/srv/DescribeParameters": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/srv/GetParameterTypes": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/srv/GetParameters": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/srv/ListParameters": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/srv/SetParameters": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "rcl_interfaces/srv/SetParametersAtomically": {
+      "file": "nav2_msgs/rcl_interfaces.ros",
+      "kind": "srv"
+    },
+    "realsense2_camera_msgs/msg/Extrinsics": {
+      "file": "nav2_msgs/realsense2_camera_msgs.ros",
+      "kind": "msg"
+    },
+    "realsense2_camera_msgs/msg/IMUInfo": {
+      "file": "nav2_msgs/realsense2_camera_msgs.ros",
+      "kind": "msg"
+    },
+    "realsense2_camera_msgs/msg/Metadata": {
+      "file": "nav2_msgs/realsense2_camera_msgs.ros",
+      "kind": "msg"
+    },
+    "realsense2_camera_msgs/srv/DeviceInfo": {
+      "file": "nav2_msgs/realsense2_camera_msgs.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/msg/ReadSplitEvent": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "msg"
+    },
+    "rosbag2_interfaces/msg/WriteSplitEvent": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "msg"
+    },
+    "rosbag2_interfaces/srv/Burst": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/GetRate": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/IsPaused": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/Pause": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/PlayNext": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/Resume": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/Seek": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/SetRate": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/Snapshot": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosbag2_interfaces/srv/TogglePaused": {
+      "file": "nav2_msgs/rosbag2_interfaces.ros",
+      "kind": "srv"
+    },
+    "rosgraph_msgs/msg/Clock": {
+      "file": "nav2_msgs/rosgraph_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/BatteryState": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/CameraInfo": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/ChannelFloat32": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/CompressedImage": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/FluidPressure": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Illuminance": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Image": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Imu": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/JointState": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Joy": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/JoyFeedback": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/JoyFeedbackArray": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/LaserEcho": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/LaserScan": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/MagneticField": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/MultiDOFJointState": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/MultiEchoLaserScan": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/NavSatFix": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/NavSatStatus": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/PointCloud": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/PointCloud2": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/PointField": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Range": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/RegionOfInterest": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/RelativeHumidity": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/Temperature": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/msg/TimeReference": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "msg"
+    },
+    "sensor_msgs/srv/SetCameraInfo": {
+      "file": "nav2_msgs/sensor_msgs.ros",
+      "kind": "srv"
+    },
+    "shape_msgs/msg/Mesh": {
+      "file": "nav2_msgs/shape_msgs.ros",
+      "kind": "msg"
+    },
+    "shape_msgs/msg/MeshTriangle": {
+      "file": "nav2_msgs/shape_msgs.ros",
+      "kind": "msg"
+    },
+    "shape_msgs/msg/Plane": {
+      "file": "nav2_msgs/shape_msgs.ros",
+      "kind": "msg"
+    },
+    "shape_msgs/msg/SolidPrimitive": {
+      "file": "nav2_msgs/shape_msgs.ros",
+      "kind": "msg"
+    },
+    "statistics_msgs/msg/MetricsMessage": {
+      "file": "nav2_msgs/statistics_msgs.ros",
+      "kind": "msg"
+    },
+    "statistics_msgs/msg/StatisticDataPoint": {
+      "file": "nav2_msgs/statistics_msgs.ros",
+      "kind": "msg"
+    },
+    "statistics_msgs/msg/StatisticDataType": {
+      "file": "nav2_msgs/statistics_msgs.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Bool": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Byte": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/ByteMultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/ColorRGBA": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Empty": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Float32": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Float32MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Float64": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Float64MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Header": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int16": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int16MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int32": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int32MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int64": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int64MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int8": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/Int8MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/MultiArrayDimension": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/MultiArrayLayout": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/String": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt16": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt16MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt32": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt32MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt64": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt64MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt8": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_msgs/msg/UInt8MultiArray": {
+      "file": "basic_msgs/ros_core.ros",
+      "kind": "msg"
+    },
+    "std_srvs/srv/Empty": {
+      "file": "nav2_msgs/std_srvs.ros",
+      "kind": "srv"
+    },
+    "std_srvs/srv/SetBool": {
+      "file": "nav2_msgs/std_srvs.ros",
+      "kind": "srv"
+    },
+    "std_srvs/srv/Trigger": {
+      "file": "nav2_msgs/std_srvs.ros",
+      "kind": "srv"
+    },
+    "stereo_msgs/msg/DisparityImage": {
+      "file": "nav2_msgs/stereo_msgs.ros",
+      "kind": "msg"
+    },
+    "tf2_msgs/action/LookupTransform": {
+      "file": "nav2_msgs/tf2_msgs.ros",
+      "kind": "action"
+    },
+    "tf2_msgs/msg/TF2Error": {
+      "file": "nav2_msgs/tf2_msgs.ros",
+      "kind": "msg"
+    },
+    "tf2_msgs/msg/TFMessage": {
+      "file": "nav2_msgs/tf2_msgs.ros",
+      "kind": "msg"
+    },
+    "tf2_msgs/srv/FrameGraph": {
+      "file": "nav2_msgs/tf2_msgs.ros",
+      "kind": "srv"
+    },
+    "theora_image_transport/msg/Packet": {
+      "file": "nav2_msgs/theora_image_transport.ros",
+      "kind": "msg"
+    },
+    "trajectory_msgs/msg/JointTrajectory": {
+      "file": "nav2_msgs/trajectory_msgs.ros",
+      "kind": "msg"
+    },
+    "trajectory_msgs/msg/JointTrajectoryPoint": {
+      "file": "nav2_msgs/trajectory_msgs.ros",
+      "kind": "msg"
+    },
+    "trajectory_msgs/msg/MultiDOFJointTrajectory": {
+      "file": "nav2_msgs/trajectory_msgs.ros",
+      "kind": "msg"
+    },
+    "trajectory_msgs/msg/MultiDOFJointTrajectoryPoint": {
+      "file": "nav2_msgs/trajectory_msgs.ros",
+      "kind": "msg"
+    },
+    "turtlesim/action/RotateAbsolute": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "action"
+    },
+    "turtlesim/msg/Color": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "msg"
+    },
+    "turtlesim/msg/Pose": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "msg"
+    },
+    "turtlesim/srv/Kill": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "srv"
+    },
+    "turtlesim/srv/SetPen": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "srv"
+    },
+    "turtlesim/srv/Spawn": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "srv"
+    },
+    "turtlesim/srv/TeleportAbsolute": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "srv"
+    },
+    "turtlesim/srv/TeleportRelative": {
+      "file": "nav2_msgs/turtlesim.ros",
+      "kind": "srv"
+    },
+    "unique_identifier_msgs/msg/UUID": {
+      "file": "nav2_msgs/unique_identifier_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_dashboard_msgs/action/SetMode": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "action"
+    },
+    "ur_dashboard_msgs/msg/ProgramState": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_dashboard_msgs/msg/RobotMode": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_dashboard_msgs/msg/SafetyMode": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_dashboard_msgs/srv/AddToLog": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/GetLoadedProgram": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/GetProgramState": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/GetRobotMode": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/GetSafetyMode": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/IsProgramRunning": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/IsProgramSaved": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/Load": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/Popup": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_dashboard_msgs/srv/RawRequest": {
+      "file": "nav2_msgs/ur_dashboard_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_msgs/msg/Analog": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/Digital": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/IOStates": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/MasterboardDataMsg": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/RobotModeDataMsg": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/RobotStateRTMsg": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/msg/ToolDataMsg": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "msg"
+    },
+    "ur_msgs/srv/SetIO": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_msgs/srv/SetPayload": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "srv"
+    },
+    "ur_msgs/srv/SetSpeedSliderFraction": {
+      "file": "nav2_msgs/ur_msgs.ros",
+      "kind": "srv"
+    },
+    "vision_msgs/msg/BoundingBox2D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/BoundingBox2DArray": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/BoundingBox3D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/BoundingBox3DArray": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Classification": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Detection2D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Detection2DArray": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Detection3D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Detection3DArray": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/LabelInfo": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/ObjectHypothesis": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/ObjectHypothesisWithPose": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Point2D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/Pose2D": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/VisionClass": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "vision_msgs/msg/VisionInfo": {
+      "file": "nav2_msgs/vision_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/ImageMarker": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarker": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarkerControl": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarkerFeedback": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarkerInit": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarkerPose": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/InteractiveMarkerUpdate": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/Marker": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/MarkerArray": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/MenuEntry": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/MeshFile": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/msg/UVCoordinate": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "msg"
+    },
+    "visualization_msgs/srv/GetInteractiveMarkers": {
+      "file": "nav2_msgs/visualization_msgs.ros",
+      "kind": "srv"
+    }
+  }
+}

@@ -1,8 +1,13 @@
 package de.fraunhofer.ipa.ros.lsp;
 
 import org.eclipse.emf.ecore.EPackage;
+import org.eclipse.xtext.ide.server.IMultiRootWorkspaceConfigFactory;
+import org.eclipse.xtext.ide.server.IProjectDescriptionFactory;
 import org.eclipse.xtext.ide.server.ServerLauncher;
 import org.eclipse.xtext.ide.server.ServerModule;
+import com.google.inject.AbstractModule;
+import com.google.inject.Module;
+import com.google.inject.util.Modules;
 import de.fraunhofer.ipa.ros.ide.BasicsIdeSetup;
 import de.fraunhofer.ipa.ros.ide.RosIdeSetup;
 import de.fraunhofer.ipa.ros1.ide.Ros1IdeSetup;
@@ -31,6 +36,14 @@ public class RosLanguageServerLauncher {
         new Ros2IdeSetup().createInjectorAndDoEMFRegistration();
         new RosSystemIdeSetup().createInjectorAndDoEMFRegistration();
         
-        ServerLauncher.launch("RosTooling", args, new ServerModule());
+        Module serverModule = Modules.override(new ServerModule()).with(new AbstractModule() {
+            @Override
+            protected void configure() {
+                bind(IMultiRootWorkspaceConfigFactory.class).to(RosMultiRootWorkspaceConfigFactory.class);
+                bind(IProjectDescriptionFactory.class).to(RosProjectDescriptionFactory.class);
+            }
+        });
+
+        ServerLauncher.launch("RosTooling", args, serverModule);
     }
 }

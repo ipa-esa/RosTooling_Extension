@@ -1,0 +1,39 @@
+inspection_msgs:
+  msgs:
+    DefectReport
+      message
+        string target_id
+        uint8 severity
+        float64 confidence
+        'geometry_msgs/msg/Pose' defect_pose
+    SafetyStatus
+      message
+        bool estop_active
+        bool zone_violation
+        string warning_msg
+  srvs:
+    TriggerInspection
+      request
+        string inspection_point_id
+      response
+        bool success
+        string message
+        'inspection_msgs/msg/DefectReport' defect
+    ResetSafetyZone
+      request
+        string operator_id
+      response
+        bool success
+        string message
+  actions:
+    ExecuteInspectionMission
+      goal
+        string mission_id
+        string target_zone
+      result
+        bool completed
+        uint32 defects_found
+        float64 total_duration
+      feedback
+        float32 percent_complete
+        string current_step

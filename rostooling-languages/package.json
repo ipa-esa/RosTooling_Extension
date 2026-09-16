@@ -2,7 +2,7 @@
   "name": "rostooling-languages",
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "publisher": "FraunhoferIPA",
   "icon": "images/RosTooling_Logo.png",
   "license": "Apache-2.0",
@@ -126,7 +126,34 @@
         }
       }
     },
+    "customEditors": [
+      {
+        "viewType": "rostooling.visualStudio",
+        "displayName": "RosTooling Visual Studio",
+        "selector": [
+          {
+            "filenamePattern": "*.rossystem"
+          },
+          {
+            "filenamePattern": "*.ros2"
+          },
+          {
+            "filenamePattern": "*.ros1"
+          },
+          {
+            "filenamePattern": "*.ros"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
     "commands": [
+      {
+        "command": "rostooling.openVisualStudio",
+        "title": "Open in RosTooling Visual Studio",
+        "category": "RosTooling",
+        "icon": "$(graph)"
+      },
       {
         "command": "rossystem.triggerCodeGeneration",
         "title": "Generate ROS2 Package",
@@ -139,7 +166,19 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "rostooling.openVisualStudio",
+          "group": "navigation",
+          "when": "resourceLangId == rossystem || resourceLangId == ros2 || resourceLangId == ros || resourceLangId == ros1"
+        }
+      ],
       "editor/context": [
+        {
+          "command": "rostooling.openVisualStudio",
+          "group": "ROSSYSTEM@50",
+          "when": "resourceLangId == rossystem || resourceLangId == ros2 || resourceLangId == ros || resourceLangId == ros1"
+        },
         {
           "command": "rossystem.triggerCodeGeneration",
           "group": "ROSSYSTEM@100",
@@ -149,6 +188,13 @@
           "command": "rossdl.buildPackage",
           "group": "ROSSDL@100",
           "when": "resourceLangId == rossystem || resourceLangId == ros2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "rostooling.openVisualStudio",
+          "group": "navigation",
+          "when": "resourceExtname == .rossystem || resourceExtname == .ros2 || resourceExtname == .ros || resourceExtname == .ros1"
         }
       ]
     }
