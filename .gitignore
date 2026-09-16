@@ -199,6 +199,7 @@ demo/test_ws/.vscode/**
 demo/test_ws/log/**
 src-gen/
 demo/test_ws/src/test_system/.vscode/**
+demo/.rostooling/**
 
 
 **/install/
