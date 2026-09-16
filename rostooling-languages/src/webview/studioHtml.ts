@@ -6261,11 +6261,21 @@ export function getStudioHtml(
       // Preserve client-side subsystem member nodes across external model syncs
       (project.nodes || []).forEach(function(oldN) {
         if (oldN.subRef || oldN.backing === "sub") {
-          var exists = (fresh.nodes || []).some(function(fn) {
+          var matchingFresh = (fresh.nodes || []).find(function(fn) {
             return fn.id === oldN.id || (fn.subRef === oldN.subRef && fn.label === oldN.label);
           });
-          if (!exists) {
+          if (!matchingFresh) {
             fresh.nodes.push(oldN);
+          } else {
+            (oldN.params || []).forEach(function(op) {
+              if (op.sysValue != null) {
+                var fp = (matchingFresh.params || []).find(function(p) { return p.name === op.name; });
+                if (fp && fp.sysValue == null) {
+                  fp.sysValue = op.sysValue;
+                  fp.exposed = true;
+                }
+              }
+            });
           }
         }
       });

@@ -2259,5 +2259,148 @@ inspection_system:
       assert.strictEqual(project.connections[0].from.i, 'i_defect_detector_trigger_srv');
       assert.strictEqual(project.connections[0].to.n, 'n_mission_exec');
     });
+
+    test('Node definition sync: newly added interfaces and parameters dynamically update direct and subsystem nodes', () => {
+      // 1. Setup mock provider
+      const mockContext = {
+        subscriptions: [],
+        extensionPath: path.resolve(__dirname, '../../'),
+        globalStorageUri: vscode.Uri.file('/tmp/rostooling_test_storage'),
+      } as unknown as vscode.ExtensionContext;
+      const provider = new RosCustomEditorProvider(mockContext);
+
+      // 2. Setup a project with a direct node (like safety_supervisor in inspection_system.rossystem)
+      const directNode: RosNode = {
+        id: 'n_safety_supervisor',
+        label: 'safety_supervisor',
+        from: 'inspection_nodes.safety_supervisor',
+        artifact: 'safety_supervisor',
+        pkg: 'inspection_nodes',
+        backing: 'local',
+        ifaces: [
+          { id: 'i_safety_supervisor_safety_status_pub', name: 'safety_status_pub', label: 'safety_status_pub', kind: 'pub', type: 'inspection_msgs/msg/SafetyStatus', exposed: true },
+          { id: 'i_safety_supervisor_cmd_vel_safe', name: 'cmd_vel_safe', label: 'cmd_vel_safe', kind: 'pub', type: 'geometry_msgs/msg/Twist', exposed: true },
+          { id: 'i_safety_supervisor_scan_in', name: 'scan_in', label: 'scan_in', kind: 'sub', type: 'sensor_msgs/msg/LaserScan', exposed: true },
+          { id: 'i_safety_supervisor_reset_safety_srv', name: 'reset_safety_srv', label: 'reset_safety_srv', kind: 'ss', type: 'inspection_msgs/srv/ResetSafetyZone', exposed: true },
+        ],
+        params: [],
+      };
+
+      // 3. Setup a subsystem member node (like defect_detector in perception_bringup)
+      const subMemberNode: RosNode = {
+        id: 'n_perception_bringup_defect_detector',
+        label: 'defect_detector',
+        subRef: 'perception_bringup',
+        from: 'inspection_nodes.ai_defect_detector',
+        artifact: 'ai_defect_detector',
+        pkg: 'inspection_nodes',
+        backing: 'sub',
+        ifaces: [
+          { id: 'i_defect_detector_defect_pub', name: 'defect_report_pub', label: 'defect_pub', kind: 'pub', type: '', exposed: true },
+          { id: 'i_defect_detector_camera_sub', name: 'camera_image', label: 'camera_sub', kind: 'sub', type: '', exposed: true },
+        ],
+        params: [],
+      };
+
+      // 4. Declare updated companion artifacts simulating edits in inspection_nodes.ros2:
+      // safety_supervisor has added interface 'raw_cmd_in' and parameters 'slowdown_radius' & 'emergency_stop_radius'
+      const updatedSafetyArt = {
+        filePath: '/test/inspection_nodes.ros2',
+        pkg: 'inspection_nodes',
+        name: 'safety_supervisor',
+        node: 'safety_supervisor',
+        ifaces: [
+          { id: 'i_safety_status_pub', name: 'safety_status_pub', label: 'safety_status_pub', kind: 'pub' as const, type: 'inspection_msgs/msg/SafetyStatus', exposed: true },
+          { id: 'i_cmd_vel_safe', name: 'cmd_vel_safe', label: 'cmd_vel_safe', kind: 'pub' as const, type: 'geometry_msgs/msg/Twist', exposed: true },
+          { id: 'i_raw_cmd_in', name: 'raw_cmd_in', label: 'raw_cmd_in', kind: 'sub' as const, type: 'geometry_msgs/msg/Twist', exposed: true },
+          { id: 'i_scan_in', name: 'scan_in', label: 'scan_in', kind: 'sub' as const, type: 'sensor_msgs/msg/LaserScan', exposed: true },
+          { id: 'i_reset_safety_srv', name: 'reset_safety_srv', label: 'reset_safety_srv', kind: 'ss' as const, type: 'inspection_msgs/srv/ResetSafetyZone', exposed: true },
+        ],
+        params: [
+          { id: 'p_slowdown_radius', name: 'slowdown_radius', label: 'slowdown_radius', ptype: 'Double', value: '1.2', exposed: true },
+          { id: 'p_emergency_stop_radius', name: 'emergency_stop_radius', label: 'emergency_stop_radius', ptype: 'Double', value: '0.45', exposed: true },
+        ],
+      };
+
+      // ai_defect_detector has added interface 'defect_marker' and parameters 'confidence_threshold' & 'model_path'
+      const updatedDefectArt = {
+        filePath: '/test/inspection_nodes.ros2',
+        pkg: 'inspection_nodes',
+        name: 'ai_defect_detector',
+        node: 'ai_defect_detector',
+        ifaces: [
+          { id: 'i_defect_report_pub', name: 'defect_report_pub', label: 'defect_report_pub', kind: 'pub' as const, type: 'inspection_msgs/msg/DefectReport', exposed: true },
+          { id: 'i_camera_image', name: 'camera_image', label: 'camera_image', kind: 'sub' as const, type: 'sensor_msgs/msg/Image', exposed: true },
+          { id: 'i_defect_marker', name: 'defect_marker', label: 'defect_marker', kind: 'pub' as const, type: 'visualization_msgs/msg/Marker', exposed: true },
+        ],
+        params: [
+          { id: 'p_confidence_threshold', name: 'confidence_threshold', label: 'confidence_threshold', ptype: 'Double', value: '0.75', exposed: true },
+          { id: 'p_model_path', name: 'model_path', label: 'model_path', ptype: 'String', value: '/opt/models/defect_net.onnx', exposed: true },
+        ],
+      };
+
+      // 5. Test enrichNodeWithDefinitions on direct node
+      provider['enrichNodeWithDefinitions'](directNode, updatedSafetyArt);
+
+      // Verify newly added interface is appended to direct node
+      assert.strictEqual(directNode.ifaces.length, 5, 'Direct node must have all 5 interfaces');
+      const rawCmdIn = directNode.ifaces.find((f) => f.name === 'raw_cmd_in');
+      assert.ok(rawCmdIn, 'raw_cmd_in interface must be merged into direct node');
+      assert.strictEqual(rawCmdIn.kind, 'sub');
+      assert.strictEqual(rawCmdIn.type, 'geometry_msgs/msg/Twist');
+      assert.strictEqual(rawCmdIn.exposed, true);
+
+      // Verify newly added parameters are appended to direct node with default values and exposed: false
+      assert.strictEqual(directNode.params.length, 2, 'Direct node must have 2 parameters');
+      const slowdown = directNode.params.find((p) => p.name === 'slowdown_radius');
+      assert.ok(slowdown, 'slowdown_radius parameter must be merged');
+      assert.strictEqual(slowdown.ptype, 'Double');
+      assert.strictEqual(slowdown.value, '1.2');
+      assert.strictEqual(slowdown.exposed, false, 'Unconfigured parameter should have exposed: false');
+
+      // 6. Test enrichNodeWithDefinitions on subsystem member node
+      provider['enrichNodeWithDefinitions'](subMemberNode, updatedDefectArt);
+
+      // Verify newly added interface is appended to subsystem member node
+      assert.strictEqual(subMemberNode.ifaces.length, 3, 'Subsystem member node must have 3 interfaces');
+      const markerIface = subMemberNode.ifaces.find((f) => f.name === 'defect_marker');
+      assert.ok(markerIface, 'defect_marker interface must be merged into subsystem member node');
+      assert.strictEqual(markerIface.kind, 'pub');
+      assert.strictEqual(markerIface.type, 'visualization_msgs/msg/Marker');
+
+      // Verify existing interface types are updated without overriding custom labels
+      const camSub = subMemberNode.ifaces.find((f) => f.name === 'camera_image');
+      assert.strictEqual(camSub?.label, 'camera_sub', 'Custom label must be preserved');
+      assert.strictEqual(camSub?.type, 'sensor_msgs/msg/Image', 'Type must be resolved from declaration');
+
+      // Verify newly added parameters on subsystem member node
+      assert.strictEqual(subMemberNode.params.length, 2, 'Subsystem member node must have 2 parameters');
+      const confThresh = subMemberNode.params.find((p) => p.name === 'confidence_threshold');
+      assert.ok(confThresh, 'confidence_threshold parameter must be merged');
+      assert.strictEqual(confThresh.ptype, 'Double');
+      assert.strictEqual(confThresh.value, '0.75');
+
+      // 7. Verify RosModelEmitter does NOT emit unassigned parameters with exposed: false
+      const testProject: RosProject = {
+        formatVersion: 4,
+        system: { name: 'test_sync_system', comments: {} },
+        subSystems: [],
+        nodes: [directNode],
+        connections: [],
+        packages: {},
+        types: {},
+      };
+      const emitted = RosModelEmitter.emitRosSystem(testProject);
+      assert.ok(!emitted.includes('parameters:'), 'Parameters without launch values must not be emitted to .rossystem');
+      assert.ok(emitted.includes('raw_cmd_in: sub-> "safety_supervisor::raw_cmd_in"'), 'Newly added interface must be emitted');
+
+      // 8. If launch value is assigned, it IS emitted cleanly
+      slowdown.sysValue = '1.0';
+      slowdown.exposed = true;
+      const emittedWithVal = RosModelEmitter.emitRosSystem(testProject);
+      assert.ok(emittedWithVal.includes('parameters:'), 'Parameters with launch values must be emitted');
+      assert.ok(emittedWithVal.includes('- slowdown_radius: "safety_supervisor::slowdown_radius"'));
+      assert.ok(emittedWithVal.includes('value: 1.0'));
+    });
   });
 });

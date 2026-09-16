@@ -5,7 +5,7 @@ import * as os from 'os';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
 import { getStudioHtml } from '../webview/studioHtml';
-import { RosProject, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic } from '../model/RosModelTypes';
+import { RosProject, RosNode, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic } from '../model/RosModelTypes';
 import { RosLayoutManager } from '../model/RosLayoutManager';
 import { RosCatalogueManager } from '../model/RosCatalogueManager';
 import { SRC_SIDE } from '../model/ConnectionValidator';
@@ -377,6 +377,159 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     return { artifactMap, subsystemMap };
   }
 
+  private enrichNodeWithDefinitions(
+    node: RosNode,
+    declaredArt?: DeclaredArtifact,
+    catEntry?: { interfaces?: unknown; parameters?: Record<string, unknown> }
+  ): void {
+    if (declaredArt) {
+      const declaredIfacesByName = new Map<string, RosInterface>();
+      for (const iface of declaredArt.ifaces || []) {
+        declaredIfacesByName.set(iface.name, iface);
+        if (iface.label) declaredIfacesByName.set(iface.label, iface);
+      }
+
+      const existingIfacesByName = new Set<string>();
+      for (const iface of node.ifaces || []) {
+        const match = declaredIfacesByName.get(iface.name) || (iface.label ? declaredIfacesByName.get(iface.label) : undefined);
+        if (match) {
+          iface.kind = match.kind;
+          iface.type = match.type || iface.type;
+          iface.qos = match.qos || iface.qos;
+        }
+        if (iface.name) existingIfacesByName.add(iface.name);
+        if (iface.label) existingIfacesByName.add(iface.label);
+      }
+
+      // Append newly declared interfaces not yet in node.ifaces
+      for (const decF of declaredArt.ifaces || []) {
+        if (!existingIfacesByName.has(decF.name) && (!decF.label || !existingIfacesByName.has(decF.label))) {
+          node.ifaces.push({
+            ...decF,
+            id: `i_${node.id || node.label}_${decF.name || decF.label}`,
+            exposed: true,
+          });
+          existingIfacesByName.add(decF.name);
+          if (decF.label) existingIfacesByName.add(decF.label);
+        }
+      }
+
+      // Merge parameters
+      const existingParamsByName = new Map<string, RosParameter>();
+      for (const p of node.params || []) {
+        existingParamsByName.set(p.name, p);
+        if (p.label) existingParamsByName.set(p.label, p);
+      }
+
+      const mergedParams: RosParameter[] = [];
+      for (const decP of declaredArt.params || []) {
+        const existing = existingParamsByName.get(decP.name) || (decP.label ? existingParamsByName.get(decP.label) : undefined);
+        if (existing) {
+          mergedParams.push({
+            ...decP,
+            id: existing.id || `p_${node.id || node.label}_${decP.name}`,
+            label: existing.label || decP.name,
+            ptype: decP.ptype || existing.ptype || 'String',
+            value: decP.value,
+            sysValue: existing.sysValue,
+            exposed: existing.exposed !== undefined ? existing.exposed : true,
+          });
+          existingParamsByName.delete(decP.name);
+          if (decP.label) existingParamsByName.delete(decP.label);
+        } else {
+          mergedParams.push({
+            ...decP,
+            id: `p_${node.id || node.label}_${decP.name}`,
+            label: decP.name,
+            ptype: decP.ptype || 'String',
+            value: decP.value,
+            sysValue: undefined,
+            exposed: false,
+          });
+        }
+      }
+      for (const remaining of existingParamsByName.values()) {
+        mergedParams.push(remaining);
+      }
+      node.params = mergedParams;
+    } else if (catEntry) {
+      const normalized = this.normalizeInterfaces(catEntry.interfaces);
+      const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
+      for (const f of normalized) {
+        const nm = f.name || f.label || '';
+        if (nm) catIfacesByName.set(nm, f);
+      }
+
+      const existingIfacesByName = new Set<string>();
+      for (const iface of node.ifaces || []) {
+        const match = catIfacesByName.get(iface.name) || (iface.label ? catIfacesByName.get(iface.label) : undefined);
+        if (match && match.kind) {
+          iface.kind = match.kind as RosInterface['kind'];
+          iface.type = match.type || iface.type;
+        }
+        if (iface.name) existingIfacesByName.add(iface.name);
+        if (iface.label) existingIfacesByName.add(iface.label);
+      }
+
+      for (const f of normalized) {
+        const nm = f.name || f.label || '';
+        if (nm && !existingIfacesByName.has(nm) && (!f.label || !existingIfacesByName.has(f.label))) {
+          node.ifaces.push({
+            id: `i_${node.id || node.label}_${nm}`,
+            name: nm,
+            label: f.label || nm,
+            kind: (f.kind as RosInterface['kind']) || 'pub',
+            type: f.type || '',
+            exposed: true,
+          });
+          existingIfacesByName.add(nm);
+          if (f.label) existingIfacesByName.add(f.label);
+        }
+      }
+
+      if (catEntry.parameters) {
+        const existingParamsByName = new Map<string, RosParameter>();
+        for (const p of node.params || []) {
+          existingParamsByName.set(p.name, p);
+          if (p.label) existingParamsByName.set(p.label, p);
+        }
+        const mergedParams: RosParameter[] = [];
+        for (const [pName, pDef] of Object.entries(catEntry.parameters)) {
+          const ptype = typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String';
+          const val = typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined;
+          const existing = existingParamsByName.get(pName);
+          if (existing) {
+            mergedParams.push({
+              id: existing.id || `p_${node.id || node.label}_${pName}`,
+              name: pName,
+              label: existing.label || pName,
+              ptype: ptype || existing.ptype || 'String',
+              value: val,
+              sysValue: existing.sysValue,
+              exposed: existing.exposed !== undefined ? existing.exposed : true,
+            });
+            existingParamsByName.delete(pName);
+            if (existing.label) existingParamsByName.delete(existing.label);
+          } else {
+            mergedParams.push({
+              id: `p_${node.id || node.label}_${pName}`,
+              name: pName,
+              label: pName,
+              ptype: ptype || 'String',
+              value: val,
+              sysValue: undefined,
+              exposed: false,
+            });
+          }
+        }
+        for (const remaining of existingParamsByName.values()) {
+          mergedParams.push(remaining);
+        }
+        node.params = mergedParams;
+      }
+    }
+  }
+
   private resolveSystemInterfaces(project: RosProject, docFilePath: string) {
     const { artifactMap, subsystemMap } = this.loadCompanionArtifacts(docFilePath);
     const catNodes = (this.nodeIndex && (this.nodeIndex['nodes'] as Record<string, {
@@ -425,68 +578,10 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               artifactMap.get(fromKey) ||
               artifactMap.get(targetNode.artifact || '') ||
               artifactMap.get(targetNode.label);
+            const catEntry = catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || ''];
 
-            if (declaredArt) {
-              if (targetNode.ifaces.length === 0) {
-                targetNode.ifaces = (declaredArt.ifaces || []).map((f) => ({
-                  ...f,
-                  id: `i_${targetNode.id}_${f.name || f.label}`,
-                  exposed: true,
-                }));
-              } else {
-                const artIfaces = new Map(declaredArt.ifaces.map((f) => [f.name, f]));
-                for (const iface of targetNode.ifaces) {
-                  const match = artIfaces.get(iface.name);
-                  if (match) {
-                    iface.kind = match.kind;
-                    iface.type = match.type || iface.type;
-                    iface.qos = match.qos || iface.qos;
-                  }
-                }
-              }
-              if (targetNode.params.length === 0) {
-                targetNode.params = (declaredArt.params || []).map((p) => ({
-                  ...p,
-                  id: `p_${targetNode.id}_${p.name}`,
-                  exposed: true,
-                }));
-              }
-            } else if (catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || '']) {
-              const catEntry = catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || ''];
-              const normalized = this.normalizeInterfaces(catEntry.interfaces);
-              if (targetNode.ifaces.length === 0) {
-                targetNode.ifaces = normalized.map((f) => ({
-                  id: `i_${targetNode.id}_${f.name || f.label}`,
-                  name: f.name || f.label || '',
-                  label: f.label || f.name || '',
-                  kind: (f.kind as RosInterface['kind']) || 'pub',
-                  type: f.type || '',
-                  exposed: true,
-                }));
-              } else {
-                const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
-                for (const f of normalized) {
-                  const nm = f.name || f.label || '';
-                  if (nm) catIfacesByName.set(nm, f);
-                }
-                for (const iface of targetNode.ifaces) {
-                  const match = catIfacesByName.get(iface.name);
-                  if (match && match.kind) {
-                    iface.kind = match.kind as RosInterface['kind'];
-                    iface.type = match.type || iface.type;
-                  }
-                }
-              }
-              if (targetNode.params.length === 0 && catEntry.parameters) {
-                targetNode.params = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
-                  id: `p_${targetNode.id}_${pName}`,
-                  name: pName,
-                  ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
-                  value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
-                  exposed: true,
-                }));
-              }
-            }
+            this.enrichNodeWithDefinitions(targetNode, declaredArt, catEntry);
+
             if (!existingNode) {
               project.nodes.push(targetNode);
               loadedNodes++;
@@ -513,58 +608,23 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
         if (matchSys && matchSys.nodes) {
           for (const [nKey, nDef] of Object.entries(matchSys.nodes)) {
-            const existingNode = project.nodes.find(
+            let targetNode = project.nodes.find(
               (n) => (n.subRef === sub.ref && n.label === nKey) || n.id === `n_${sub.ref}_${nKey}`
             );
-            if (!existingNode) {
+            if (!targetNode) {
               const fromKey = nDef.from || nKey;
-              const declaredArt =
-                artifactMap.get(fromKey) ||
-                artifactMap.get(nKey);
-
-              let finalIfaces: RosInterface[] = [];
-              let finalParams: RosParameter[] = [];
-
-              if (declaredArt) {
-                finalIfaces = (declaredArt.ifaces || []).map((f) => ({
-                  id: `i_${sub.ref}_${nKey}_${f.name}`,
-                  name: f.name,
-                  label: f.label || f.name,
-                  kind: f.kind,
-                  type: f.type || '',
-                  qos: f.qos,
-                  exposed: true,
-                }));
-                finalParams = (declaredArt.params || []).map((p) => ({
-                  id: `p_${sub.ref}_${nKey}_${p.name}`,
-                  name: p.name,
-                  ptype: p.ptype,
-                  value: p.value,
-                  exposed: true,
-                }));
-              } else if (catNodes[fromKey] || catNodes[nKey]) {
-                const catEntry = catNodes[fromKey] || catNodes[nKey];
-                const normalized = this.normalizeInterfaces(catEntry.interfaces);
-                finalIfaces = normalized.map((f) => ({
-                  id: `i_${sub.ref}_${nKey}_${f.name || f.label}`,
-                  name: f.name || f.label || '',
-                  label: f.label || f.name || '',
-                  kind: (f.kind as RosInterface['kind']) || 'pub',
-                  type: f.type || '',
-                  exposed: true,
-                }));
-                if (catEntry.parameters) {
-                  finalParams = Object.entries(catEntry.parameters).map(([pName, pDef]) => ({
-                    id: `p_${sub.ref}_${nKey}_${pName}`,
-                    name: pName,
-                    ptype: typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String',
-                    value: typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined,
-                    exposed: true,
-                  }));
-                }
-              } else if (nDef.interfaces) {
+              targetNode = {
+                id: `n_${sub.ref}_${nKey}`,
+                label: nKey,
+                from: fromKey,
+                subRef: sub.ref,
+                backing: 'sub',
+                ifaces: [],
+                params: [],
+              };
+              if (nDef.interfaces) {
                 for (const [iName, iKind] of Object.entries(nDef.interfaces)) {
-                  finalIfaces.push({
+                  targetNode.ifaces.push({
                     id: `i_${sub.ref}_${nKey}_${iName}`,
                     name: iName,
                     label: iName,
@@ -574,18 +634,13 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
                   });
                 }
               }
-
-              project.nodes.push({
-                id: `n_${sub.ref}_${nKey}`,
-                label: nKey,
-                from: fromKey,
-                subRef: sub.ref,
-                backing: 'sub',
-                ifaces: finalIfaces,
-                params: finalParams,
-              });
+              project.nodes.push(targetNode);
               loadedNodes++;
             }
+            const fromKey = targetNode.from || nDef.from || nKey;
+            const declaredArt = artifactMap.get(fromKey) || artifactMap.get(nKey);
+            const catEntry = catNodes[fromKey] || catNodes[nKey];
+            this.enrichNodeWithDefinitions(targetNode, declaredArt, catEntry);
           }
         }
       }
@@ -593,135 +648,17 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
     // 2. Resolve direct nodes
     for (const node of project.nodes) {
+      if (node.subRef || node.backing === 'sub') {
+        continue;
+      }
       const fromKey = node.from || '';
       const declaredArt =
         artifactMap.get(fromKey) ||
         artifactMap.get(node.artifact || '') ||
         artifactMap.get(node.label);
+      const catEntry = catNodes[fromKey] || catNodes[node.label] || catNodes[node.artifact || ''];
 
-      if (declaredArt) {
-        if (node.ifaces.length === 0) {
-          node.ifaces = (declaredArt.ifaces || []).map((f) => ({ ...f, exposed: true }));
-        } else {
-          // Map interfaces by declared name
-          const declaredIfacesByName = new Map<string, RosInterface>();
-          for (const iface of declaredArt.ifaces) {
-            declaredIfacesByName.set(iface.name, iface);
-          }
-
-          for (const iface of node.ifaces) {
-            const targetName = iface.name;
-            const match = declaredIfacesByName.get(targetName);
-            if (match) {
-              iface.kind = match.kind;
-              iface.type = match.type || iface.type;
-              iface.qos = match.qos || iface.qos;
-            }
-          }
-        }
-
-        // Map parameters
-        const existingParamsByName = new Map<string, RosParameter>();
-        for (const p of node.params || []) {
-          existingParamsByName.set(p.name, p);
-        }
-
-        const mergedParams: RosParameter[] = [];
-        for (const decP of declaredArt.params || []) {
-          const existing = existingParamsByName.get(decP.name);
-          if (existing) {
-            mergedParams.push({
-              ...decP,
-              id: existing.id || `p_${node.label}_${decP.name}`,
-              label: existing.label || decP.name,
-              ptype: decP.ptype || existing.ptype || 'String',
-              value: decP.value,
-              sysValue: existing.sysValue,
-              exposed: true,
-            });
-            existingParamsByName.delete(decP.name);
-          } else {
-            mergedParams.push({
-              ...decP,
-              id: `p_${node.label}_${decP.name}`,
-              label: decP.name,
-              ptype: decP.ptype || 'String',
-              value: decP.value,
-              sysValue: undefined,
-              exposed: false,
-            });
-          }
-        }
-        for (const remaining of existingParamsByName.values()) {
-          mergedParams.push(remaining);
-        }
-        node.params = mergedParams;
-      } else if (catNodes[fromKey]) {
-        const catEntry = catNodes[fromKey];
-        const normalizedIfaces = this.normalizeInterfaces(catEntry.interfaces);
-        if (node.ifaces.length === 0) {
-          node.ifaces = normalizedIfaces.map((f) => ({
-            id: `i_${node.label}_${f.name || f.label}`,
-            name: f.name || f.label || '',
-            label: f.label || f.name || '',
-            kind: (f.kind as RosInterface['kind']) || 'pub',
-            type: f.type || '',
-            exposed: true,
-          }));
-        } else {
-          const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
-          for (const f of normalizedIfaces) {
-            const nm = f.name || f.label || '';
-            if (nm) catIfacesByName.set(nm, f);
-          }
-          for (const iface of node.ifaces) {
-            const match = catIfacesByName.get(iface.name);
-            if (match && match.kind) {
-              iface.kind = match.kind as RosInterface['kind'];
-              iface.type = match.type || iface.type;
-            }
-          }
-        }
-
-        if (catEntry.parameters) {
-          const existingParamsByName = new Map<string, RosParameter>();
-          for (const p of node.params || []) {
-            existingParamsByName.set(p.name, p);
-          }
-          const mergedParams: RosParameter[] = [];
-          for (const [pName, pDef] of Object.entries(catEntry.parameters)) {
-            const ptype = typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String';
-            const val = typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined;
-            const existing = existingParamsByName.get(pName);
-            if (existing) {
-              mergedParams.push({
-                id: existing.id || `p_${node.label}_${pName}`,
-                name: pName,
-                label: existing.label || pName,
-                ptype: ptype || existing.ptype || 'String',
-                value: val,
-                sysValue: existing.sysValue,
-                exposed: true,
-              });
-              existingParamsByName.delete(pName);
-            } else {
-              mergedParams.push({
-                id: `p_${node.label}_${pName}`,
-                name: pName,
-                label: pName,
-                ptype: ptype || 'String',
-                value: val,
-                sysValue: undefined,
-                exposed: false,
-              });
-            }
-          }
-          for (const remaining of existingParamsByName.values()) {
-            mergedParams.push(remaining);
-          }
-          node.params = mergedParams;
-        }
-      }
+      this.enrichNodeWithDefinitions(node, declaredArt, catEntry);
     }
 
     // 3. Resolve connection endpoints across all nodes (including subsystem nodes)
@@ -1544,7 +1481,35 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     });
 
-    // Sync external text changes (both on active document AND companion .ros2/.ros1/.ros files) into Webview
+    const refreshWebviewFromDocument = () => {
+      try {
+        const freshProject = RosModelParser.parse(document.getText(), document.fileName);
+        freshProject.isRosSystem = isRosSystem;
+        freshProject.isRos = isRos;
+        if (!isRos) {
+          this.resolveSystemInterfaces(freshProject, document.fileName);
+        }
+        const currentCached = this.projectCache.get(docKey);
+
+        if (currentCached) {
+          this.restoreCachedLayout(freshProject, currentCached);
+        }
+
+        this.assignGridPositions(freshProject);
+        const diags = vscode.languages.getDiagnostics(document.uri);
+        freshProject.diagnostics = this.mapDiagnosticsToElements(diags, freshProject, document.fileName);
+        this.projectCache.set(docKey, freshProject);
+
+        void webviewPanel.webview.postMessage({
+          type: 'updateModel',
+          project: freshProject,
+        });
+      } catch (err) {
+        console.warn('Could not sync external text update to webview:', err);
+      }
+    };
+
+    // Sync external text changes (both on active document AND companion .ros2/.ros1/.ros/.rossystem files) into Webview
     const changeDocSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
       if (isInternalUpdate || Date.now() - lastInternalUpdateTime < 600) {
         return;
@@ -1555,35 +1520,25 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       const isCompanionDoc =
         (changedPath.endsWith('.ros2') ||
           changedPath.endsWith('.ros1') ||
-          changedPath.endsWith('.ros')) &&
-        path.dirname(changedPath) === path.dirname(document.fileName);
+          changedPath.endsWith('.ros') ||
+          changedPath.endsWith('.rossystem')) &&
+        changedPath !== document.fileName;
 
       if (isTargetDoc || isCompanionDoc) {
-        try {
-          const freshProject = RosModelParser.parse(document.getText(), document.fileName);
-          freshProject.isRosSystem = isRosSystem;
-          freshProject.isRos = isRos;
-          if (!isRos) {
-            this.resolveSystemInterfaces(freshProject, document.fileName);
-          }
-          const currentCached = this.projectCache.get(docKey);
+        refreshWebviewFromDocument();
+      }
+    });
 
-          if (currentCached) {
-            this.restoreCachedLayout(freshProject, currentCached);
-          }
-
-          this.assignGridPositions(freshProject);
-          const diags = vscode.languages.getDiagnostics(document.uri);
-          freshProject.diagnostics = this.mapDiagnosticsToElements(diags, freshProject, document.fileName);
-          this.projectCache.set(docKey, freshProject);
-
-          void webviewPanel.webview.postMessage({
-            type: 'updateModel',
-            project: freshProject,
-          });
-        } catch (err) {
-          console.warn('Could not sync external text update to webview:', err);
-        }
+    // Sync saved model documents into Webview
+    const saveDocSubscription = vscode.workspace.onDidSaveTextDocument((savedDoc) => {
+      const savedPath = savedDoc.fileName || savedDoc.uri.fsPath;
+      if (
+        savedPath.endsWith('.ros2') ||
+        savedPath.endsWith('.ros1') ||
+        savedPath.endsWith('.ros') ||
+        savedPath.endsWith('.rossystem')
+      ) {
+        refreshWebviewFromDocument();
       }
     });
 
@@ -1605,6 +1560,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     webviewPanel.onDidDispose(() => {
       messageListener.dispose();
       changeDocSubscription.dispose();
+      saveDocSubscription.dispose();
       diagSubscription.dispose();
       this.projectCache.delete(docKey);
     });
