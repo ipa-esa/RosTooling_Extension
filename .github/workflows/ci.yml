@@ -8,12 +8,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Build, Lint & Test
+  ci:
+    name: Build & Test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
+      security-events: write
+      actions: read
 
     steps:
       - name: Checkout repository
@@ -37,13 +39,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Language Server JAR
-        run: ./gradlew :rostooling-languages:copyFatJar
-        env:
-          USERNAME: ${{ github.actor }}
-          TOKEN: ${{ secrets.GPR_KEY || secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
       - name: Setup RosTooling Catalogues
         run: |
           mkdir -p $HOME/.rostooling/catalogue_repos
@@ -51,17 +46,34 @@ jobs:
           git clone --depth 1 https://github.com/ipa320/RosCommonObjects.git $HOME/.rostooling/catalogue_repos/RosCommonObjects
           echo '{"customFolders":[],"lastSyncTimestamp":'$(date +%s%3N)'}' > $HOME/.rostooling/catalogue_repos/catalogue_config.json
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         working-directory: rostooling-languages
-        run: npm ci
+        run: |
+          npm ci
+          npm install --no-save @microsoft/eslint-formatter-sarif@3.1.0
+
+      - name: Build Language Server JAR
+        run: ./gradlew :rostooling-languages:copyFatJar
+        env:
+          USERNAME: ${{ github.actor }}
+          TOKEN: ${{ secrets.GPR_KEY || secrets.GITHUB_TOKEN }}
 
       - name: Compile TypeScript
         working-directory: rostooling-languages
         run: npm run compile
 
       - name: Run ESLint
+        env:
+          SARIF_ESLINT_IGNORE_SUPPRESSED: "true"
         working-directory: rostooling-languages
-        run: npm run lint
+        run: npx eslint ./src --config eslint.config.mjs --format @microsoft/eslint-formatter-sarif --output-file eslint-results.sarif
+        continue-on-error: true
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rostooling-languages/eslint-results.sarif
+          wait-for-processing: true
 
       - name: Run VS Code Extension Tests
         working-directory: rostooling-languages
