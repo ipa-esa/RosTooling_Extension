@@ -1248,6 +1248,7 @@ export function getStudioHtml(
   </div>
   ${isReadOnly ? '' : '<button class="btn" id="btnOpenCatalogue" title="Browse Catalogue">+ Add from Catalogue</button>'}
   ${!isReadOnly && isRosSystem ? '<button class="btn primary" id="btnGenerate" title="Generate ROS 2 Package & Launch Files">⚡ Generate & Launch</button>' : ''}
+  ${!isReadOnly && !isRos && !isRosSystem ? '<button class="btn primary" id="btnGenerateWrappers" title="Select a node to generate ROS 2 wrappers" disabled>⚡ Generate Wrappers</button>' : ''}
   <button class="btn" id="btnSwitchToCode" title="View Source Code">📝 Code</button>
   <div id="diagPillContainer" style="margin-left:8px; display:flex; align-items:center;"></div>
 </div>
@@ -4401,6 +4402,11 @@ export function getStudioHtml(
       }
     }
 
+    var btnGenW = document.getElementById("btnGenerateWrappers");
+    if (btnGenW) {
+      btnGenW.disabled = !selNode;
+    }
+
     if (selNode) {
       var n = nodeById(selNode);
       if (!n) { container.innerHTML = "Select an element to inspect"; return; }
@@ -5572,6 +5578,15 @@ export function getStudioHtml(
 
       safeClick("btnGenerate", function() {
         vscode.postMessage({ type: "generateCode" });
+      });
+      safeClick("btnGenerateWrappers", function() {
+        if (!selNode) return;
+        var n = nodeById(selNode);
+        var nodeName = n ? (n.label || n.name || n.id) : null;
+        vscode.postMessage({
+          type: "generateWrappers",
+          selectedNodes: nodeName ? [nodeName] : []
+        });
       });
       safeClick("btnSwitchToCode", function() {
         vscode.postMessage({ type: "openCodeView" });

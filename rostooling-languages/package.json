@@ -160,6 +160,11 @@
         "category": "ROSSYSTEM"
       },
       {
+        "command": "ros2.generateWrappers",
+        "title": "Generate ROS 2 Node Wrappers",
+        "category": "ROS2"
+      },
+      {
         "command": "rossdl.buildPackage",
         "title": "Build ROS 2 Package",
         "category": "ROSSDL"
@@ -185,6 +190,11 @@
           "when": "resourceLangId == rossystem"
         },
         {
+          "command": "ros2.generateWrappers",
+          "group": "ROS2@100",
+          "when": "resourceLangId == ros2"
+        },
+        {
           "command": "rossdl.buildPackage",
           "group": "ROSSDL@100",
           "when": "resourceLangId == rossystem || resourceLangId == ros2"
@@ -195,6 +205,11 @@
           "command": "rostooling.openVisualStudio",
           "group": "navigation",
           "when": "resourceExtname == .rossystem || resourceExtname == .ros2 || resourceExtname == .ros || resourceExtname == .ros1"
+        },
+        {
+          "command": "ros2.generateWrappers",
+          "group": "ROS2@100",
+          "when": "resourceExtname == .ros2"
         }
       ]
     }

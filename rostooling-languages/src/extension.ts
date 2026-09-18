@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
@@ -265,6 +265,142 @@ export async function activate(context: ExtensionContext) {
         }
     });
     context.subscriptions.push(generateCodeCommand);
+
+    const generateWrappersCommand = commands.registerCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: string[], langChoice?: string) => {
+        if (!lc) {
+            window.showErrorMessage('ROS LSP not ready');
+            return;
+        }
+
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            const activeTab = window.tabGroups?.activeTabGroup?.activeTab;
+            if (activeTab?.input && typeof activeTab.input === 'object' && 'uri' in activeTab.input && (activeTab.input as { uri: unknown }).uri instanceof Uri) {
+                targetUri = (activeTab.input as { uri: Uri }).uri;
+            }
+        }
+        if (!targetUri && RosCustomEditorProvider.activeCustomDocument) {
+            targetUri = RosCustomEditorProvider.activeCustomDocument.uri;
+        }
+
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS 2 editor or model file selected');
+            return;
+        }
+
+        const targetUriStr = targetUri.toString();
+        const filedEnd = targetUriStr.split('.').pop();
+        if (filedEnd !== 'ros2') {
+            window.showErrorMessage('File is not a ROS 2 (.ros2) model file');
+            return;
+        }
+
+        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri.toString());
+        if (doc?.isDirty) {
+            await doc.save();
+        }
+
+        // 1. Language prompt if not provided
+        let language = langChoice;
+        if (!language) {
+            const nodeLabel = targetNodes && targetNodes.length === 1 ? `'${targetNodes[0]}'` : 'the selected node(s)';
+            const picked = await window.showQuickPick([
+                { label: '$(file-code) C++', description: 'Generate C++ wrapper, runner, and pure algorithm template', value: 'cpp' },
+                { label: '$(symbol-keyword) Python', description: 'Generate Python wrapper, runner, and pure logic template', value: 'python' },
+                { label: '$(layers) Both (C++ & Python)', description: 'Generate both C++ and Python node wrappers', value: 'both' }
+            ], {
+                placeHolder: `Select implementation language for ${nodeLabel}`
+            });
+            if (!picked) return;
+            language = picked.value;
+        }
+
+        // 2. Scan workspace src-gen to find existing files in this package for hybrid package support
+        const workspaceFolder = workspace.getWorkspaceFolder(targetUri);
+        if (!workspaceFolder) {
+            window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
+            return;
+        }
+
+        const existingFiles: string[] = [];
+        try {
+            const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+            const scanDir = async (dir: Uri, prefix = '') => {
+                try {
+                    const entries = await workspace.fs.readDirectory(dir);
+                    for (const [name, type] of entries) {
+                        const relPath = prefix ? `${prefix}/${name}` : name;
+                        if (type === FileType.Directory) {
+                            await scanDir(Uri.joinPath(dir, name), relPath);
+                        } else if (type === FileType.File) {
+                            existingFiles.push(relPath);
+                        }
+                    }
+                } catch {
+                    // Ignore non-existent folder
+                }
+            };
+            await scanDir(srcGenUri);
+        } catch {
+            // src-gen might not exist yet
+        }
+
+        const hostDistro = process.env.ROS_DISTRO || 'humble';
+
+        try {
+            const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                command: 'ros2.generateWrappers',
+                arguments: [
+                    targetUriStr,
+                    targetNodes || [],
+                    language,
+                    hostDistro,
+                    existingFiles
+                ]
+            });
+
+            const files = result?.files || {};
+            const count = Object.keys(files).length;
+
+            if (result?.error) {
+                window.showErrorMessage(`Generation error: ${result.error}`);
+            } else if (count > 0) {
+                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+
+                let writtenCount = 0;
+                for (const [rawPath, content] of Object.entries(files)) {
+                    const cleanPath = rawPath.replace(/^DEFAULT_OUTPUT\/?/, '');
+                    const filePath = Uri.joinPath(srcGenUri, cleanPath);
+
+                    // Overwrite protection for user pure logic starter files
+                    if (cleanPath.endsWith('Algorithm.hpp') || cleanPath.endsWith('_logic.py')) {
+                        try {
+                            await workspace.fs.stat(filePath);
+                            // File already exists - DO NOT OVERWRITE
+                            continue;
+                        } catch {
+                            // File does not exist, proceed to write
+                        }
+                    }
+
+                    const encoder = new TextEncoder();
+                    await workspace.fs.writeFile(filePath, encoder.encode(content));
+                    writtenCount++;
+                }
+
+                window.showInformationMessage(`Successfully generated ${writtenCount} file(s) in src-gen/`);
+            } else {
+                window.showInformationMessage('No wrapper files generated');
+            }
+        } catch (error) {
+            window.showErrorMessage(`Command failed: ${error}`);
+            console.error('Command failed:', error);
+        }
+    });
+    context.subscriptions.push(generateWrappersCommand);
     
     const customEditorProvider = new RosCustomEditorProvider(context);
     context.subscriptions.push(

@@ -1449,6 +1449,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           break;
         }
 
+        case 'generateWrappers': {
+          if (document.isDirty) {
+            await document.save();
+          }
+          await vscode.commands.executeCommand('ros2.generateWrappers', document.uri, msg.selectedNodes);
+          break;
+        }
+
         case 'openCodeView': {
           await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
           break;
