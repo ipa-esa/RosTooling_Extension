@@ -218,7 +218,12 @@
     "onLanguage:ros",
     "onLanguage:ros1",
     "onLanguage:ros2",
-    "onLanguage:rossystem"
+    "onLanguage:rossystem",
+    "onCommand:rostooling.openVisualStudio",
+    "onCommand:ros2.generateWrappers",
+    "onCommand:rossystem.triggerCodeGeneration",
+    "onCommand:rossdl.buildPackage",
+    "onCustomEditor:rostooling.visualStudio"
   ],
   "main": "./out/extension.js",
   "lint-staged": {

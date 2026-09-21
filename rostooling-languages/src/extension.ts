@@ -75,6 +75,37 @@ export async function activate(context: ExtensionContext) {
     const cataloguePath = catalogueManager.getStorageDir();
     outputChannel.appendLine(`Catalogue storage path: ${cataloguePath}`);
 
+    // Ensure default catalogue repositories exist before launching LSP server
+    const fallbackDir = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
+        const targetRepoDir = path.join(cataloguePath, repo.name);
+        const fallbackRepoDir = path.join(fallbackDir, repo.name);
+        if (!fs.existsSync(targetRepoDir) && fs.existsSync(fallbackRepoDir)) {
+            try {
+                outputChannel.appendLine(`Copying cached catalogue ${repo.name} from fallback directory...`);
+                fs.cpSync(fallbackRepoDir, targetRepoDir, { recursive: true });
+            } catch (err) {
+                outputChannel.appendLine(`Failed to copy fallback catalogue ${repo.name}: ${err}`);
+            }
+        }
+    }
+
+    const hasAllCatalogues = RosCatalogueManager.DEFAULT_REPOSITORIES.every(
+        repo => fs.existsSync(path.join(cataloguePath, repo.name))
+    );
+    if (!hasAllCatalogues) {
+        outputChannel.appendLine('Synchronizing missing default catalogue repositories...');
+        try {
+            await catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`));
+        } catch (err) {
+            outputChannel.appendLine(`Catalogue sync warning: ${err}`);
+        }
+    } else {
+        catalogueManager.syncRepositories(false).catch((err) => {
+            outputChannel.appendLine(`Background catalogue sync warning: ${err}`);
+        });
+    }
+
     const serverOptions: ServerOptions = {
         run : {
             command: javaExecutable,
@@ -187,7 +218,18 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
 
-    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
+    const safeRegisterCommand = (commandId: string, callback: Parameters<typeof commands.registerCommand>[1]) => {
+        try {
+            const cmd = commands.registerCommand(commandId, callback);
+            context.subscriptions.push(cmd);
+            return cmd;
+        } catch (err) {
+            console.warn(`Command '${commandId}' was already registered or failed to register:`, err);
+            return undefined;
+        }
+    };
+
+    safeRegisterCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
         if (!lc) {
             window.showErrorMessage('ROS LSP not ready');
             return;
@@ -264,9 +306,8 @@ export async function activate(context: ExtensionContext) {
             console.error('Command failed:', error);
         }
     });
-    context.subscriptions.push(generateCodeCommand);
 
-    const generateWrappersCommand = commands.registerCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: string[], langChoice?: string) => {
+    safeRegisterCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: string[], langChoice?: string) => {
         if (!lc) {
             window.showErrorMessage('ROS LSP not ready');
             return;
@@ -352,7 +393,7 @@ export async function activate(context: ExtensionContext) {
 
         try {
             const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
-                command: 'ros2.generateWrappers',
+                command: 'ros2.generateWrappersServer',
                 arguments: [
                     targetUriStr,
                     targetNodes || [],
@@ -400,7 +441,6 @@ export async function activate(context: ExtensionContext) {
             console.error('Command failed:', error);
         }
     });
-    context.subscriptions.push(generateWrappersCommand);
     
     const customEditorProvider = new RosCustomEditorProvider(context);
     context.subscriptions.push(
@@ -414,7 +454,7 @@ export async function activate(context: ExtensionContext) {
         )
     );
 
-    const openVisualStudioCmd = commands.registerCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
+    safeRegisterCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
         let targetUri = uri;
         if (!targetUri && window.activeTextEditor) {
             targetUri = window.activeTextEditor.document.uri;
@@ -425,9 +465,8 @@ export async function activate(context: ExtensionContext) {
         }
         await commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
     });
-    context.subscriptions.push(openVisualStudioCmd);
 
-    const rossdlCommand = commands.registerCommand('rossdl.buildPackage', async () => {
+    safeRegisterCommand('rossdl.buildPackage', async () => {
         try {
             await runRossdlWorkflow(outputChannel);
         } catch (error) {
@@ -437,7 +476,6 @@ export async function activate(context: ExtensionContext) {
             window.showErrorMessage(message)
         }
     });
-    context.subscriptions.push(rossdlCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {
