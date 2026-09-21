@@ -307,7 +307,7 @@ export async function activate(context: ExtensionContext) {
         }
     });
 
-    safeRegisterCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: string[], langChoice?: string) => {
+    safeRegisterCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: unknown, langChoice?: string) => {
         if (!lc) {
             window.showErrorMessage('ROS LSP not ready');
             return;
@@ -344,10 +344,19 @@ export async function activate(context: ExtensionContext) {
             await doc.save();
         }
 
+        // Resolve targetNodes: if invoked from context menu (where VS Code passes Uri[]),
+        // or undefined/empty, pass an empty string array [] so the Xtend generator generates all nodes in the package.
+        let resolvedTargetNodes: string[] = [];
+        if (Array.isArray(targetNodes) && targetNodes.length > 0 && typeof targetNodes[0] === 'string') {
+            resolvedTargetNodes = targetNodes as string[];
+        } else {
+            resolvedTargetNodes = [];
+        }
+
         // 1. Language prompt if not provided
         let language = langChoice;
         if (!language) {
-            const nodeLabel = targetNodes && targetNodes.length === 1 ? `'${targetNodes[0]}'` : 'the selected node(s)';
+            const nodeLabel = resolvedTargetNodes.length === 1 ? `'${resolvedTargetNodes[0]}'` : 'the package nodes';
             const picked = await window.showQuickPick([
                 { label: '$(file-code) C++', description: 'Generate C++ wrapper, runner, and pure algorithm template', value: 'cpp' },
                 { label: '$(symbol-keyword) Python', description: 'Generate Python wrapper, runner, and pure logic template', value: 'python' },
@@ -396,7 +405,7 @@ export async function activate(context: ExtensionContext) {
                 command: 'ros2.generateWrappersServer',
                 arguments: [
                     targetUriStr,
-                    targetNodes || [],
+                    resolvedTargetNodes,
                     language,
                     hostDistro,
                     existingFiles

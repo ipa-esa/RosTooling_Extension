@@ -5582,7 +5582,7 @@ export function getStudioHtml(
       safeClick("btnGenerateWrappers", function() {
         if (!selNode) return;
         var n = nodeById(selNode);
-        var nodeName = n ? (n.label || n.name || n.id) : null;
+        var nodeName = n ? (n.artifact || n.label || n.name || n.id) : null;
         vscode.postMessage({
           type: "generateWrappers",
           selectedNodes: nodeName ? [nodeName] : []
