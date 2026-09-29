@@ -10,7 +10,7 @@ import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 
-function checkJavaVersion(javaExecutable:string): Promise<boolean> {
+function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
         cp.exec(`"${javaExecutable}" -version`, (error, stdout, stderr) => {
             const output = stdout.toString() + stderr.toString();
@@ -35,7 +35,7 @@ export async function activate(context: ExtensionContext) {
     outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
 
-    
+
     const extensionVersion = context.extension.packageJSON.version;
     const jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
 
@@ -107,13 +107,13 @@ export async function activate(context: ExtensionContext) {
     }
 
     const serverOptions: ServerOptions = {
-        run : {
+        run: {
             command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
                 `-Drostooling.catalogue.path=${cataloguePath}`,
-                '-jar', jarPath                
+                '-jar', jarPath
             ]
         },
         debug: {
@@ -124,17 +124,17 @@ export async function activate(context: ExtensionContext) {
                 `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath,
                 '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp'  // optional debug flag
-            ]            
+            ]
         }
     };
-    
+
     const documentSelector = [
-        { scheme: 'file', language: 'ros'},
-        { scheme: 'file', language: 'ros1'},
-        { scheme: 'file', language: 'ros2'},
-        { scheme: 'file', language: 'rossystem'},
+        { scheme: 'file', language: 'ros' },
+        { scheme: 'file', language: 'ros1' },
+        { scheme: 'file', language: 'ros2' },
+        { scheme: 'file', language: 'rossystem' },
     ];
-    
+
     const clientOptions: LanguageClientOptions = {
         documentSelector,
         synchronize: {
@@ -154,7 +154,7 @@ export async function activate(context: ExtensionContext) {
             closed: (): CloseHandlerResult => {
                 console.log('ROS LSP closed');
                 window.showWarningMessage('ROS LSP server stopped');
-                return{
+                return {
                     action: CloseAction.Restart,
                 };
             }
@@ -171,7 +171,7 @@ export async function activate(context: ExtensionContext) {
                 for (const item of items) {
                     const itemLabel = item.label != null ? item.label.toString() : "None";
                     const isReferenceOrValue = item.kind === 17
-                    
+
                     if (isReferenceOrValue && !hasStartingQuote) {
                         let textToInsert = '';
                         if (typeof item.insertText === 'string') {
@@ -183,13 +183,13 @@ export async function activate(context: ExtensionContext) {
                         }
 
                         const isNumberOrBool = !isNaN(Number(textToInsert)) || textToInsert === 'true' || textToInsert === 'false';
-                        
+
                         if (!isNumberOrBool) {
                             textToInsert = textToInsert.replace(/^"|"$/g, '');
                             if (!hasStartingQuote) {
                                 textToInsert = `"${textToInsert}"`;
                             }
-                            
+
                             if (item.insertText instanceof SnippetString) {
                                 item.insertText.value = textToInsert;
                             } else {
@@ -198,7 +198,7 @@ export async function activate(context: ExtensionContext) {
                         }
                     }
                 }
-                
+
                 return result;
             }
         }
@@ -271,11 +271,11 @@ export async function activate(context: ExtensionContext) {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr]
             });
-            
+
             // Safe access
             const files = result?.files || {};
             const count = Object.keys(files).length;
-            
+
             if (result?.error) {
                 window.showErrorMessage(`Generation error: ${result.error}`);
             } else if (count > 0) {
@@ -299,7 +299,7 @@ export async function activate(context: ExtensionContext) {
             } else {
                 window.showInformationMessage('No files generated');
             }
-            
+
             console.log('Full result:', result);
         } catch (error) {
             window.showErrorMessage(`Command failed: ${error}`);
@@ -439,6 +439,13 @@ export async function activate(context: ExtensionContext) {
                     const encoder = new TextEncoder();
                     await workspace.fs.writeFile(filePath, encoder.encode(content));
                     writtenCount++;
+                    if (process.platform !== 'win32' && (content.startsWith('#!') || cleanPath.endsWith('_runner.py'))) {
+                        try {
+                            fs.chmodSync(filePath.fsPath, 0o755);
+                        } catch (err) {
+                            console.warn(`Could not set executable permission on ${filePath.fsPath}:`, err);
+                        }
+                    }
                 }
 
                 window.showInformationMessage(`Successfully generated ${writtenCount} file(s) in src-gen/`);
@@ -450,7 +457,7 @@ export async function activate(context: ExtensionContext) {
             console.error('Command failed:', error);
         }
     });
-    
+
     const customEditorProvider = new RosCustomEditorProvider(context);
     context.subscriptions.push(
         window.registerCustomEditorProvider(
@@ -488,7 +495,7 @@ export async function activate(context: ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    if(!lc) {
+    if (!lc) {
         return undefined;
     }
     return lc.stop();
@@ -504,7 +511,7 @@ async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
     }
     validateRosWorkspace(rossdlWorkspace);
     outputChannel.appendLine(`Selected ROSSDL workspace: ${rossdlWorkspace}`);
-    
+
     const buildWorkspace = await pickFolder('Select Build Workspace', 'Select Build Workspace');
     if (!buildWorkspace) {
         window.showInformationMessage('No build workspace selected, generation cancelled.');
@@ -514,7 +521,7 @@ async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
     const generationCommand = 'colcon build --symlink-install';
 
     await runShellCommand('bash', ['-lc', `source "${path.join(rossdlWorkspace, 'install', 'setup.bash')}" && ${generationCommand}`], buildWorkspace, 'Running ROSSDL generation command', outputChannel);
-    
+
     window.showInformationMessage("Generation finished successfully.");
 }
 
