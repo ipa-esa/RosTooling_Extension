@@ -5,6 +5,26 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-09-30
+
+### Added
+- **ROS 2 Node Wrapper & Logic Code Generation**:
+  - Interactive Command Palette command (`ros2.generateWrappers`) to generate C++ and Python node wrappers, executable runners, and pure logic templates from `.ros2` models.
+  - RosTooling Studio visual editor integration with a dedicated "Generate Wrappers" action button in the component inspector.
+  - Automatic `chmod 0o755` executable permissions for generated Python runners and files containing shebangs on non-Windows platforms, enabling immediate execution with `colcon build --symlink-install`.
+  - Artifact-aware generation resolving modeled artifact names for generated C++ and Python filenames and build scripts.
+- **Pre-Launch Catalogue Synchronization**:
+  - Automatic verification and synchronization of default catalogue repositories (`RosModelsCatalog`, `RosCommonObjects`) prior to starting the Java Language Server.
+  - Fallback cache copying from `~/.rostooling/catalogue_repos` to prevent startup race conditions or missing model dependencies in multi-root workspaces.
+- **Explicit Extension Activation Events**:
+  - Registered `onCommand` triggers for `ros2.generateWrappers`, `rostooling.openVisualStudio`, `rossystem.triggerCodeGeneration`, `rossdl.buildPackage`, and `onCustomEditor:rostooling.visualStudio`.
+- **Demo & Testing Packages**:
+  - Added ROS 2 example fixtures under `demo/test_ws/src/` including `custom_action_interfaces` (`Fibonacci.action`), minimal action, minimal publisher, subscriber, and service models.
+
+### Changed
+- Refactored wrapper generation command registration to use `ros2.generateWrappersServer` internally, preventing command identifier collisions between the VS Code client and the LSP server.
+- Wrapped all custom command registrations with a `safeRegisterCommand` guard to avoid duplicate registration exceptions during dynamic extension reloads.
+
 ## [2.0.0] - 2026-09-16
 
 ### Added
