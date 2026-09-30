@@ -1,0 +1,12 @@
+examples_minimal_actions:
+  artifacts:
+    action_server:
+      node: finbonacci_action_server
+      actionservers:
+        fibonacci:
+          type: 'custom_action_interfaces/action/Fibonacci'
+    action_client:
+      node: fibonacci_action_client
+      actionclients:
+        fibonacci:
+          type: 'custom_action_interfaces/action/Fibonacci'

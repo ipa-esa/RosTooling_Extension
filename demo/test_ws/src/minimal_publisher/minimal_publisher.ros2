@@ -1,0 +1,13 @@
+examples_minimal_publisher:
+  artifacts:
+    publisher_local_function:
+      node: minimal_publisher
+      publishers:
+        'hello_world_topic':
+          type: 'std_msgs/msg/String'
+          qos:
+          # profile:
+          # history: KEEP_LAST
+          # depth:
+            reliability: reliable
+            durability: volatile

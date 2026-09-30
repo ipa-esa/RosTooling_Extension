@@ -1,0 +1,7 @@
+examples_minimal_subscriber:
+  artifacts:
+    subscriber_lambda:
+      node: minimal_subscriber
+      subscribers:
+        'hello_world_topic':
+          type: 'std_msgs/msg/String'
