@@ -2,7 +2,7 @@
   "name": "rostooling-languages",
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "publisher": "FraunhoferIPA",
   "icon": "images/RosTooling_Logo.png",
   "license": "Apache-2.0",
@@ -160,6 +160,11 @@
         "category": "ROSSYSTEM"
       },
       {
+        "command": "ros2.generateWrappers",
+        "title": "Generate ROS 2 Node Wrappers",
+        "category": "ROS2"
+      },
+      {
         "command": "rossdl.buildPackage",
         "title": "Build ROS 2 Package",
         "category": "ROSSDL"
@@ -185,6 +190,11 @@
           "when": "resourceLangId == rossystem"
         },
         {
+          "command": "ros2.generateWrappers",
+          "group": "ROS2@100",
+          "when": "resourceLangId == ros2"
+        },
+        {
           "command": "rossdl.buildPackage",
           "group": "ROSSDL@100",
           "when": "resourceLangId == rossystem || resourceLangId == ros2"
@@ -195,6 +205,11 @@
           "command": "rostooling.openVisualStudio",
           "group": "navigation",
           "when": "resourceExtname == .rossystem || resourceExtname == .ros2 || resourceExtname == .ros || resourceExtname == .ros1"
+        },
+        {
+          "command": "ros2.generateWrappers",
+          "group": "ROS2@100",
+          "when": "resourceExtname == .ros2"
         }
       ]
     }
@@ -203,7 +218,12 @@
     "onLanguage:ros",
     "onLanguage:ros1",
     "onLanguage:ros2",
-    "onLanguage:rossystem"
+    "onLanguage:rossystem",
+    "onCommand:rostooling.openVisualStudio",
+    "onCommand:ros2.generateWrappers",
+    "onCommand:rossystem.triggerCodeGeneration",
+    "onCommand:rossdl.buildPackage",
+    "onCustomEditor:rostooling.visualStudio"
   ],
   "main": "./out/extension.js",
   "lint-staged": {

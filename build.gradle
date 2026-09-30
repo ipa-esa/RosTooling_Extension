@@ -54,8 +54,8 @@ dependencies {
     implementation "${project.ext.group}:${project.ext.group}1.xtext.ide:${project.ext.version}"
 
     // .ros2 extension
-    implementation "${project.ext.group}:${project.ext.group}2.xtext:${project.ext.version}"
-    implementation "${project.ext.group}:${project.ext.group}2.xtext.ide:${project.ext.version}"
+    implementation "${project.ext.group}:${project.ext.group}2.xtext:3.1.1-SNAPSHOT"
+    implementation "${project.ext.group}:${project.ext.group}2.xtext.ide:3.1.1-SNAPSHOT"
 
     // // .rossystem extension
     implementation "${project.ext.group}:${project.ext.group}system:${project.ext.version}"

@@ -3,14 +3,14 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 
-function checkJavaVersion(javaExecutable:string): Promise<boolean> {
+function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
         cp.exec(`"${javaExecutable}" -version`, (error, stdout, stderr) => {
             const output = stdout.toString() + stderr.toString();
@@ -35,7 +35,7 @@ export async function activate(context: ExtensionContext) {
     outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
 
-    
+
     const extensionVersion = context.extension.packageJSON.version;
     const jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
 
@@ -75,14 +75,45 @@ export async function activate(context: ExtensionContext) {
     const cataloguePath = catalogueManager.getStorageDir();
     outputChannel.appendLine(`Catalogue storage path: ${cataloguePath}`);
 
+    // Ensure default catalogue repositories exist before launching LSP server
+    const fallbackDir = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
+        const targetRepoDir = path.join(cataloguePath, repo.name);
+        const fallbackRepoDir = path.join(fallbackDir, repo.name);
+        if (!fs.existsSync(targetRepoDir) && fs.existsSync(fallbackRepoDir)) {
+            try {
+                outputChannel.appendLine(`Copying cached catalogue ${repo.name} from fallback directory...`);
+                fs.cpSync(fallbackRepoDir, targetRepoDir, { recursive: true });
+            } catch (err) {
+                outputChannel.appendLine(`Failed to copy fallback catalogue ${repo.name}: ${err}`);
+            }
+        }
+    }
+
+    const hasAllCatalogues = RosCatalogueManager.DEFAULT_REPOSITORIES.every(
+        repo => fs.existsSync(path.join(cataloguePath, repo.name))
+    );
+    if (!hasAllCatalogues) {
+        outputChannel.appendLine('Synchronizing missing default catalogue repositories...');
+        try {
+            await catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`));
+        } catch (err) {
+            outputChannel.appendLine(`Catalogue sync warning: ${err}`);
+        }
+    } else {
+        catalogueManager.syncRepositories(false).catch((err) => {
+            outputChannel.appendLine(`Background catalogue sync warning: ${err}`);
+        });
+    }
+
     const serverOptions: ServerOptions = {
-        run : {
+        run: {
             command: javaExecutable,
             args: [
                 '--add-opens=java.base/java.lang=ALL-UNNAMED',
                 '--add-opens=java.base/java.util=ALL-UNNAMED',
                 `-Drostooling.catalogue.path=${cataloguePath}`,
-                '-jar', jarPath                
+                '-jar', jarPath
             ]
         },
         debug: {
@@ -93,17 +124,17 @@ export async function activate(context: ExtensionContext) {
                 `-Drostooling.catalogue.path=${cataloguePath}`,
                 '-jar', jarPath,
                 '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp'  // optional debug flag
-            ]            
+            ]
         }
     };
-    
+
     const documentSelector = [
-        { scheme: 'file', language: 'ros'},
-        { scheme: 'file', language: 'ros1'},
-        { scheme: 'file', language: 'ros2'},
-        { scheme: 'file', language: 'rossystem'},
+        { scheme: 'file', language: 'ros' },
+        { scheme: 'file', language: 'ros1' },
+        { scheme: 'file', language: 'ros2' },
+        { scheme: 'file', language: 'rossystem' },
     ];
-    
+
     const clientOptions: LanguageClientOptions = {
         documentSelector,
         synchronize: {
@@ -123,7 +154,7 @@ export async function activate(context: ExtensionContext) {
             closed: (): CloseHandlerResult => {
                 console.log('ROS LSP closed');
                 window.showWarningMessage('ROS LSP server stopped');
-                return{
+                return {
                     action: CloseAction.Restart,
                 };
             }
@@ -140,7 +171,7 @@ export async function activate(context: ExtensionContext) {
                 for (const item of items) {
                     const itemLabel = item.label != null ? item.label.toString() : "None";
                     const isReferenceOrValue = item.kind === 17
-                    
+
                     if (isReferenceOrValue && !hasStartingQuote) {
                         let textToInsert = '';
                         if (typeof item.insertText === 'string') {
@@ -152,13 +183,13 @@ export async function activate(context: ExtensionContext) {
                         }
 
                         const isNumberOrBool = !isNaN(Number(textToInsert)) || textToInsert === 'true' || textToInsert === 'false';
-                        
+
                         if (!isNumberOrBool) {
                             textToInsert = textToInsert.replace(/^"|"$/g, '');
                             if (!hasStartingQuote) {
                                 textToInsert = `"${textToInsert}"`;
                             }
-                            
+
                             if (item.insertText instanceof SnippetString) {
                                 item.insertText.value = textToInsert;
                             } else {
@@ -167,7 +198,7 @@ export async function activate(context: ExtensionContext) {
                         }
                     }
                 }
-                
+
                 return result;
             }
         }
@@ -187,7 +218,18 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
 
-    const generateCodeCommand = commands.registerCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
+    const safeRegisterCommand = (commandId: string, callback: Parameters<typeof commands.registerCommand>[1]) => {
+        try {
+            const cmd = commands.registerCommand(commandId, callback);
+            context.subscriptions.push(cmd);
+            return cmd;
+        } catch (err) {
+            console.warn(`Command '${commandId}' was already registered or failed to register:`, err);
+            return undefined;
+        }
+    };
+
+    safeRegisterCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
         if (!lc) {
             window.showErrorMessage('ROS LSP not ready');
             return;
@@ -229,11 +271,11 @@ export async function activate(context: ExtensionContext) {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr]
             });
-            
+
             // Safe access
             const files = result?.files || {};
             const count = Object.keys(files).length;
-            
+
             if (result?.error) {
                 window.showErrorMessage(`Generation error: ${result.error}`);
             } else if (count > 0) {
@@ -257,15 +299,165 @@ export async function activate(context: ExtensionContext) {
             } else {
                 window.showInformationMessage('No files generated');
             }
-            
+
             console.log('Full result:', result);
         } catch (error) {
             window.showErrorMessage(`Command failed: ${error}`);
             console.error('Command failed:', error);
         }
     });
-    context.subscriptions.push(generateCodeCommand);
-    
+
+    safeRegisterCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: unknown, langChoice?: string) => {
+        if (!lc) {
+            window.showErrorMessage('ROS LSP not ready');
+            return;
+        }
+
+        let targetUri = uri;
+        if (!targetUri && window.activeTextEditor) {
+            targetUri = window.activeTextEditor.document.uri;
+        }
+        if (!targetUri) {
+            const activeTab = window.tabGroups?.activeTabGroup?.activeTab;
+            if (activeTab?.input && typeof activeTab.input === 'object' && 'uri' in activeTab.input && (activeTab.input as { uri: unknown }).uri instanceof Uri) {
+                targetUri = (activeTab.input as { uri: Uri }).uri;
+            }
+        }
+        if (!targetUri && RosCustomEditorProvider.activeCustomDocument) {
+            targetUri = RosCustomEditorProvider.activeCustomDocument.uri;
+        }
+
+        if (!targetUri) {
+            window.showErrorMessage('No active ROS 2 editor or model file selected');
+            return;
+        }
+
+        const targetUriStr = targetUri.toString();
+        const filedEnd = targetUriStr.split('.').pop();
+        if (filedEnd !== 'ros2') {
+            window.showErrorMessage('File is not a ROS 2 (.ros2) model file');
+            return;
+        }
+
+        const doc = workspace.textDocuments.find(d => d.uri.toString() === targetUri.toString());
+        if (doc?.isDirty) {
+            await doc.save();
+        }
+
+        // Resolve targetNodes: if invoked from context menu (where VS Code passes Uri[]),
+        // or undefined/empty, pass an empty string array [] so the Xtend generator generates all nodes in the package.
+        let resolvedTargetNodes: string[] = [];
+        if (Array.isArray(targetNodes) && targetNodes.length > 0 && typeof targetNodes[0] === 'string') {
+            resolvedTargetNodes = targetNodes as string[];
+        } else {
+            resolvedTargetNodes = [];
+        }
+
+        // 1. Language prompt if not provided
+        let language = langChoice;
+        if (!language) {
+            const nodeLabel = resolvedTargetNodes.length === 1 ? `'${resolvedTargetNodes[0]}'` : 'the package nodes';
+            const picked = await window.showQuickPick([
+                { label: '$(file-code) C++', description: 'Generate C++ wrapper, runner, and pure algorithm template', value: 'cpp' },
+                { label: '$(symbol-keyword) Python', description: 'Generate Python wrapper, runner, and pure logic template', value: 'python' },
+                { label: '$(layers) Both (C++ & Python)', description: 'Generate both C++ and Python node wrappers', value: 'both' }
+            ], {
+                placeHolder: `Select implementation language for ${nodeLabel}`
+            });
+            if (!picked) return;
+            language = picked.value;
+        }
+
+        // 2. Scan workspace src-gen to find existing files in this package for hybrid package support
+        const workspaceFolder = workspace.getWorkspaceFolder(targetUri);
+        if (!workspaceFolder) {
+            window.showErrorMessage('Current file is not inside workspace folder. Cannot create src-gen');
+            return;
+        }
+
+        const existingFiles: string[] = [];
+        try {
+            const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+            const scanDir = async (dir: Uri, prefix = '') => {
+                try {
+                    const entries = await workspace.fs.readDirectory(dir);
+                    for (const [name, type] of entries) {
+                        const relPath = prefix ? `${prefix}/${name}` : name;
+                        if (type === FileType.Directory) {
+                            await scanDir(Uri.joinPath(dir, name), relPath);
+                        } else if (type === FileType.File) {
+                            existingFiles.push(relPath);
+                        }
+                    }
+                } catch {
+                    // Ignore non-existent folder
+                }
+            };
+            await scanDir(srcGenUri);
+        } catch {
+            // src-gen might not exist yet
+        }
+
+        const hostDistro = process.env.ROS_DISTRO || 'humble';
+
+        try {
+            const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                command: 'ros2.generateWrappersServer',
+                arguments: [
+                    targetUriStr,
+                    resolvedTargetNodes,
+                    language,
+                    hostDistro,
+                    existingFiles
+                ]
+            });
+
+            const files = result?.files || {};
+            const count = Object.keys(files).length;
+
+            if (result?.error) {
+                window.showErrorMessage(`Generation error: ${result.error}`);
+            } else if (count > 0) {
+                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+
+                let writtenCount = 0;
+                for (const [rawPath, content] of Object.entries(files)) {
+                    const cleanPath = rawPath.replace(/^DEFAULT_OUTPUT\/?/, '');
+                    const filePath = Uri.joinPath(srcGenUri, cleanPath);
+
+                    // Overwrite protection for user pure logic starter files
+                    if (cleanPath.endsWith('Algorithm.hpp') || cleanPath.endsWith('_logic.py')) {
+                        try {
+                            await workspace.fs.stat(filePath);
+                            // File already exists - DO NOT OVERWRITE
+                            continue;
+                        } catch {
+                            // File does not exist, proceed to write
+                        }
+                    }
+
+                    const encoder = new TextEncoder();
+                    await workspace.fs.writeFile(filePath, encoder.encode(content));
+                    writtenCount++;
+                    if (process.platform !== 'win32' && (content.startsWith('#!') || cleanPath.endsWith('_runner.py'))) {
+                        try {
+                            fs.chmodSync(filePath.fsPath, 0o755);
+                        } catch (err) {
+                            console.warn(`Could not set executable permission on ${filePath.fsPath}:`, err);
+                        }
+                    }
+                }
+
+                window.showInformationMessage(`Successfully generated ${writtenCount} file(s) in src-gen/`);
+            } else {
+                window.showInformationMessage('No wrapper files generated');
+            }
+        } catch (error) {
+            window.showErrorMessage(`Command failed: ${error}`);
+            console.error('Command failed:', error);
+        }
+    });
+
     const customEditorProvider = new RosCustomEditorProvider(context);
     context.subscriptions.push(
         window.registerCustomEditorProvider(
@@ -278,7 +470,7 @@ export async function activate(context: ExtensionContext) {
         )
     );
 
-    const openVisualStudioCmd = commands.registerCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
+    safeRegisterCommand('rostooling.openVisualStudio', async (uri?: Uri) => {
         let targetUri = uri;
         if (!targetUri && window.activeTextEditor) {
             targetUri = window.activeTextEditor.document.uri;
@@ -289,9 +481,8 @@ export async function activate(context: ExtensionContext) {
         }
         await commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
     });
-    context.subscriptions.push(openVisualStudioCmd);
 
-    const rossdlCommand = commands.registerCommand('rossdl.buildPackage', async () => {
+    safeRegisterCommand('rossdl.buildPackage', async () => {
         try {
             await runRossdlWorkflow(outputChannel);
         } catch (error) {
@@ -301,11 +492,10 @@ export async function activate(context: ExtensionContext) {
             window.showErrorMessage(message)
         }
     });
-    context.subscriptions.push(rossdlCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    if(!lc) {
+    if (!lc) {
         return undefined;
     }
     return lc.stop();
@@ -321,7 +511,7 @@ async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
     }
     validateRosWorkspace(rossdlWorkspace);
     outputChannel.appendLine(`Selected ROSSDL workspace: ${rossdlWorkspace}`);
-    
+
     const buildWorkspace = await pickFolder('Select Build Workspace', 'Select Build Workspace');
     if (!buildWorkspace) {
         window.showInformationMessage('No build workspace selected, generation cancelled.');
@@ -331,7 +521,7 @@ async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
     const generationCommand = 'colcon build --symlink-install';
 
     await runShellCommand('bash', ['-lc', `source "${path.join(rossdlWorkspace, 'install', 'setup.bash')}" && ${generationCommand}`], buildWorkspace, 'Running ROSSDL generation command', outputChannel);
-    
+
     window.showInformationMessage("Generation finished successfully.");
 }
 

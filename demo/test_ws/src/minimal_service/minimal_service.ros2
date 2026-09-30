@@ -1,0 +1,19 @@
+examples_minimal_service:
+  artifacts:
+    minimal_server_node:
+      node: minimal_server
+      serviceservers:
+        add_two_ints:
+          type: 'example_interfaces/srv/AddTwoInts'
+    minimal_client_node:
+      node: minimal_client
+      serviceclients:
+        add_two_ints:
+          type: 'example_interfaces/srv/AddTwoInts'
+      parameters:
+        a:
+          type: Integer
+          default: 2
+        b:
+          type: Integer
+          default: 3
