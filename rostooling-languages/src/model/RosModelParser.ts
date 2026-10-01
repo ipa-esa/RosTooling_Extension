@@ -7,6 +7,7 @@ import {
   RosInteractionKind,
   RosTypeSpec,
   RosProcess,
+  RosLifecycleState,
 } from './RosModelTypes';
 
 const BLOCK_TO_KIND: Record<string, RosInteractionKind> = {
@@ -489,7 +490,7 @@ export const RosModelParser = {
     let pkgName = 'ros_package';
     let gitRepo: string | undefined;
     let leadComments: string[] = [];
-    let curArtifact: { name: string; node: string; ifaces: RosInterface[]; params: RosParameter[] } | null = null;
+    let curArtifact: { name: string; node: string; isLifecycle?: boolean; ifaces: RosInterface[]; params: RosParameter[] } | null = null;
     let curBlock: RosInteractionKind | null = null;
     let inParams = false;
     let curIface: RosInterface | null = null;
@@ -540,6 +541,7 @@ export const RosModelParser = {
         curArtifact = {
           name: artName,
           node: artName,
+          isLifecycle: false,
           ifaces: [],
           params: [],
         };
@@ -554,6 +556,7 @@ export const RosModelParser = {
           label: curArtifact.node,
           pkg: pkgName,
           artifact: curArtifact.name,
+          isLifecycle: false,
           from: `${pkgName}.${curArtifact.name}`,
           ifaces: curArtifact.ifaces,
           params: curArtifact.params,
@@ -574,6 +577,14 @@ export const RosModelParser = {
         if (keyMatch && kw === 'node' && val) {
           curArtifact.node = this.unquote(val);
           if (lastNode) lastNode.label = curArtifact.node;
+          leadComments = [];
+          continue;
+        }
+
+        if (keyMatch && kw === 'lifecycle' && val) {
+          const isLifecycle = /^true|yes|1$/i.test(this.unquote(val));
+          curArtifact.isLifecycle = isLifecycle;
+          if (lastNode) lastNode.isLifecycle = isLifecycle;
           leadComments = [];
           continue;
         }
@@ -656,6 +667,14 @@ export const RosModelParser = {
           continue;
         }
 
+        if (keyMatch && val && curIface && kw === 'active_in') {
+          const raw = val.replace(/^\[|\]$/g, '').trim();
+          curIface.activeStates = raw
+            ? (raw.split(',').map((s) => this.unquote(s).trim() as RosLifecycleState).filter(Boolean))
+            : [];
+          continue;
+        }
+
         if (keyMatch && val && curParam) {
           if (kw === 'type') curParam.ptype = this.unquote(val);
           if (kw === 'default' || kw === 'value') {
@@ -667,12 +686,22 @@ export const RosModelParser = {
       }
     }
 
+    // Ensure non-lifecycle nodes do not retain activeStates on their interfaces
+    for (const n of proj.nodes) {
+      if (!n.isLifecycle) {
+        for (const iface of n.ifaces || []) {
+          delete iface.activeStates;
+        }
+      }
+    }
+
     proj.packages[pkgName] = {
       name: pkgName,
       fromGitRepo: gitRepo,
       artifacts: proj.nodes.map((n) => ({
         name: n.artifact || n.label,
         node: n.label,
+        isLifecycle: n.isLifecycle,
         ifaces: n.ifaces,
         params: n.params,
       })),

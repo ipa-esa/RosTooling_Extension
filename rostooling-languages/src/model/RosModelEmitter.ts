@@ -299,6 +299,7 @@ export const RosModelEmitter = {
       if (existingArt) {
         existingArt.name = artName;
         existingArt.node = node.label;
+        existingArt.isLifecycle = node.isLifecycle;
         existingArt.ifaces = node.ifaces;
         existingArt.params = node.params;
         activeArtifacts.push(existingArt);
@@ -306,6 +307,7 @@ export const RosModelEmitter = {
         activeArtifacts.push({
           name: artName,
           node: node.label,
+          isLifecycle: node.isLifecycle,
           ifaces: node.ifaces || [],
           params: node.params || [],
         });
@@ -322,6 +324,9 @@ export const RosModelEmitter = {
     for (const art of pkg.artifacts || []) {
       lines.push(`    ${this.formatKey(art.name)}:`);
       lines.push(`      node: ${this.formatKey(art.node || art.name)}`);
+      if (art.isLifecycle) {
+        lines.push('      lifecycle: true');
+      }
 
       // Group interfaces by kind
       for (const kind of KIND_ORDER) {
@@ -333,6 +338,9 @@ export const RosModelEmitter = {
             lines.push(`        ${this.formatKey(iface.name)}:`);
             if (iface.type) {
               lines.push(`          type: ${this.qSingle(iface.type)}`);
+            }
+            if (art.isLifecycle && iface.activeStates && iface.activeStates.length > 0) {
+              lines.push(`          active_in: [${iface.activeStates.join(', ')}]`);
             }
             if (iface.qos && Object.keys(iface.qos).length > 0) {
               const validEntries = Object.entries(iface.qos).filter(([, v]) => v != null && String(v).trim() !== '');
