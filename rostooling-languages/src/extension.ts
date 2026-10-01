@@ -498,7 +498,9 @@ export function deactivate(): Thenable<void> | undefined {
     if (!lc) {
         return undefined;
     }
-    return lc.stop();
+    return lc.stop().catch((error) => {
+        console.warn('Error stopping ROS LSP client during deactivation:', error);
+    });
 }
 
 async function runRossdlWorkflow(outputChannel: OutputChannel): Promise<void> {
