@@ -5,6 +5,13 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-10-03
+
+### Fixed
+- **Dynamic Xtext FAT JAR Version Management**:
+  - Removed hardcoded version numbers for Xtext-based ROS2 DSL language (e.g., `ros1.xtext`, `ros2.xtext`).
+  - Language server dependencies in `build.gradle` now reference the `project.ext.version` variable.
+
 ## [2.1.0] - 2026-09-30
 
 ### Added
