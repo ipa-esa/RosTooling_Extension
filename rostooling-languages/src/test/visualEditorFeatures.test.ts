@@ -172,6 +172,45 @@ robot_system:
     assert.ok(emittedSys.includes('cartographer_node:'));
     assert.ok(emittedSys.includes('from: "cartographer_node.cartographer_node"'));
 
+    // Simulate clicking catalogue item with distinct artifact and node name (e.g. minimal_server in examples_minimal_service)
+    const catEntryDistinct = {
+      node: 'minimal_server',
+      artifact: 'minimal_server_node',
+      from: 'examples_minimal_service.minimal_server',
+      pkg: 'examples_minimal_service',
+      file: 'minimal_service.ros2',
+      interfaces: {
+        add_two_ints: 'ss',
+      },
+    };
+    const normIfacesDistinct = RosLayoutManager.normalizeInterfaces(catEntryDistinct.interfaces);
+    const spawnedDistinctNode = {
+      id: 'n_minimal_server',
+      label: catEntryDistinct.node,
+      from: catEntryDistinct.from,
+      artifact: catEntryDistinct.artifact,
+      pkg: catEntryDistinct.pkg,
+      backing: 'cat' as const,
+      ifaces: normIfacesDistinct.map((f) => ({
+        id: `i_minimal_server_${f.name}`,
+        name: f.name,
+        label: f.label,
+        kind: f.kind as RosInteractionKind,
+        type: f.type,
+        exposed: true,
+        artifact: catEntryDistinct.artifact,
+      })),
+      params: [],
+      x: 350,
+      y: 200,
+    };
+    project.nodes.push(spawnedDistinctNode);
+    const emittedSysWithDistinct = RosModelEmitter.emitRosSystem(project);
+    assert.ok(emittedSysWithDistinct.includes('minimal_server:'));
+    assert.ok(emittedSysWithDistinct.includes('from: "examples_minimal_service.minimal_server"'));
+    assert.ok(emittedSysWithDistinct.includes('add_two_ints: ss-> "minimal_server_node::add_two_ints"'));
+    assert.strictEqual(emittedSysWithDistinct.includes('from: "examples_minimal_service.minimal_server_node"'), false);
+
     // Now test .ros2 spawning
     const ros2Project: RosProject = {
       formatVersion: 4,

@@ -1621,14 +1621,14 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       const node = project.nodes[0];
       assert.strictEqual(node.pkg, 'ros_package');
       assert.strictEqual(node.artifact, 'node_1');
-      assert.strictEqual(node.from, 'ros_package.node_1');
+      assert.strictEqual(node.from, 'ros_package.ai_defect_detector');
 
       // 1. Emulate user renaming Package / Artifact in inspector to 'inspection_nodes.defect_detector'
       const newPkg = 'inspection_nodes';
       const newArt = 'defect_detector';
       node.pkg = newPkg;
       node.artifact = newArt;
-      node.from = `${newPkg}.${newArt}`;
+      node.from = `${newPkg}.${node.label}`;
 
       // Synchronize project package
       project.packages = {};
@@ -1669,7 +1669,7 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       const rtNode = roundTrip.nodes[0];
       assert.strictEqual(rtNode.pkg, 'inspection_nodes');
       assert.strictEqual(rtNode.artifact, 'defect_detector');
-      assert.strictEqual(rtNode.from, 'inspection_nodes.defect_detector');
+      assert.strictEqual(rtNode.from, 'inspection_nodes.ai_defect_detector');
       assert.strictEqual(rtNode.label, 'ai_defect_detector');
     });
 
