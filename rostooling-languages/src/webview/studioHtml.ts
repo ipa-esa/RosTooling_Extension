@@ -1953,7 +1953,7 @@ export function getStudioHtml(
         // Component (.ros2 / .ros1) mode
         (project.nodes || []).forEach(function(n) {
           n.pkg = newName;
-          n.from = (newName ? newName + "." : "") + (n.artifact || n.label || "artifact");
+          n.from = (newName ? newName + "." : "") + (n.label || n.artifact || "node");
         });
         if (!project.packages) project.packages = {};
         var oldKeys = Object.keys(project.packages);
@@ -4955,7 +4955,7 @@ export function getStudioHtml(
 
         if (cleanPkg) node.pkg = cleanPkg;
         if (cleanArt) node.artifact = cleanArt;
-        node.from = (node.pkg ? node.pkg + "." : "") + (node.artifact || node.label || "");
+        node.from = (node.pkg ? node.pkg + "." : "") + (node.label || node.artifact || "");
 
         if (!isRos && !isRosSystem) {
           if (cleanPkg) {
@@ -4968,7 +4968,7 @@ export function getStudioHtml(
 
             (project.nodes || []).forEach(function(other) {
               other.pkg = cleanPkg;
-              other.from = cleanPkg + "." + (other.artifact || other.label || "artifact");
+              other.from = cleanPkg + "." + (other.label || other.artifact || "node");
             });
 
             if (!project.packages) project.packages = {};
@@ -5007,8 +5007,8 @@ export function getStudioHtml(
           if (!isRosSystem && !isRos) {
             if (!n.artifact || n.artifact === oldLabel) {
               n.artifact = newLabel;
-              n.from = (n.pkg ? n.pkg + "." : "") + newLabel;
             }
+            n.from = (n.pkg ? n.pkg + "." : "") + newLabel;
           }
           if (project.processes) {
             project.processes.forEach(function(p) {
@@ -5970,9 +5970,10 @@ export function getStudioHtml(
           nodeKeys.forEach(function(k) {
             var catEntry = nodes[k];
             if (activeCatSource !== "all" && catEntry.source && catEntry.source !== activeCatSource) return;
-            var nodeLbl = k.includes(".") ? k.split(".")[1] : k;
+            var nodeLbl = catEntry.node || (k.includes(".") ? k.split(".")[1] : k);
             var pkgName = catEntry.pkg || (k.includes(".") ? k.split(".")[0] : "");
-            var searchable = (k + " " + (catEntry.from || "") + " " + pkgName).toLowerCase();
+            var nodeFrom = (pkgName && nodeLbl) ? (pkgName + "." + nodeLbl) : (catEntry.from || k);
+            var searchable = (k + " " + nodeFrom + " " + (catEntry.artifact || "") + " " + pkgName).toLowerCase();
             if (q && !searchable.includes(q)) return;
             count++;
 
@@ -5981,7 +5982,7 @@ export function getStudioHtml(
             card.className = "cat-card";
             var srcBadge = catEntry.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(catEntry.source) + '</span>' : '';
             card.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between;"><span class="ctitle">' + esc(nodeLbl) + '</span>' + srcBadge + '</div>'
-              + '<div class="csub">' + esc(catEntry.from || k) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
+              + '<div class="csub">' + esc(nodeFrom) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
               + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
             card.onclick = function() {
@@ -6011,7 +6012,7 @@ export function getStudioHtml(
               var n = {
                 id: "n_" + uniqueLabel,
                 label: uniqueLabel,
-                from: catEntry.from || k,
+                from: nodeFrom,
                 artifact: catEntry.artifact || nodeLbl,
                 pkg: pkgName,
                 backing: "cat",
@@ -6048,9 +6049,10 @@ export function getStudioHtml(
             nodeKeys.forEach(function(k) {
               var catEntry = nodes[k];
               if (activeCatSource !== "all" && catEntry.source && catEntry.source !== activeCatSource) return;
-              var nodeLbl = k.includes(".") ? k.split(".")[1] : k;
+              var nodeLbl = catEntry.node || (k.includes(".") ? k.split(".")[1] : k);
               var pkgName = catEntry.pkg || (k.includes(".") ? k.split(".")[0] : "");
-              var searchable = (k + " " + (catEntry.from || "") + " " + pkgName).toLowerCase();
+              var nodeFrom = (pkgName && nodeLbl) ? (pkgName + "." + nodeLbl) : (catEntry.from || k);
+              var searchable = (k + " " + nodeFrom + " " + (catEntry.artifact || "") + " " + pkgName).toLowerCase();
               if (q && !searchable.includes(q)) return;
               count++;
 
@@ -6059,7 +6061,7 @@ export function getStudioHtml(
               card.className = "cat-card";
               var srcBadge = catEntry.source ? '<span class="cat-source-pill" style="margin-left:auto; font-size:0.62rem; padding:1px 5px;">' + esc(catEntry.source) + '</span>' : '';
               card.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between;"><span class="ctitle">' + esc(nodeLbl) + '</span>' + srcBadge + '</div>'
-                + '<div class="csub">' + esc(catEntry.from || k) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
+                + '<div class="csub">' + esc(nodeFrom) + (pkgName ? ' (' + esc(pkgName) + ')' : '') + '</div>'
                 + '<div style="font-size:0.68rem; color:var(--ink-3); margin-top:2px;">' + ifaces.length + ' interface(s)</div>';
 
               card.onclick = function() {
@@ -6082,7 +6084,8 @@ export function getStudioHtml(
                     kind: f.kind || "pub",
                     type: f.type || "",
                     qos: f.qos ? JSON.parse(JSON.stringify(f.qos)) : undefined,
-                    exposed: true
+                    exposed: true,
+                    artifact: catEntry.artifact || nodeLbl
                   };
                 });
 
@@ -6096,7 +6099,8 @@ export function getStudioHtml(
                       label: pName,
                       ptype: (typeof pDef === "object" && pDef && pDef.type) ? pDef.type : "String",
                       value: (typeof pDef === "object" && pDef && pDef.value !== undefined) ? pDef.value : (typeof pDef !== "object" ? pDef : undefined),
-                      exposed: false
+                      exposed: false,
+                      artifact: catEntry.artifact || nodeLbl
                     });
                   });
                 }
@@ -6104,7 +6108,7 @@ export function getStudioHtml(
                 var n = {
                   id: "n_" + uniqueLabel,
                   label: uniqueLabel,
-                  from: catEntry.from || k,
+                  from: nodeFrom,
                   artifact: catEntry.artifact || nodeLbl,
                   pkg: pkgName,
                   backing: "cat",

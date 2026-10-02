@@ -390,7 +390,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   private enrichNodeWithDefinitions(
     node: RosNode,
     declaredArt?: DeclaredArtifact,
-    catEntry?: { interfaces?: unknown; parameters?: Record<string, unknown> }
+    catEntry?: { artifact?: string; node?: string; interfaces?: unknown; parameters?: Record<string, unknown> }
   ): void {
     if (declaredArt) {
       if (declaredArt.name) {
@@ -475,6 +475,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
       node.params = mergedParams;
     } else if (catEntry) {
+      if (!node.artifact && catEntry.artifact) {
+        node.artifact = catEntry.artifact;
+      }
       const normalized = this.normalizeInterfaces(catEntry.interfaces);
       const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
       for (const f of normalized) {
@@ -488,6 +491,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if (match && match.kind) {
           iface.kind = match.kind as RosInterface['kind'];
           iface.type = match.type || iface.type;
+        }
+        if (!iface.artifact && (catEntry.artifact || node.artifact)) {
+          iface.artifact = catEntry.artifact || node.artifact;
         }
         if (iface.name) existingIfacesByName.add(iface.name);
         if (iface.label) existingIfacesByName.add(iface.label);
@@ -503,6 +509,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             kind: (f.kind as RosInterface['kind']) || 'pub',
             type: f.type || '',
             exposed: true,
+            artifact: catEntry.artifact || node.artifact,
           });
           existingIfacesByName.add(nm);
           if (f.label) existingIfacesByName.add(f.label);
@@ -512,6 +519,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       if (catEntry.parameters) {
         const existingParamsByName = new Map<string, RosParameter>();
         for (const p of node.params || []) {
+          if (!p.artifact && (catEntry.artifact || node.artifact)) {
+            p.artifact = catEntry.artifact || node.artifact;
+          }
           existingParamsByName.set(p.name, p);
           if (p.label) existingParamsByName.set(p.label, p);
         }
@@ -529,6 +539,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               value: val,
               sysValue: existing.sysValue,
               exposed: existing.exposed !== undefined ? existing.exposed : true,
+              artifact: existing.artifact || catEntry.artifact || node.artifact,
             });
             existingParamsByName.delete(pName);
             if (existing.label) existingParamsByName.delete(existing.label);
@@ -541,6 +552,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               value: val,
               sysValue: undefined,
               exposed: false,
+              artifact: catEntry.artifact || node.artifact,
             });
           }
         }

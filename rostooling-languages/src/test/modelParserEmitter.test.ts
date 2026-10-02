@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
+import { RosProject } from '../model/RosModelTypes';
 
 suite('RosModelParser & Emitter Test Suite', () => {
   const sampleRosSystem = `turtlebot3_navigation:
@@ -307,6 +308,73 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.ok(emitted.includes('- "/robot_description_semantic_sub": sub-> "setup_scene::/robot_description_semantic"'));
     assert.ok(emitted.includes('- use_sim_time: "setup_scene::use_sim_time"'));
     assert.strictEqual(emitted.includes('setup_scene_node::'), false, 'Must not emit node name as artifact target reference');
+  });
+
+  test('Parse .ros2 with distinct artifact and node names and emit .rossystem referencing package.node', () => {
+    const ros2Doc = `examples_minimal_service:
+  artifacts:
+    minimal_server_node:
+      node: minimal_server
+      serviceservers:
+        add_two_ints:
+          type: 'example_interfaces/srv/AddTwoInts'
+`;
+    const parsedRos2 = RosModelParser.parseRos2(ros2Doc, 'minimal_service.ros2');
+    assert.strictEqual(parsedRos2.nodes.length, 1);
+    const n = parsedRos2.nodes[0];
+    assert.strictEqual(n.label, 'minimal_server');
+    assert.strictEqual(n.artifact, 'minimal_server_node');
+    assert.strictEqual(n.pkg, 'examples_minimal_service');
+    assert.strictEqual(n.from, 'examples_minimal_service.minimal_server');
+
+    // Emitting rossystem with this node
+    const rossystemProject: RosProject = {
+      formatVersion: 4,
+      isRosSystem: true,
+      isRos: false,
+      system: { name: 'minimal_service_system' },
+      subSystems: [],
+      packages: {},
+      types: {},
+      nodes: [
+        {
+          id: 'n_minimal_server',
+          label: 'minimal_server',
+          from: n.from,
+          artifact: n.artifact,
+          pkg: n.pkg,
+          backing: 'cat',
+          ifaces: [
+            {
+              id: 'i_minimal_server_add_two_ints',
+              name: 'add_two_ints',
+              label: 'add_two_ints',
+              kind: 'ss',
+              type: 'example_interfaces/srv/AddTwoInts',
+              exposed: true,
+              artifact: n.artifact,
+            },
+          ],
+          params: [],
+        },
+      ],
+      connections: [],
+    };
+
+    const emitted = RosModelEmitter.emitRosSystem(rossystemProject);
+    assert.ok(
+      emitted.includes('from: "examples_minimal_service.minimal_server"'),
+      'from: must reference package.node (examples_minimal_service.minimal_server)'
+    );
+    assert.ok(
+      emitted.includes('- add_two_ints: ss-> "minimal_server_node::add_two_ints"'),
+      'interface must target artifact::interface (minimal_server_node::add_two_ints)'
+    );
+    assert.strictEqual(
+      emitted.includes('from: "examples_minimal_service.minimal_server_node"'),
+      false,
+      'from: must NOT reference artifact name'
+    );
   });
 });
 
