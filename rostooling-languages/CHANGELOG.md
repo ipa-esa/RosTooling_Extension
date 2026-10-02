@@ -5,49 +5,6 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.2-SNAPSHOT] - 2026-10-02
-
-### Added
-- **Single-Language Node Selection & Interactive Wrapper Generation**:
-  - Interactive language selection prompt when generating node wrappers from `.ros2` models:
-    - Single-node packages: Select directly between `C++` and `Python`.
-    - Multi-node packages: Select between `All C++`, `All Python`, or `Configure per node...`.
-  - Added per-node configuration prompt allowing users to assign implementation languages individually across nodes in a monolithic package.
-  - Multi-step hybrid generator coordination: generates C++ nodes and Python nodes seamlessly within a unified run, combining build scripts into hybrid `ament_cmake_python` configurations.
-- **Node-Level Opposite-Language File Pruning (`cleanOppositeLanguageFiles`)**:
-  - Added automated pruning of opposite-language source, runner, and logic files on disk when a node's implementation language is switched.
-  - Switching to C++ prunes obsolete Python files (`<node>_wrapper.py`, `<node>_runner.py`, `<node>_logic.py`) and deletes the package folder if no other Python nodes remain.
-  - Switching to Python prunes obsolete C++ files (`<Node>Wrapper.hpp`, `<Node>Algorithm.hpp`, `<Node>Wrapper.cpp`, `<Node>Runner.cpp`) and deletes empty `src/` and `include/` directories.
-  - Strictly preserves files belonging to other companion nodes in hybrid packages.
-- **Automated Redundant Build & Setup File Cleanup (`cleanRedundantBuildFiles`)**:
-  - Automatically prunes conflicting build and setup files (`setup.py`, `setup.cfg`, `pyproject.toml`, and setuptools marker `resource/<pkg>`) when regenerating as CMake / Hybrid packages, eliminating Pyright PEP 517 src-layout module resolution errors.
-  - Automatically prunes obsolete `CMakeLists.txt` and `pyproject.toml` when regenerating pure Python packages.
-  - Strictly preserves PlantUML architecture diagrams (`resource/<pkg>.puml`) from deletion across all build cleanup routines.
-- **Launch and Configuration Installation Injections**:
-  - Added `ensureLaunchInstallInCMake` to automatically inject `install(DIRECTORY launch ...)` and `config/` directives into existing `CMakeLists.txt` for monolithic packages lacking them.
-  - Added `ensureLaunchDepsInPackageXml` to automatically inject `<exec_depend>launch</exec_depend>`, `<exec_depend>launch_ros</exec_depend>`, and `<exec_depend>ament_index_python</exec_depend>` into existing `package.xml` files when system launch files are added.
-- **Casing Conversion Utilities**:
-  - Exported `toCamelCase` and `toSnakeCase` utility functions matching Xtext generator conventions for reliable artifact and file resolution.
-- **Automated Test Suite Expansion**:
-  - Added comprehensive test suite in `buildCleanup.test.ts` covering CMake cleanup, pure Python cleanup, launch directives injection, casing transformations, and opposite-language file pruning.
-
-### Changed
-- **Aligned Executable Naming Scheme (Approach A)**:
-  - Canonical executable names matching `.ros2` modeled artifact names (`«node.artifactName»`) across pure C++, pure Python, and hybrid packages.
-  - In hybrid CMake packages, runners are installed with CMake `RENAME «node.artifactName»`, ensuring launch file specifications without `.py` suffix resolve correctly.
-- **Removed "Both (C++ & Python)" Duplicate Generation**:
-  - Removed "Both" option to enforce single-language implementation per node and eliminate executable and launch conflicts.
-- **Workspace-Aware System Generation**:
-  - Updated `rossystem.triggerCodeGeneration` to scan `src-gen` and pass `existingFiles` to the Language Server, preserving existing node wrappers and build targets.
-
-### Fixed
-- **RosSystem Node Reference Alignment (`from: pkg.node`)**:
-  - Fixed parser (`RosModelParser.ts`), catalogue indexer (`RosCatalogueManager.ts`), and emitter to correctly reference node definitions (`from: pkg.node`) instead of artifact names (`pkg.artifact`), strictly adhering to Xtext grammar specifications.
-  - Fixed RosTooling Studio visual editor and component inspector to accurately display and wire node definitions vs artifact targets.
-  - Preserved distinct artifact references in `.rossystem` when node label, `from:`, and artifact name differ.
-- **Synchronized Version Declarations**:
-  - Synchronized versions across `gradle.properties` (`version=2.1.2`), `build.gradle` (`version = '3.2.1-SNAPSHOT'`), and `package.json` (`"version": "2.1.2"`).
-
 ## [2.1.1] - 2026-10-03
 
 ### Fixed
@@ -74,11 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactored wrapper generation command registration to use `ros2.generateWrappersServer` internally, preventing command identifier collisions between the VS Code client and the LSP server.
 - Wrapped all custom command registrations with a `safeRegisterCommand` guard to avoid duplicate registration exceptions during dynamic extension reloads.
-- **Monolithic & Multi-Package Build Protection**:
-  - `rossystem.triggerCodeGeneration` now scans existing files in `src-gen/<pkg>` and sends them to `rossystem.generateCode`.
-  - Added overwrite guards preventing `rossystem.triggerCodeGeneration` from clobbering compiled C++ targets in `CMakeLists.txt` or `console_scripts` entry points in `setup.py`.
-  - Prevented rogue `CMakeLists.txt` generation in pure Python packages.
-  - Automatically cleans up obsolete conflicting build files (e.g. leftover `CMakeLists.txt` in pure Python packages or leftover `setup.py` in C++ packages) when generating node wrappers.
 
 ## [2.0.0] - 2026-09-16
 

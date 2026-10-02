@@ -356,8 +356,7 @@ export class RosCatalogueManager {
             // Index Component nodes
             for (const n of p.nodes || []) {
               const pkgName = n.pkg || (p.system ? p.system.name : 'ros_pkg');
-              const nodeName = n.label || n.artifact;
-              const nodeKey = `${pkgName}.${nodeName}`;
+              const nodeKey = `${pkgName}.${n.label}`;
               const ifaceMap: Record<string, string | { kind: string; type?: string }> = {};
               for (const iface of n.ifaces || []) {
                 ifaceMap[iface.name] = {
@@ -374,9 +373,8 @@ export class RosCatalogueManager {
               }
 
               index.nodes[nodeKey] = {
-                node: nodeName,
                 artifact: n.artifact || n.label,
-                from: `${pkgName}.${nodeName}`,
+                from: n.from || `${pkgName}.${n.label}`,
                 pkg: pkgName,
                 file: relPath,
                 source: sourceName,

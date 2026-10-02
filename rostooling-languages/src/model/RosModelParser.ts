@@ -554,7 +554,7 @@ export const RosModelParser = {
           label: curArtifact.node,
           pkg: pkgName,
           artifact: curArtifact.name,
-          from: pkgName ? `${pkgName}.${curArtifact.node}` : curArtifact.node,
+          from: `${pkgName}.${curArtifact.name}`,
           ifaces: curArtifact.ifaces,
           params: curArtifact.params,
           backing: 'local',
@@ -573,10 +573,7 @@ export const RosModelParser = {
 
         if (keyMatch && kw === 'node' && val) {
           curArtifact.node = this.unquote(val);
-          if (lastNode) {
-            lastNode.label = curArtifact.node;
-            lastNode.from = pkgName ? `${pkgName}.${curArtifact.node}` : curArtifact.node;
-          }
+          if (lastNode) lastNode.label = curArtifact.node;
           leadComments = [];
           continue;
         }

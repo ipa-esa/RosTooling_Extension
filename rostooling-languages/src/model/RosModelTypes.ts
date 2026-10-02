@@ -157,7 +157,6 @@ export interface RosCatalogueIndex {
     fields?: Record<string, RosField[]>;
   }>;
   nodes: Record<string, {
-    node?: string;
     artifact: string;
     from: string;
     pkg: string;
