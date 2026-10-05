@@ -110,25 +110,41 @@ export async function activate(context: ExtensionContext) {
             outputChannel.appendLine(`Background catalogue sync warning: ${err}`);
         });
     }
+    const tCatElapsed = Math.round(performance.now() - tCatStart);
+    outputChannel.appendLine(`Catalogue setup check completed in ${tCatElapsed}ms`);
+
+    const defaultVmArgs = [
+        '-XX:TieredStopAtLevel=1',
+        '-Xms256m',
+        '-Xmx1024m'
+    ];
+    const configuredVmArgs = config.get<string[]>('server.vmargs');
+    const vmArgs = Array.isArray(configuredVmArgs) && configuredVmArgs.length > 0
+        ? configuredVmArgs
+        : defaultVmArgs;
+    outputChannel.appendLine(`LSP JVM options: ${vmArgs.join(' ')}`);
+
+    const baseArgs = [
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        `-Drostooling.catalogue.path=${cataloguePath}`,
+        ...vmArgs
+    ];
 
     const serverOptions: ServerOptions = {
         run: {
             command: javaExecutable,
             args: [
-                '--add-opens=java.base/java.lang=ALL-UNNAMED',
-                '--add-opens=java.base/java.util=ALL-UNNAMED',
-                `-Drostooling.catalogue.path=${cataloguePath}`,
+                ...baseArgs,
                 '-jar', jarPath
             ]
         },
         debug: {
             command: javaExecutable,
             args: [
-                '--add-opens=java.base/java.lang=ALL-UNNAMED',
-                '--add-opens=java.base/java.util=ALL-UNNAMED',
-                `-Drostooling.catalogue.path=${cataloguePath}`,
-                '-jar', jarPath,
-                '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp'  // optional debug flag
+                ...baseArgs,
+                '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp',  // optional debug flag
+                '-jar', jarPath
             ]
         }
     };

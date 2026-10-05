@@ -123,6 +123,18 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the JDK 21+ installation folder. Leave empty to use system default Java."
+        },
+        "rostooling-languages.server.vmargs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-XX:TieredStopAtLevel=1",
+            "-Xms256m",
+            "-Xmx1024m"
+          ],
+          "description": "Additional JVM arguments for the RosTooling Language Server process (e.g. tuning flags, memory limits)."
         }
       }
     },
