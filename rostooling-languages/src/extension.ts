@@ -32,6 +32,7 @@ function checkJavaVersion(javaExecutable: string): Promise<boolean> {
 let lc: LanguageClient;
 
 export async function activate(context: ExtensionContext) {
+    const tActivationStart = performance.now();
     const outputChannel = window.createOutputChannel('ROS LSP');
     outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
@@ -48,7 +49,9 @@ export async function activate(context: ExtensionContext) {
         javaExecutable = path.join(javaHome, 'bin', 'java');
     }
     outputChannel.appendLine("Verifying java version");
+    const tJavaStart = performance.now();
     const isJavaValid = await checkJavaVersion(javaExecutable);
+    const tJavaElapsed = Math.round(performance.now() - tJavaStart);
     if (!isJavaValid) {
         window.showErrorMessage(
             "ROS Tooling requires Java 17 or higher to run. Please update your Java installation or point the extension to a modern JDK.",
@@ -67,8 +70,9 @@ export async function activate(context: ExtensionContext) {
         outputChannel.appendLine('ABORTED: Invalid Java version detected.');
         return;
     }
-    outputChannel.appendLine("Java version is valid");
+    outputChannel.appendLine(`Java version is valid (${tJavaElapsed}ms)`);
 
+    const tCatStart = performance.now();
     const storageDir = context.globalStorageUri
         ? path.join(context.globalStorageUri.fsPath, 'catalogue_repos')
         : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
@@ -212,9 +216,11 @@ export async function activate(context: ExtensionContext) {
     lc.setTrace(trace === 'verbose' ? Trace.Verbose : trace === 'messages' ? Trace.Messages : Trace.Off);
     context.subscriptions.push(lc);
 
+    const tLspStart = performance.now();
     try {
         await lc.start();
-        outputChannel.appendLine('Rostooling LSP Server started successfully');
+        const tLspElapsed = Math.round(performance.now() - tLspStart);
+        outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
     } catch (error) {
         outputChannel.appendLine(`Failed to start server: ${error}`);
     }
@@ -836,6 +842,9 @@ export async function activate(context: ExtensionContext) {
             window.showErrorMessage(message)
         }
     });
+
+    const tTotalElapsed = Math.round(performance.now() - tActivationStart);
+    outputChannel.appendLine(`[Benchmark] Total extension activation completed in ${tTotalElapsed}ms`);
 }
 
 export function deactivate(): Thenable<void> | undefined {
