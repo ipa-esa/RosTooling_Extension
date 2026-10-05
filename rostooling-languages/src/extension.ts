@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation, StatusBarAlignment } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
@@ -30,11 +30,34 @@ function checkJavaVersion(javaExecutable: string): Promise<boolean> {
 }
 
 let lc: LanguageClient;
+let lspStartPromise: Promise<void> | null = null;
+let isLspReady = false;
+
+async function ensureLspReady(): Promise<boolean> {
+    if (isLspReady) {
+        return true;
+    }
+    if (!lspStartPromise) {
+        window.showErrorMessage('ROS Language Server is not initialized.');
+        return false;
+    }
+    return window.withProgress({
+        location: ProgressLocation.Notification,
+        title: 'Waiting for ROS Language Server to initialize...'
+    }, async () => {
+        try {
+            await lspStartPromise;
+            return isLspReady;
+        } catch (err) {
+            window.showErrorMessage(`ROS Language Server failed to start: ${err}`);
+            return false;
+        }
+    });
+}
 
 export async function activate(context: ExtensionContext) {
     const tActivationStart = performance.now();
     const outputChannel = window.createOutputChannel('ROS LSP');
-    outputChannel.show(true);
     outputChannel.appendLine('Initializing ROS LSP client');
 
 
@@ -240,15 +263,6 @@ export async function activate(context: ExtensionContext) {
     lc.setTrace(trace === 'verbose' ? Trace.Verbose : trace === 'messages' ? Trace.Messages : Trace.Off);
     context.subscriptions.push(lc);
 
-    const tLspStart = performance.now();
-    try {
-        await lc.start();
-        const tLspElapsed = Math.round(performance.now() - tLspStart);
-        outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
-    } catch (error) {
-        outputChannel.appendLine(`Failed to start server: ${error}`);
-    }
-
     const safeRegisterCommand = (commandId: string, callback: Parameters<typeof commands.registerCommand>[1]) => {
         try {
             const cmd = commands.registerCommand(commandId, callback);
@@ -260,9 +274,37 @@ export async function activate(context: ExtensionContext) {
         }
     };
 
+    safeRegisterCommand('rostooling.showOutputChannel', () => {
+        outputChannel.show(true);
+    });
+
+    const lspStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+    lspStatusBarItem.text = '$(sync~spin) ROS LSP: Starting...';
+    lspStatusBarItem.tooltip = 'RosTooling Language Server is starting in the background (click to view logs)';
+    lspStatusBarItem.command = 'rostooling.showOutputChannel';
+    lspStatusBarItem.show();
+    context.subscriptions.push(lspStatusBarItem);
+
+    const tLspStart = performance.now();
+    lspStartPromise = lc.start().then(() => {
+        isLspReady = true;
+        const tLspElapsed = Math.round(performance.now() - tLspStart);
+        outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
+        lspStatusBarItem.text = '$(check) ROS LSP: Ready';
+        lspStatusBarItem.tooltip = `RosTooling Language Server is ready (${tLspElapsed}ms - click to view logs)`;
+        setTimeout(() => {
+            lspStatusBarItem.hide();
+        }, 5000);
+    }).catch((error) => {
+        isLspReady = false;
+        outputChannel.appendLine(`Failed to start server: ${error}`);
+        lspStatusBarItem.text = '$(error) ROS LSP: Error';
+        lspStatusBarItem.tooltip = `RosTooling Language Server error: ${error} (click to view logs)`;
+        lspStatusBarItem.show();
+    });
+
     safeRegisterCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
-        if (!lc) {
-            window.showErrorMessage('ROS LSP not ready');
+        if (!(await ensureLspReady())) {
             return;
         }
 
@@ -479,8 +521,7 @@ export async function activate(context: ExtensionContext) {
     });
 
     safeRegisterCommand('ros2.generateWrappers', async (uri?: Uri, targetNodes?: unknown, langChoice?: string) => {
-        if (!lc) {
-            window.showErrorMessage('ROS LSP not ready');
+        if (!(await ensureLspReady())) {
             return;
         }
 
@@ -868,13 +909,15 @@ export async function activate(context: ExtensionContext) {
     });
 
     const tTotalElapsed = Math.round(performance.now() - tActivationStart);
-    outputChannel.appendLine(`[Benchmark] Total extension activation completed in ${tTotalElapsed}ms`);
+    outputChannel.appendLine(`[Benchmark] Extension activation completed in ${tTotalElapsed}ms (LSP starting in background)`);
 }
 
 export function deactivate(): Thenable<void> | undefined {
     if (!lc) {
         return undefined;
     }
+    isLspReady = false;
+    lspStartPromise = null;
     return lc.stop().catch((error) => {
         console.warn('Error stopping ROS LSP client during deactivation:', error);
     });
