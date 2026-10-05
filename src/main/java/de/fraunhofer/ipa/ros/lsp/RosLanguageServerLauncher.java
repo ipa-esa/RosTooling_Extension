@@ -5,6 +5,7 @@ import org.eclipse.xtext.ide.server.IMultiRootWorkspaceConfigFactory;
 import org.eclipse.xtext.ide.server.IProjectDescriptionFactory;
 import org.eclipse.xtext.ide.server.ServerLauncher;
 import org.eclipse.xtext.ide.server.ServerModule;
+import org.eclipse.xtext.util.IFileSystemScanner;
 import com.google.inject.AbstractModule;
 import com.google.inject.Module;
 import com.google.inject.util.Modules;
@@ -41,6 +42,7 @@ public class RosLanguageServerLauncher {
             protected void configure() {
                 bind(IMultiRootWorkspaceConfigFactory.class).to(RosMultiRootWorkspaceConfigFactory.class);
                 bind(IProjectDescriptionFactory.class).to(RosProjectDescriptionFactory.class);
+                bind(IFileSystemScanner.class).to(RosFileSystemScanner.class);
             }
         });
 
