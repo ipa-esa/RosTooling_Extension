@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
@@ -99,14 +99,22 @@ export async function activate(context: ExtensionContext) {
         repo => fs.existsSync(path.join(cataloguePath, repo.name))
     );
     if (!hasAllCatalogues) {
-        outputChannel.appendLine('Synchronizing missing default catalogue repositories...');
-        try {
-            await catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`));
-        } catch (err) {
-            outputChannel.appendLine(`Catalogue sync warning: ${err}`);
-        }
+        outputChannel.appendLine('Default catalogue repositories missing; downloading in background...');
+        window.withProgress({
+            location: ProgressLocation.Window,
+            title: 'RosTooling: Downloading default catalogues...'
+        }, async () => {
+            try {
+                const res = await catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`));
+                if (res.updated.length > 0) {
+                    outputChannel.appendLine(`[Catalogue] Successfully downloaded: ${res.updated.join(', ')}`);
+                }
+            } catch (err) {
+                outputChannel.appendLine(`[Catalogue] Background sync error: ${err}`);
+            }
+        });
     } else {
-        catalogueManager.syncRepositories(false).catch((err) => {
+        catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`)).catch((err) => {
             outputChannel.appendLine(`Background catalogue sync warning: ${err}`);
         });
     }
