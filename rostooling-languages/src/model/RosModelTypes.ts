@@ -1,10 +1,13 @@
 export type RosInteractionKind = 'pub' | 'sub' | 'ss' | 'sc' | 'as' | 'ac' | 'param';
 
+export type RosLifecycleState = 'Unconfigured' | 'Inactive' | 'Active' | 'Finalized';
+
 export interface RosInterface {
   id: string;
   name: string;
   kind: RosInteractionKind;
   type?: string;
+  activeStates?: RosLifecycleState[];
   qos?: Record<string, string>;
   label?: string;
   exposed?: boolean;
@@ -31,6 +34,7 @@ export interface RosNode {
   label: string;
   pkg?: string;
   artifact?: string;
+  isLifecycle?: boolean;
   namespace?: string;
   from?: string;
   backing?: 'local' | 'cat' | 'sub' | 'type';
@@ -115,6 +119,7 @@ export interface RosPackage {
   artifacts: {
     name: string;
     node?: string;
+    isLifecycle?: boolean;
     ifaces: RosInterface[];
     params: RosParameter[];
     comments?: Record<string, unknown>;

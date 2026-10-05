@@ -310,6 +310,49 @@ export function getStudioHtml(
     background: var(--k-pub-bg);
     color: var(--k-pub);
   }
+  .node .badge.lifecycle-badge {
+    background: rgba(56, 189, 248, 0.18);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    margin-left: 4px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .active-states-badge {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(56, 189, 248, 0.14);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    white-space: nowrap;
+    margin-left: 2px;
+  }
+  .btn-lifecycle-state {
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+    background: var(--surface-2);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-lifecycle-state:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+  .btn-lifecycle-state.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
 
   .ifaces {
     padding: 0.35rem 0;
@@ -1967,6 +2010,7 @@ export function getStudioHtml(
             return {
               name: n.artifact || n.label,
               node: n.label,
+              isLifecycle: n.isLifecycle,
               ifaces: n.ifaces || [],
               params: n.params || []
             };
@@ -2715,9 +2759,14 @@ export function getStudioHtml(
       ? '<span class="proc-badge" style="background:' + pInfo.color.bg + '; border:1px solid ' + pInfo.color.border + '; color:' + pInfo.color.text + '; padding:1px 5px; border-radius:3px; font-size:0.65rem; font-weight:600; margin-left:4px;" title="Process: ' + esc(pInfo.process.name) + ' (' + (pInfo.process.threads || 1) + ' threads)">⚙️ ' + esc(pInfo.process.name) + ' (' + (pInfo.process.threads || 1) + '🧵)</span>'
       : '';
 
+    var lifecycleBadgeHtml = n.isLifecycle
+      ? '<span class="badge lifecycle-badge" title="ROS 2 Lifecycle Node">🔄 Lifecycle</span>'
+      : '';
+
     var html = '<div class="nhead" data-drag="' + n.id + '">'
       + '<span class="ntitle">' + esc(n.label) + '</span>'
       + (n.pkg ? '<span class="badge">' + esc(n.pkg) + '</span>' : '')
+      + lifecycleBadgeHtml
       + procBadgeHtml
       + diagBadgeHtml
       + '</div>'
@@ -2733,9 +2782,13 @@ export function getStudioHtml(
       var fRowClass = 'iface-row' + (fHasErr ? ' has-error' : fHasWarn ? ' has-warning' : '');
       var fTip = fDiags.length ? joinLines(fDiags.map(function(d) { return d.message; })) : '';
       var fMarker = fDiags.length ? '<span class="diag-marker" title="' + esc(fTip) + '">' + (fHasErr ? '❌' : '⚠️') + '</span>' : '';
+      var activeStatesBadgeHtml = (n.isLifecycle && f.activeStates && f.activeStates.length > 0)
+        ? '<span class="active-states-badge" title="Active in: ' + esc(f.activeStates.join(', ')) + '">[' + esc(f.activeStates.join(',')) + ']</span>'
+        : '';
       html += '<div class="' + fRowClass + '" data-kind="' + f.kind + '"' + (fTip ? ' title="' + esc(fTip) + '"' : '') + '>'
         + '<span class="kd ' + f.kind + '">' + f.kind + '</span>'
         + '<span class="inm">' + esc(f.label || f.name) + '</span>'
+        + activeStatesBadgeHtml
         + fMarker
         + '<span class="ity">' + esc(f.type || '—') + '</span>'
         + '<span class="port ' + (src ? 'src' : 'snk') + ' ' + f.kind + '" data-n="' + n.id + '" data-i="' + f.id + '" data-kind="' + f.kind + '" data-type="' + esc(f.type || '') + '"></span>'
@@ -4705,6 +4758,16 @@ export function getStudioHtml(
       h += '<div class="fld"><label>Namespace</label><input type="text" id="inpNodeNs" value="' + esc(n.namespace || '') + '"' + (isReadOnly ? ' disabled' : '') + '></div>'
         + procDropdownHtml;
 
+      if (!isRosSystem && !isRos) {
+        h += '<div class="fld" style="margin-top:0.4rem; padding-top:0.4rem; border-top:1px solid var(--rule-soft);">'
+          + '<label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.75rem; font-weight:600;">'
+          + '<input type="checkbox" id="chkNodeLifecycle"' + (n.isLifecycle ? ' checked' : '') + (isReadOnly ? ' disabled' : '') + '>'
+          + '<span>🔄 Lifecycle Node</span>'
+          + '</label>'
+          + '<div style="font-size:0.68rem; color:var(--ink-3); margin-left:22px; margin-top:2px;">ROS 2 Managed Lifecycle node</div>'
+          + '</div>';
+      }
+
       if (isRosSystem) {
         h += '<div class="insec-head" style="margin-top:0.8rem; display:flex; justify-content:space-between; align-items:center;">'
           + '<span class="insec-title">Interfaces (' + n.ifaces.length + ')</span>'
@@ -4757,6 +4820,21 @@ export function getStudioHtml(
             + '<div class="fld" style="margin-top:0.3rem;"><label>Type (Message / Topic)</label>'
             + '<input type="text" list="' + listId + '" data-iface-idx="' + idx + '" class="inp-iface-type" value="' + esc(f.type || '') + '" placeholder="e.g. sensor_msgs/msg/Image"' + (isReadOnly ? ' disabled' : '') + '>'
             + '</div>';
+
+          if (!isRosSystem && !isRos && n.isLifecycle) {
+            var activeStates = f.activeStates || [];
+            var statesList = ['Unconfigured', 'Inactive', 'Active', 'Finalized'];
+            h += '<div class="fld" style="margin-top:0.35rem;">'
+              + '<label style="font-size:0.68rem; color:var(--ink-2); display:block; margin-bottom:4px;">Active in Lifecycle States (active_in)</label>'
+              + '<div style="display:flex; flex-wrap:wrap; gap:4px;">';
+            statesList.forEach(function(st) {
+              var isSel = activeStates.indexOf(st) !== -1;
+              h += '<button type="button" class="btn-lifecycle-state' + (isSel ? ' active' : '') + '" data-iface-idx="' + idx + '" data-state="' + st + '"' + (isReadOnly ? ' disabled' : '') + ' title="Toggle active in ' + st + '">'
+                + (isSel ? '✓ ' : '') + st
+                + '</button>';
+            });
+            h += '</div></div>';
+          }
 
           if (f.kind === 'pub' || f.kind === 'sub') {
             var qos = f.qos || {};
@@ -4983,6 +5061,7 @@ export function getStudioHtml(
                 return {
                   name: otherNode.artifact || otherNode.label,
                   node: otherNode.label,
+                  isLifecycle: otherNode.isLifecycle,
                   ifaces: otherNode.ifaces || [],
                   params: otherNode.params || []
                 };
@@ -5064,6 +5143,22 @@ export function getStudioHtml(
       document.getElementById("inpNodeNs").onchange = function(e) {
         pushUndo(); n.namespace = e.target.value; render(); fillInspector(); syncDoc();
       };
+
+      var chkNodeLifecycle = document.getElementById("chkNodeLifecycle");
+      if (chkNodeLifecycle) {
+        chkNodeLifecycle.onchange = function(e) {
+          pushUndo();
+          n.isLifecycle = e.target.checked;
+          if (!n.isLifecycle) {
+            (n.ifaces || []).forEach(function(f) {
+              delete f.activeStates;
+            });
+          }
+          render();
+          fillInspector();
+          syncDoc();
+        };
+      }
 
       var selNodeProcEl = document.getElementById("selNodeProcess");
       if (selNodeProcEl) {
@@ -5159,6 +5254,32 @@ export function getStudioHtml(
           pushUndo();
           n.ifaces[idx].type = e.target.value;
           pruneIncompatibleConnections(n, n.ifaces[idx]);
+          render();
+          fillInspector();
+          syncDoc();
+        };
+      });
+
+      document.querySelectorAll(".btn-lifecycle-state").forEach(function(btn) {
+        btn.onclick = function(e) {
+          e.stopPropagation();
+          var idx = parseInt(btn.dataset.ifaceIdx, 10);
+          var state = btn.dataset.state;
+          var iface = n.ifaces[idx];
+          if (!iface || !state) return;
+          pushUndo();
+          var states = iface.activeStates ? iface.activeStates.slice() : [];
+          var stateIdx = states.indexOf(state);
+          if (stateIdx !== -1) {
+            states.splice(stateIdx, 1);
+          } else {
+            states.push(state);
+          }
+          if (states.length > 0) {
+            iface.activeStates = states;
+          } else {
+            delete iface.activeStates;
+          }
           render();
           fillInspector();
           syncDoc();
