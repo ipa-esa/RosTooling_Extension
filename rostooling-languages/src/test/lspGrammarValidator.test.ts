@@ -300,6 +300,73 @@ suite('LSP Protocol Model Validation Test Suite', () => {
     );
   });
 
+  test('Validate .rossystem model with processes (component containers) via LSP', async function () {
+    this.timeout(10000);
+
+    const systemWithProcesses = `perception_system:
+  processes:
+    vision_proc:
+      nodes: [ node1 ]
+      threads: 4
+  nodes:
+    node1:
+      from: "test_system.image_filter"
+      interfaces:
+        - "filtered_image_pub": pub-> "image_filter::image_out"
+    node2:
+      from: "test_system.consumer"
+      interfaces:
+        - "filtered_image_sub": sub-> "consumer::image_in"
+  connections:
+    - ["filtered_image_pub", "filtered_image_sub"]
+`;
+
+    const parsed = RosModelParser.parseRosSystem(systemWithProcesses, 'perception_system.rossystem');
+    const emitted = RosModelEmitter.emitRosSystem(parsed);
+
+    const diags = await lspValidator.validate(
+      'file:///tmp/perception_system.rossystem',
+      'rossystem',
+      emitted
+    );
+
+    const syntaxErrors = getSyntaxErrors(diags);
+    assert.strictEqual(
+      syntaxErrors.length,
+      0,
+      `Expected 0 syntax errors from LSP, got: ${JSON.stringify(syntaxErrors, null, 2)}`
+    );
+  });
+
+  test('Validate duplicate process assignment diagnostic in .rossystem via LSP', async function () {
+    this.timeout(10000);
+
+    const duplicateProcessSystem = `dup_system:
+  processes:
+    proc1:
+      nodes: [ node1 ]
+    proc2:
+      nodes: [ node1 ]
+  nodes:
+    node1:
+      from: "test_system.image_filter"
+`;
+
+    const diags = await lspValidator.validate(
+      'file:///tmp/dup_system.rossystem',
+      'rossystem',
+      duplicateProcessSystem
+    );
+
+    const dupDiag = diags.find((d) =>
+      d.message.includes('assigned to multiple processes')
+    );
+    assert.ok(
+      dupDiag,
+      `Expected duplicate process assignment error diagnostic, got: ${JSON.stringify(diags, null, 2)}`
+    );
+  });
+
   test('Validate .ros2 model with non-conventional interface and parameter characters via LSP', async function () {
     this.timeout(10000);
 
@@ -514,4 +581,168 @@ suite('LSP Protocol Model Validation Test Suite', () => {
       `Expected test_system.image_filter to resolve from disk index without opening test_node.ros2, but got: ${JSON.stringify(errors, null, 2)}`
     );
   });
+
+  test('End-to-End: Generate ROS 2 launch file with ComposableNodeContainer from rossystem with processes', async function () {
+    this.timeout(20000);
+
+    const testWsDir = path.resolve(extensionRoot, '..', 'demo', 'test_ws');
+    const wsValidator = new LspValidator(extensionRoot, cataloguePath);
+    await wsValidator.init('file://' + testWsDir, [
+      { uri: 'file://' + testWsDir, name: 'test_ws' },
+    ]);
+
+    const testSystemPath = path.resolve(
+      testWsDir,
+      'src',
+      'test_system',
+      'test_system.rossystem'
+    );
+    const systemUri = 'file://' + testSystemPath;
+
+    const result = await wsValidator.executeCommand<{
+      success?: boolean;
+      files?: Record<string, string>;
+      error?: string;
+    }>('rossystem.generateCode', [systemUri, []]);
+
+    wsValidator.stop();
+
+    assert.ok(result, 'Generation result must not be null/undefined');
+    assert.strictEqual(result.error, undefined, `Generation returned error: ${result.error}`);
+    const files = result.files ?? {};
+    assert.ok(result.files, 'Result must contain generated files map');
+
+    // Find the launch file
+    const launchFileKey = Object.keys(files).find((k) => k.endsWith('test_system.launch.py'));
+    assert.ok(launchFileKey, `Launch file not found in generated files: ${Object.keys(files).join(', ')}`);
+
+    const launchContent = files[launchFileKey];
+
+    // Assert ComposableNodeContainer is imported and configured
+    assert.ok(
+      launchContent.includes('from launch_ros.actions import ComposableNodeContainer'),
+      'Must import ComposableNodeContainer'
+    );
+    assert.ok(
+      launchContent.includes('from launch_ros.descriptions import ComposableNode'),
+      'Must import ComposableNode'
+    );
+    assert.ok(
+      launchContent.includes('package="rclcpp_components"'),
+      'Must use rclcpp_components package for container'
+    );
+    assert.ok(
+      launchContent.includes('executable="component_container_mt"'),
+      'Must use component_container_mt because threads: 2 > 1'
+    );
+    assert.ok(
+      launchContent.includes('name="process1"'),
+      'Container name must be process1'
+    );
+    assert.ok(
+      launchContent.includes('package="test_system"'),
+      'Composable node package must be test_system'
+    );
+    assert.ok(
+      launchContent.includes('plugin="test_system::ImageFilterNode"'),
+      'Must register ImageFilterNode plugin'
+    );
+    assert.ok(
+      launchContent.includes('plugin="test_system::ConsumerNode"'),
+      'Must register ConsumerNode plugin'
+    );
+    assert.ok(
+      launchContent.includes('ld.add_action(container_process1)'),
+      'Must add container_process1 to LaunchDescription'
+    );
+
+    // Also assert package.xml has rclcpp_components exec_depend
+    const pkgXmlKey = Object.keys(files).find((k) => k.endsWith('package.xml'));
+    assert.ok(pkgXmlKey, 'package.xml not found');
+    const pkgXmlContent = files[pkgXmlKey];
+    assert.ok(
+      pkgXmlContent.includes('<exec_depend>rclcpp_components</exec_depend>'),
+      'package.xml must declare exec_depend on rclcpp_components'
+    );
+  });
+
+  test('Package-scoped file persistence: Algorithm stub is recreated if file is in another package or outside dir', async function () {
+    this.timeout(20000);
+
+    const testWsDir = path.resolve(extensionRoot, '..', 'demo', 'test_ws');
+    const wsValidator = new LspValidator(extensionRoot, cataloguePath);
+    await wsValidator.init('file://' + testWsDir, [
+      { uri: 'file://' + testWsDir, name: 'test_ws' },
+    ]);
+
+    const minimalActionPath = path.resolve(
+      testWsDir,
+      'src',
+      'minimal_action',
+      'minimal_actions.ros2'
+    );
+    const modelUri = 'file://' + minimalActionPath;
+
+    // Test 1: File is in an outside directory / other package.
+    // The generator should NOT think it already exists for examples_minimal_actions,
+    // and MUST recreate ActionClientAlgorithm.hpp.
+    const outsideFiles = [
+      'outside_dir/ActionClientAlgorithm.hpp',
+      'other_pkg/include/other_pkg/ActionClientAlgorithm.hpp',
+    ];
+    const resultRecreate = await wsValidator.executeCommand<{
+      success?: boolean;
+      files?: Record<string, string>;
+      error?: string;
+    }>('ros2.generateWrappersServer', [
+      modelUri,
+      ['action_client'],
+      'cpp',
+      'humble',
+      outsideFiles,
+    ]);
+
+    assert.ok(resultRecreate, 'Result must not be null');
+    assert.strictEqual(resultRecreate.error, undefined, `Unexpected error: ${resultRecreate.error}`);
+    const filesRecreated = resultRecreate.files ?? {};
+    const algoKey = Object.keys(filesRecreated).find((k) =>
+      k.endsWith('ActionClientAlgorithm.hpp')
+    );
+    assert.ok(
+      algoKey,
+      'ActionClientAlgorithm.hpp must be generated when outside directory files are passed in existingFiles'
+    );
+
+    // Test 2: File is inside examples_minimal_actions.
+    // The generator MUST preserve it and NOT recreate it.
+    const inPackageFiles = [
+      'examples_minimal_actions/include/examples_minimal_actions/ActionClientAlgorithm.hpp',
+    ];
+    const resultPreserve = await wsValidator.executeCommand<{
+      success?: boolean;
+      files?: Record<string, string>;
+      error?: string;
+    }>('ros2.generateWrappersServer', [
+      modelUri,
+      ['action_client'],
+      'cpp',
+      'humble',
+      inPackageFiles,
+    ]);
+
+    wsValidator.stop();
+
+    assert.ok(resultPreserve, 'Result must not be null');
+    assert.strictEqual(resultPreserve.error, undefined, `Unexpected error: ${resultPreserve.error}`);
+    const filesPreserved = resultPreserve.files ?? {};
+    const algoPreservedKey = Object.keys(filesPreserved).find((k) =>
+      k.endsWith('ActionClientAlgorithm.hpp')
+    );
+    assert.strictEqual(
+      algoPreservedKey,
+      undefined,
+      'ActionClientAlgorithm.hpp must NOT be generated when it already exists in the package directory'
+    );
+  });
 });
+

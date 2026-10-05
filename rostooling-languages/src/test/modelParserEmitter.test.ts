@@ -471,98 +471,69 @@ suite('RosModelParser & Emitter Test Suite', () => {
     );
   });
   
-  test('Parse and emit ROS 2 Lifecycle node and active_in interface states', () => {
-    const lifecycleRos2 = `lifecycle_pkg:
-  artifacts:
-    managed_talker:
-      node: managed_talker
-      lifecycle: true
-      publishers:
-        chatter:
-          type: 'std_msgs/msg/String'
-          active_in: [Active]
-      subscribers:
-        control:
-          type: 'std_msgs/msg/String'
-          active_in: [Active, Inactive]
-      serviceservers:
-        reset:
-          type: 'std_srvs/srv/Trigger'
-          active_in: [Inactive, Unconfigured]
-      parameters:
-        rate:
-          type: Double
-          default: 10.0
+  test('Parse and emit .rossystem with processes defining composable container nodes and threads', () => {
+    const rossystemWithProcesses = `perception_system:
+  fromFile: "perception_system.rossystem"
+  processes:
+    vision_container:
+      nodes: [ cam_node, filter_node ]
+      threads: 4
+    lidar_container:
+      nodes: [ scan_node ]
+      threads: 1
+  nodes:
+    cam_node:
+      from: "cam_pkg.cam_node"
+      interfaces:
+        - "image_raw": pub-> "cam_node::image_raw"
+    filter_node:
+      from: "cam_pkg.filter_node"
+      interfaces:
+        - "image_in": sub-> "filter_node::image_in"
+        - "image_out": pub-> "filter_node::image_out"
+    scan_node:
+      from: "lidar_pkg.scan_node"
+      interfaces:
+        - "scan_out": pub-> "scan_node::scan"
+    standalone_node:
+      from: "nav_pkg.nav_node"
+      interfaces:
+        - "cmd_vel": pub-> "nav_node::cmd_vel"
 `;
-    const parsed = RosModelParser.parseRos2(lifecycleRos2, 'lifecycle_pkg.ros2');
-    assert.strictEqual(parsed.nodes.length, 1);
-    const node = parsed.nodes[0];
-    assert.strictEqual(node.label, 'managed_talker');
-    assert.strictEqual(node.isLifecycle, true);
-    assert.strictEqual(node.ifaces.length, 3);
 
-    const chatter = node.ifaces.find((f) => f.name === 'chatter');
-    assert.ok(chatter);
-    assert.deepStrictEqual(chatter?.activeStates, ['Active']);
+    const parsed = RosModelParser.parseRosSystem(rossystemWithProcesses, 'perception_system.rossystem');
+    assert.strictEqual(parsed.system.name, 'perception_system');
+    assert.strictEqual(parsed.processes?.length, 2);
 
-    const control = node.ifaces.find((f) => f.name === 'control');
-    assert.ok(control);
-    assert.deepStrictEqual(control?.activeStates, ['Active', 'Inactive']);
+    const visionProc = parsed.processes?.find((p) => p.name === 'vision_container');
+    assert.ok(visionProc);
+    assert.deepStrictEqual(visionProc?.nodes, ['cam_node', 'filter_node']);
+    assert.strictEqual(visionProc?.threads, 4);
 
-    const reset = node.ifaces.find((f) => f.name === 'reset');
-    assert.ok(reset);
-    assert.deepStrictEqual(reset?.activeStates, ['Inactive', 'Unconfigured']);
+    const lidarProc = parsed.processes?.find((p) => p.name === 'lidar_container');
+    assert.ok(lidarProc);
+    assert.deepStrictEqual(lidarProc?.nodes, ['scan_node']);
+    assert.strictEqual(lidarProc?.threads, 1);
 
-    // Emit and check content
-    const emitted = RosModelEmitter.emitRos2(parsed);
-    assert.ok(emitted.includes('      lifecycle: true'), 'Emitted output should contain lifecycle: true');
-    assert.ok(emitted.includes('          active_in: [Active]'), 'Emitted chatter should contain active_in: [Active]');
-    assert.ok(emitted.includes('          active_in: [Active, Inactive]'), 'Emitted control should contain active_in: [Active, Inactive]');
-    assert.ok(emitted.includes('          active_in: [Inactive, Unconfigured]'), 'Emitted reset should contain active_in: [Inactive, Unconfigured]');
+    assert.strictEqual(parsed.nodes.length, 4);
+
+    const emitted = RosModelEmitter.emitRosSystem(parsed);
+    assert.ok(emitted.includes('processes:'));
+    assert.ok(emitted.includes('vision_container:'));
+    assert.ok(emitted.includes('nodes: [ cam_node, filter_node ]'));
+    assert.ok(emitted.includes('threads: 4'));
+    assert.ok(emitted.includes('lidar_container:'));
+    assert.ok(emitted.includes('nodes: [ scan_node ]'));
+    assert.ok(emitted.includes('threads: 1'));
+    assert.ok(emitted.includes('standalone_node:'));
 
     // Round-trip parse again
-    const roundTrip = RosModelParser.parseRos2(emitted, 'lifecycle_pkg.ros2');
-    assert.strictEqual(roundTrip.nodes[0].isLifecycle, true);
-    assert.deepStrictEqual(roundTrip.nodes[0].ifaces.find((f) => f.name === 'chatter')?.activeStates, ['Active']);
-    assert.deepStrictEqual(roundTrip.nodes[0].ifaces.find((f) => f.name === 'control')?.activeStates, ['Active', 'Inactive']);
-  });
-
-  test('Non-lifecycle node and interfaces without active states omit lifecycle and active_in keywords', () => {
-    const standardRos2 = `standard_pkg:
-  artifacts:
-    simple_node:
-      node: simple_node
-      publishers:
-        data:
-          type: 'std_msgs/msg/String'
-`;
-    const parsed = RosModelParser.parseRos2(standardRos2, 'standard_pkg.ros2');
-    assert.strictEqual(parsed.nodes[0].isLifecycle, false);
-    assert.strictEqual(parsed.nodes[0].ifaces[0].activeStates, undefined);
-
-    const emitted = RosModelEmitter.emitRos2(parsed);
-    assert.strictEqual(emitted.includes('lifecycle:'), false, 'Standard node must not emit lifecycle keyword');
-    assert.strictEqual(emitted.includes('active_in:'), false, 'Standard interface must not emit active_in keyword');
-  });
-
-  test('Non-lifecycle node automatically strips activeStates and never emits active_in even if interface has activeStates defined', () => {
-    const invalidDoc = `invalid_pkg:
-  artifacts:
-    plain_node:
-      node: plain_node
-      publishers:
-        topic_out:
-          type: 'std_msgs/msg/String'
-          active_in: [Active]
-`;
-    const parsed = RosModelParser.parseRos2(invalidDoc, 'invalid_pkg.ros2');
-    assert.strictEqual(parsed.nodes[0].isLifecycle, false);
-    assert.strictEqual(parsed.nodes[0].ifaces[0].activeStates, undefined, 'Parser must strip activeStates on non-lifecycle node');
-
-    // Artificially attach activeStates to a non-lifecycle node interface
-    parsed.nodes[0].ifaces[0].activeStates = ['Active', 'Inactive'];
-    const emitted = RosModelEmitter.emitRos2(parsed);
-    assert.strictEqual(emitted.includes('active_in:'), false, 'Emitter must never emit active_in for a non-lifecycle node');
+    const roundTripped = RosModelParser.parseRosSystem(emitted, 'perception_system.rossystem');
+    assert.strictEqual(roundTripped.processes?.length, 2);
+    assert.deepStrictEqual(roundTripped.processes?.[0].nodes, ['cam_node', 'filter_node']);
+    assert.strictEqual(roundTripped.processes?.[0].threads, 4);
+    assert.deepStrictEqual(roundTripped.processes?.[1].nodes, ['scan_node']);
+    assert.strictEqual(roundTripped.processes?.[1].threads, 1);
   });
 });
 
