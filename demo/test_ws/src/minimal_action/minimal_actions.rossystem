@@ -1,0 +1,16 @@
+examples_minimal_actions:
+  nodes:
+    fibonacci_action_client:
+      from: "examples_minimal_actions.fibonacci_action_client"
+      interfaces:
+        - fibonacci_client: ac-> "action_client::fibonacci"
+    finbonacci_action_server:
+      from: "examples_minimal_actions.finbonacci_action_server"
+      interfaces:
+        - fibonacci_server: as-> "action_server::fibonacci"
+  connections:
+    - ["fibonacci_server", "fibonacci_client"]
+  processes:
+    actions_process:
+      nodes: [ fibonacci_action_client, finbonacci_action_server ]
+      threads: 2
