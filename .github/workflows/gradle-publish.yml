@@ -56,9 +56,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       # Runs automatically on releases, or manually when the checkbox is selected
       - name: Publish to Open VSX
         if: github.event_name == 'release' || inputs.publish_openvsx
-        run: npx ovsx publish rostooling-languages/build/vscode/*.vsix --trusted-publishing
+        run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --trusted-publishing
