@@ -155,6 +155,12 @@ For developers who want to modify or contribute to the extension:
 
 ## Release Notes
 
+### 2.1.3
+* **Open VSX Registry Publishing**: Added automated publishing via Trusted Publishing (OIDC) and manual workflow dispatch triggers.
+* **Open VSX Documentation & Badges**: Added Open VSX badges and installation options across documentation.
+* **Fixed Monorepo Asset Resolution**: Added `"directory": "rostooling-languages"` to `package.json` and fixed header banner URL on Open VSX.
+* **Updated Catalogue Link**: Updated `RosModelsCatalog` repository reference to `https://github.com/NadiaHG/RosModelsCatalog`.
+
 ### 2.0.0
 * **RosTooling Studio**: Interactive visual diagram editor for `.rossystem`, `.ros2`, `.ros1`, and `.ros` DSLs.
 * **Visual Architecture Assembly**: Drag-and-drop system modeling, interactive wire routing, port compatibility verification, and collapsible subsystems.

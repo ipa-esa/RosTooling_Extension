@@ -5,7 +5,30 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.2-SNAPSHOT] - 2026-10-02
+## [2.1.3] - 2026-10-13
+
+### Added
+- **Open VSX Registry Publishing Workflow**:
+  - Integrated Open VSX publishing via Trusted Publishing (OIDC) into GitHub Actions (`gradle-publish.yml`).
+  - Added manual execution support via `workflow_dispatch` trigger with a `publish_openvsx` toggle input for CI testing and manual deployment.
+  - Added CI build artifact upload for `.vsix` packages to enable downloading and inspecting builds directly from GitHub Actions.
+- **Open VSX Documentation & Badges**:
+  - Added Open VSX version badges to project documentation.
+  - Added Open VSX Registry installation instructions (via Extensions view and `codium` CLI) as the primary recommended method.
+
+### Changed
+- **Repository Directory Declaration**:
+  - Added `"directory": "rostooling-languages"` to the `repository` field in `package.json` to properly declare the extension's monorepo subfolder path.
+- **Updated RosModelsCatalog Link**:
+  - Updated the catalog repository reference in documentation to `https://github.com/NadiaHG/RosModelsCatalog`.
+
+### Fixed
+- **Open VSX README Asset Rendering**:
+  - Resolved broken image rendering for the extension header logo on Open VSX by using an absolute raw GitHub asset URL.
+- **Release Step Guard in CI**:
+  - Guarded GitHub Release upload with `if: github.event_name == 'release'` to prevent CI job failures when executing manual workflow dispatches.
+
+## [2.1.2] - 2026-10-13
 
 ### Added
 - **Single-Language Node Selection & Interactive Wrapper Generation**:
