@@ -1,6 +1,8 @@
 # RosTooling Languages for Visual Studio Code
 
-![RosTooling Logo](images/RosTooling_Badge.png)
+[![Open VSX](https://img.shields.io/open-vsx/v/RosTooling/rostooling-languages)](https://open-vsx.org/extension/RosTooling/rostooling-languages)
+
+![RosTooling Logo](https://raw.githubusercontent.com/ipa-esa/RosTooling_Extension/main/rostooling-languages/images/RosTooling_Badge.png)
 
 A comprehensive Visual Studio Code extension providing model-driven software engineering support for the [RosTooling](https://github.com/ipa320/RosTooling) domain-specific languages: **ROS** (`.ros`), **ROS 1** (`.ros1`), **ROS 2** (`.ros2`), and **ROS System** (`.rossystem`).
 
@@ -36,7 +38,7 @@ Open any RosTooling model in an interactive, visual editor with specialized view
 * **Semantic Diagnostics**: Real-time validation, syntax error detection, and unresolved reference reporting backed by the Eclipse Xtext RosLanguageServer.
 
 ### 📚 Catalogue Model Management
-* Dynamic indexing of the [RosModelsCatalog](https://github.com/ipa-nhg/RosModelsCatalog) and [RosCommonObjects](https://github.com/ipa320/RosCommonObjects) libraries.
+* Dynamic indexing of the [RosModelsCatalog](https://github.com/NadiaHG/RosModelsCatalog) and [RosCommonObjects](https://github.com/ipa320/RosCommonObjects) libraries.
 * Reusable robot arms, sensors, drivers, and standard message packages available out-of-the-box.
 * Core catalogue read-only enforcement with visual status badges to safeguard standard models.
 
@@ -48,7 +50,24 @@ Open any RosTooling model in an interactive, visual editor with specialized view
 
 ## Installation
 
-### Method 1: Install Pre-packaged VSIX from GitHub Releases (Recommended)
+### Option 1: Install from Open VSX Registry (Recommended)
+
+The extension is available directly on the [Open VSX Registry](https://open-vsx.org/extension/RosTooling/rostooling-languages) (`RosTooling.rostooling-languages`).
+
+#### Method A: Via the Extensions View (VSCodium / Open VSX-enabled IDEs)
+1. Open the Extensions sidebar (`Ctrl+Shift+X` on Linux/Windows, `Cmd+Shift+X` on macOS).
+2. Search for **`RosTooling Languages`** or **`RosTooling.rostooling-languages`**.
+3. Click **Install**.
+
+#### Method B: Via the Terminal / CLI
+```bash
+codium --install-extension RosTooling.rostooling-languages
+```
+*(Or use `npx ovsx get RosTooling.rostooling-languages` to fetch the VSIX package directly).*
+
+---
+
+### Option 2: Install Pre-packaged VSIX from GitHub Releases
 
 Packaged `.vsix` releases are distributed through the project's GitHub Releases.
 
@@ -58,19 +77,19 @@ Packaged `.vsix` releases are distributed through the project's GitHub Releases.
 2. **Install the VSIX into VS Code**:
    You can install the downloaded file using any of the following methods:
 
-   * **Option A: Via the Extensions View in VS Code (Easiest)**
+   * **Method A: Via the Extensions View in VS Code**
      1. Open Visual Studio Code.
      2. Open the Extensions sidebar (`Ctrl+Shift+X` on Linux/Windows, `Cmd+Shift+X` on macOS).
      3. Click the **`...`** (Views and More Actions) menu in the top-right corner of the Extensions panel.
      4. Select **Install from VSIX...**.
      5. Select the downloaded `rostooling-languages-<version>.vsix` file and confirm.
 
-   * **Option B: Via the Command Palette**
+   * **Method B: Via the Command Palette**
      1. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the Command Palette.
      2. Type `Extensions: Install from VSIX...` and select the command.
      3. Locate and select the downloaded `.vsix` file.
 
-   * **Option C: Via the Terminal / CLI**
+   * **Method C: Via the Terminal / CLI**
      Run the following command in your terminal:
      ```bash
      code --install-extension rostooling-languages-<version>.vsix
@@ -78,7 +97,7 @@ Packaged `.vsix` releases are distributed through the project's GitHub Releases.
 
 ---
 
-### Method 2: Build from Source
+### Option 3: Build from Source
 
 For developers who want to modify or contribute to the extension:
 

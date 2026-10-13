@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/ci.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/ci.yml)
 [![Gradle Package](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml/badge.svg)](https://github.com/ipa-esa/RosTooling_Extension/actions/workflows/gradle-publish.yml)
+[![Open VSX](https://img.shields.io/open-vsx/v/RosTooling/rostooling-languages)](https://open-vsx.org/extension/RosTooling/rostooling-languages)
 
 ![RosTooling Extension](rostooling-languages/images/RosTooling_Badge.png)
 
@@ -52,7 +53,25 @@ Open any RosTooling model in a graphical studio with dedicated views:
 
 ## Installation
 
-### Option 1: Install from GitHub Release (Recommended)
+### Option 1: Install from Open VSX Registry (Recommended)
+
+The extension is available directly on the [Open VSX Registry](https://open-vsx.org/extension/RosTooling/rostooling-languages) (`RosTooling.rostooling-languages`).
+
+#### Method A: Via the Extensions View (VSCodium / Open VSX-enabled IDEs)
+1. Open the **Extensions** view by clicking the Extensions icon on the Activity Bar or pressing `Ctrl+Shift+X` (macOS: `Cmd+Shift+X`).
+2. Search for **`RosTooling Languages`** or **`RosTooling.rostooling-languages`**.
+3. Click **Install**.
+
+#### Method B: Via the Command Line (CLI)
+Install directly using your editor's CLI (e.g. VSCodium):
+```bash
+codium --install-extension RosTooling.rostooling-languages
+```
+*(Or use `npx ovsx get RosTooling.rostooling-languages` to fetch the VSIX directly).*
+
+---
+
+### Option 2: Install from GitHub Release
 
 Pre-packaged `.vsix` releases are available on the repository's GitHub Releases page.
 
@@ -82,7 +101,7 @@ Pre-packaged `.vsix` releases are available on the repository's GitHub Releases 
 
 ---
 
-### Option 2: Build and Install from Source
+### Option 3: Build and Install from Source
 
 To build and package the extension from source:
 
