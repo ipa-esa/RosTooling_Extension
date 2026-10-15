@@ -138,6 +138,7 @@ ament_package()
 
     assert.ok(updatedContent.includes('install(DIRECTORY launch'), 'Must include launch install directive');
     assert.ok(updatedContent.includes('DESTINATION share/${PROJECT_NAME}'), 'Must install to share/${PROJECT_NAME}');
+    assert.ok(updatedContent.includes('OPTIONAL'), 'Must use OPTIONAL for launch install');
     assert.ok(updatedContent.includes('ament_package()'), 'Must retain ament_package()');
     assert.ok(updatedContent.includes('add_executable(my_node src/Node.cpp)'), 'Must preserve node build targets');
 
@@ -147,6 +148,49 @@ ament_package()
     const secondContent = decoder.decode(secondBytes);
     const occurrences = (secondContent.match(/install\(DIRECTORY launch/g) || []).length;
     assert.strictEqual(occurrences, 1, 'Launch install directive must only be injected once');
+
+    // Cleanup test folder
+    await workspace.fs.delete(testGenUri, { recursive: true, useTrash: false });
+  });
+
+  test('Upgrade legacy if(EXISTS) launch install in CMakeLists.txt to unconditional OPTIONAL install', async () => {
+    const testGenUri = Uri.file(path.join(os.tmpdir(), `test-launch-upgrade-${Date.now()}`));
+    const pkgName = 'test_legacy_cmake_pkg';
+    const pkgUri = Uri.joinPath(testGenUri, pkgName);
+
+    await workspace.fs.createDirectory(pkgUri);
+
+    const legacyCMake = `cmake_minimum_required(VERSION 3.8)
+project(test_legacy_cmake_pkg)
+find_package(ament_cmake REQUIRED)
+
+if(EXISTS "\${CMAKE_CURRENT_SOURCE_DIR}/launch")
+  install(DIRECTORY launch
+    DESTINATION share/\${PROJECT_NAME}
+  )
+endif()
+
+if(EXISTS "\${CMAKE_CURRENT_SOURCE_DIR}/config")
+  install(DIRECTORY config
+    DESTINATION share/\${PROJECT_NAME}
+  )
+endif()
+
+ament_package()
+`;
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    await workspace.fs.writeFile(Uri.joinPath(pkgUri, 'CMakeLists.txt'), encoder.encode(legacyCMake));
+
+    // Execute launch install upgrade
+    await ensureLaunchInstallInCMake(testGenUri, pkgName);
+
+    const updatedBytes = await workspace.fs.readFile(Uri.joinPath(pkgUri, 'CMakeLists.txt'));
+    const updatedContent = decoder.decode(updatedBytes);
+
+    assert.ok(!updatedContent.includes('if(EXISTS'), 'Must not contain legacy if(EXISTS) wrapper');
+    assert.ok(updatedContent.includes('OPTIONAL'), 'Must use OPTIONAL for launch install');
+    assert.ok(updatedContent.includes('install(DIRECTORY launch'), 'Must include launch install directive');
 
     // Cleanup test folder
     await workspace.fs.delete(testGenUri, { recursive: true, useTrash: false });

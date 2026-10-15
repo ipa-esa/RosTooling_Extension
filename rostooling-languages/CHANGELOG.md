@@ -5,8 +5,32 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-10-15
+### Added
+- **Composable Component & Process Support**:
+  - Full parser and emitter support for `.rossystem` `processes:` section with node lists and thread counts.
+  - Bundled updated Language Server fat JAR containing composable component launch file generation (`ComposableNodeContainer` with `component_container_mt` / `component_container`) and validation rules.
+  - Added LSP test cases verifying `.rossystem` process definitions and diagnostics against duplicate node process assignment.
+- **Node Decoupling & C++ Component Architecture Support**:
+  - Extended opposite-language file pruning (`cleanOppositeLanguageFiles`) to remove decoupled `<Node>Node.hpp` and `<Node>Node.cpp` component files when switching a node to Python.
+- **Unconditional `OPTIONAL` Launch & Configuration Installation (`ensureLaunchInstallInCMake`)**:
+  - Updated `ensureLaunchInstallInCMake` to inject unconditional `install(DIRECTORY launch DESTINATION share/${PROJECT_NAME} OPTIONAL)` and `config` directives without configure-time `if(EXISTS ...)` gates.
+  - Added automatic migration that detects legacy `if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")` blocks in existing `CMakeLists.txt` files and upgrades them to the unconditional `OPTIONAL` directives.
+- **Automated Test Suite Expansion**:
+  - Added comprehensive test suite in `buildCleanup.test.ts` covering legacy `if(EXISTS)` upgrade to `OPTIONAL` and component node pruning.
+  - Added end-to-end regression test in `lspGrammarValidator.test.ts` verifying package-scoped file persistence.
+  - Added parser/emitter round-trip tests in `modelParserEmitter.test.ts` for `.rossystem` process definitions and composable container configurations.
+### Changed
+- **Package-Scoped File Scanning for Wrapper Generation**:
+  - Scoped `existingFiles` directory scan in `ros2.generateWrappers` to `src-gen/<pkgName>` instead of the entire workspace `src-gen`.
+  - Moving algorithm or logic stubs outside the package folder ensures they are cleanly regenerated within the package without false persistence retention.
+### Fixed
+- **Launch File Installation on Post-Generation**:
+  - Resolved missing launch file in `install/` after generating system launch files into packages configured with CMake before the `launch/` directory existed.
+  - By using `OPTIONAL` directory installation, CMake unconditionally registers install rules at configure time, guaranteeing that subsequent `colcon build` commands install and symlink launch files immediately upon creation.
+- **Synchronized Version Declarations**:
+  - Synchronized extension version across `gradle.properties` (`version=2.2.0`), `package.json` (`"version": "2.2.0"`), and changelogs.
 ## [2.1.3] - 2026-10-13
-
 ### Added
 - **Open VSX Registry Publishing Workflow**:
   - Integrated Open VSX publishing via Trusted Publishing (OIDC) into GitHub Actions (`gradle-publish.yml`).
@@ -15,21 +39,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Open VSX Documentation & Badges**:
   - Added Open VSX version badges to project documentation.
   - Added Open VSX Registry installation instructions (via Extensions view and `codium` CLI) as the primary recommended method.
-
 ### Changed
 - **Repository Directory Declaration**:
   - Added `"directory": "rostooling-languages"` to the `repository` field in `package.json` to properly declare the extension's monorepo subfolder path.
 - **Updated RosModelsCatalog Link**:
   - Updated the catalog repository reference in documentation to `https://github.com/NadiaHG/RosModelsCatalog`.
-
 ### Fixed
 - **Open VSX README Asset Rendering**:
   - Resolved broken image rendering for the extension header logo on Open VSX by using an absolute raw GitHub asset URL.
 - **Release Step Guard in CI**:
   - Guarded GitHub Release upload with `if: github.event_name == 'release'` to prevent CI job failures when executing manual workflow dispatches.
-
 ## [2.1.2] - 2026-10-13
-
 ### Added
 - **Single-Language Node Selection & Interactive Wrapper Generation**:
   - Interactive language selection prompt when generating node wrappers from `.ros2` models:
@@ -53,7 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Exported `toCamelCase` and `toSnakeCase` utility functions matching Xtext generator conventions for reliable artifact and file resolution.
 - **Automated Test Suite Expansion**:
   - Added comprehensive test suite in `buildCleanup.test.ts` covering CMake cleanup, pure Python cleanup, launch directives injection, casing transformations, and opposite-language file pruning.
-
 ### Changed
 - **Aligned Executable Naming Scheme (Approach A)**:
   - Canonical executable names matching `.ros2` modeled artifact names (`«node.artifactName»`) across pure C++, pure Python, and hybrid packages.
@@ -62,7 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed "Both" option to enforce single-language implementation per node and eliminate executable and launch conflicts.
 - **Workspace-Aware System Generation**:
   - Updated `rossystem.triggerCodeGeneration` to scan `src-gen` and pass `existingFiles` to the Language Server, preserving existing node wrappers and build targets.
-
 ### Fixed
 - **RosSystem Node Reference Alignment (`from: pkg.node`)**:
   - Fixed parser (`RosModelParser.ts`), catalogue indexer (`RosCatalogueManager.ts`), and emitter to correctly reference node definitions (`from: pkg.node`) instead of artifact names (`pkg.artifact`), strictly adhering to Xtext grammar specifications.

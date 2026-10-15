@@ -55,6 +55,9 @@ export class LspValidator {
     this.proc.stdout?.on('data', (data: Buffer) => this.onData(data));
   }
 
+  private requestCallbacks = new Map<number, (res: unknown) => void>();
+  private nextRequestId = 100;
+
   private onData(data: Buffer) {
     this.buffer = Buffer.concat([this.buffer, data]);
     while (true) {
@@ -70,6 +73,11 @@ export class LspValidator {
 
       try {
         const msg = JSON.parse(bodyStr);
+        if (msg.id !== undefined && this.requestCallbacks.has(msg.id)) {
+          const cb = this.requestCallbacks.get(msg.id);
+          this.requestCallbacks.delete(msg.id);
+          cb?.(msg.result);
+        }
         if (msg.method === 'textDocument/publishDiagnostics') {
           const uri = msg.params.uri;
           const handler = this.listeners.get(uri);
@@ -96,6 +104,9 @@ export class LspValidator {
       capabilities: {
         workspace: {
           workspaceFolders: true,
+          executeCommand: {
+            dynamicRegistration: true,
+          },
         },
       },
     };
@@ -142,6 +153,22 @@ export class LspValidator {
         method: 'textDocument/didOpen',
         params: {
           textDocument: { uri, languageId, version: 1, text },
+        },
+      });
+    });
+  }
+
+  public executeCommand<T = unknown>(command: string, args: unknown[]): Promise<T> {
+    return new Promise((resolve) => {
+      const id = ++this.nextRequestId;
+      this.requestCallbacks.set(id, (result) => resolve(result as T));
+      this.send({
+        jsonrpc: '2.0',
+        id,
+        method: 'workspace/executeCommand',
+        params: {
+          command,
+          arguments: args,
         },
       });
     });

@@ -1,0 +1,12 @@
+examples_minimal_service:
+  nodes:
+    minimal_server:
+      from: "examples_minimal_service.minimal_server"
+      interfaces:
+        - add_two_ints_srv: ss-> "minimal_server_node::add_two_ints"
+    minimal_client:
+      from: "examples_minimal_service.minimal_client"
+      interfaces:
+        - add_two_ints_clt: sc-> "minimal_client_node::add_two_ints"
+  connections:
+    - ["add_two_ints_srv", "add_two_ints_clt"]

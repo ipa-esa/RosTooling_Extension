@@ -664,6 +664,7 @@ export async function activate(context: ExtensionContext) {
 
         const existingFiles: string[] = [];
         try {
+            const pkgDirUri = Uri.joinPath(srcGenUri, pkgName);
             const scanDir = async (dir: Uri, prefix = '') => {
                 try {
                     const entries = await workspace.fs.readDirectory(dir);
@@ -679,9 +680,10 @@ export async function activate(context: ExtensionContext) {
                     // Ignore non-existent folder
                 }
             };
-            await scanDir(srcGenUri);
+            // Scan only the package directory, not the entire src-gen
+            await scanDir(pkgDirUri, pkgName);
         } catch {
-            // src-gen might not exist yet
+            // src-gen/<pkgName> might not exist yet
         }
 
         const hostDistro = process.env.ROS_DISTRO || 'humble';
@@ -1095,8 +1097,10 @@ export async function cleanOppositeLanguageFiles(
             if (!c) continue;
             const files = [
                 `include/${pkgName}/${c}Wrapper.hpp`,
+                `include/${pkgName}/${c}Node.hpp`,
                 `include/${pkgName}/${c}Algorithm.hpp`,
                 `src/${c}Wrapper.cpp`,
+                `src/${c}Node.cpp`,
                 `src/${c}Runner.cpp`,
             ];
             for (const rel of files) {
@@ -1202,27 +1206,34 @@ export async function ensureLaunchInstallInCMake(srcGenUri: Uri, pkgName: string
         const cmakeBytes = await workspace.fs.readFile(cmakeUri);
         let cmakeContent = new TextDecoder().decode(cmakeBytes);
 
+        const launchInstallSnippet = `install(DIRECTORY launch
+  DESTINATION share/\${PROJECT_NAME}
+  OPTIONAL
+)
+
+install(DIRECTORY config
+  DESTINATION share/\${PROJECT_NAME}
+  OPTIONAL
+)`;
+
+        // If legacy if(EXISTS ...) block is present, upgrade it to unconditional OPTIONAL install
+        if (cmakeContent.includes('if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")')) {
+            cmakeContent = cmakeContent.replace(
+                /if\(EXISTS\s+"\$\{CMAKE_CURRENT_SOURCE_DIR\}\/launch"\)[\s\S]*?endif\(\)(\s*if\(EXISTS\s+"\$\{CMAKE_CURRENT_SOURCE_DIR\}\/config"\)[\s\S]*?endif\(\))?/,
+                launchInstallSnippet
+            );
+            await workspace.fs.writeFile(cmakeUri, new TextEncoder().encode(cmakeContent));
+            console.log(`Upgraded legacy launch install directives in ${pkgName}/CMakeLists.txt to OPTIONAL`);
+            return;
+        }
+
         // Check if launch install directive is already present
         const hasLaunchInstall = cmakeContent.includes('install(DIRECTORY launch') ||
                                  cmakeContent.includes('DIRECTORY launch') ||
                                  cmakeContent.includes('install(DIRECTORY\n  launch');
 
         if (!hasLaunchInstall && cmakeContent.includes('ament_package()')) {
-            const launchInstallSnippet = `if(EXISTS "\${CMAKE_CURRENT_SOURCE_DIR}/launch")
-  install(DIRECTORY launch
-    DESTINATION share/\${PROJECT_NAME}
-  )
-endif()
-
-if(EXISTS "\${CMAKE_CURRENT_SOURCE_DIR}/config")
-  install(DIRECTORY config
-    DESTINATION share/\${PROJECT_NAME}
-  )
-endif()
-
-ament_package()`;
-
-            cmakeContent = cmakeContent.replace('ament_package()', launchInstallSnippet);
+            cmakeContent = cmakeContent.replace('ament_package()', `${launchInstallSnippet}\n\nament_package()`);
             await workspace.fs.writeFile(cmakeUri, new TextEncoder().encode(cmakeContent));
             console.log(`Injected launch install directives into ${pkgName}/CMakeLists.txt`);
         }
