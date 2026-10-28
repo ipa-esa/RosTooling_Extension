@@ -104,16 +104,27 @@ export async function activate(context: ExtensionContext) {
     outputChannel.appendLine(`Catalogue storage path: ${cataloguePath}`);
 
     // Ensure default catalogue repositories exist before launching LSP server
-    const fallbackDir = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    const fallbackDirs = [
+        path.join(os.homedir(), '.rostooling', 'catalogue_repos'),
+        path.join(os.homedir(), '.config', 'Antigravity IDE', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+        path.join(os.homedir(), '.config', 'Code', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+        path.join(os.homedir(), '.config', 'VSCodium', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+    ];
     for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
         const targetRepoDir = path.join(cataloguePath, repo.name);
-        const fallbackRepoDir = path.join(fallbackDir, repo.name);
-        if (!fs.existsSync(targetRepoDir) && fs.existsSync(fallbackRepoDir)) {
-            try {
-                outputChannel.appendLine(`Copying cached catalogue ${repo.name} from fallback directory...`);
-                fs.cpSync(fallbackRepoDir, targetRepoDir, { recursive: true });
-            } catch (err) {
-                outputChannel.appendLine(`Failed to copy fallback catalogue ${repo.name}: ${err}`);
+        if (!fs.existsSync(targetRepoDir)) {
+            for (const fallbackDir of fallbackDirs) {
+                if (path.resolve(fallbackDir) === path.resolve(cataloguePath)) continue;
+                const fallbackRepoDir = path.join(fallbackDir, repo.name);
+                if (fs.existsSync(fallbackRepoDir)) {
+                    try {
+                        outputChannel.appendLine(`Copying cached catalogue ${repo.name} from ${fallbackDir}...`);
+                        fs.cpSync(fallbackRepoDir, targetRepoDir, { recursive: true });
+                        break;
+                    } catch (err) {
+                        outputChannel.appendLine(`Failed to copy fallback catalogue ${repo.name}: ${err}`);
+                    }
+                }
             }
         }
     }
@@ -122,18 +133,23 @@ export async function activate(context: ExtensionContext) {
         repo => fs.existsSync(path.join(cataloguePath, repo.name))
     );
     if (!hasAllCatalogues) {
-        outputChannel.appendLine('Default catalogue repositories missing; downloading in background...');
-        window.withProgress({
-            location: ProgressLocation.Window,
+        outputChannel.appendLine('Default catalogue repositories missing; downloading default catalogues...');
+        await window.withProgress({
+            location: ProgressLocation.Notification,
             title: 'RosTooling: Downloading default catalogues...'
-        }, async () => {
+        }, async (progress) => {
             try {
-                const res = await catalogueManager.syncRepositories(false, (msg) => outputChannel.appendLine(`[Catalogue] ${msg}`));
+                progress.report({ message: 'Cloning default repositories...' });
+                const res = await catalogueManager.syncRepositories(true, (msg) => {
+                    outputChannel.appendLine(`[Catalogue] ${msg}`);
+                    progress.report({ message: msg });
+                });
                 if (res.updated.length > 0) {
                     outputChannel.appendLine(`[Catalogue] Successfully downloaded: ${res.updated.join(', ')}`);
                 }
             } catch (err) {
-                outputChannel.appendLine(`[Catalogue] Background sync error: ${err}`);
+                outputChannel.appendLine(`[Catalogue] Sync error: ${err}`);
+                window.showWarningMessage(`RosTooling: Failed to download default catalogues: ${err}. Standard ROS models may not resolve until reconnected.`);
             }
         });
     } else {

@@ -42,10 +42,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       const sibCommon = path.join(parent, 'RosCommonObjects');
       if (fs.existsSync(sibCommon)) roots.add(sibCommon);
     }
-    const known1 = '/home/adm-esa/coresense-ws/src/RosModelsCatalog';
-    if (fs.existsSync(known1)) roots.add(known1);
-    const known2 = '/home/adm-esa/coresense-ws/src/RosCommonObjects';
-    if (fs.existsSync(known2)) roots.add(known2);
+    const defaultUserPath = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
+      const p = path.join(defaultUserPath, repo.name);
+      if (fs.existsSync(p)) roots.add(p);
+    }
 
     const targetDoc = docFilePath || vscode.window.activeTextEditor?.document.fileName;
     if (targetDoc) {
@@ -356,7 +357,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           subsystemMap.set(fullPath, fullPath);
           const rel = path.relative(root, fullPath);
           subsystemMap.set(rel, fullPath);
-        } else if (fullPath.endsWith('.ros2') || fullPath.endsWith('.ros1') || fullPath.endsWith('.ros')) {
+        } else if (fullPath.endsWith('.ros2') || fullPath.endsWith('.ros1')) {
           try {
             const content = this.readDocumentOrFile(fullPath);
             if (!content) continue;

@@ -11,8 +11,10 @@ suite('LSP Protocol Model Validation Test Suite', () => {
   let lspValidator: LspValidator;
   const extensionRoot = path.resolve(__dirname, '..', '..');
   const defaultUserPath = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
-  const ideStoragePath =
-    '/home/adm-esa/.config/Antigravity IDE/User/globalStorage/rostooling.rostooling-languages/catalogue_repos';
+  const ideStoragePath = path.join(
+    os.homedir(),
+    '.config/Antigravity IDE/User/globalStorage/rostooling.rostooling-languages/catalogue_repos'
+  );
   const cataloguePath =
     process.env.ROSTOOLING_CATALOGUE_PATH ||
     (fs.existsSync(defaultUserPath) && fs.readdirSync(defaultUserPath).length > 0
