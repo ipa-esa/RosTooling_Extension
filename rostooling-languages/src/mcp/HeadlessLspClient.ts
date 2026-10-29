@@ -176,7 +176,10 @@ export class HeadlessLspClient {
   public async start(workspaceDir: string): Promise<void> {
     const javaBin = this.javaExecutable || HeadlessLspClient.findJavaExecutable();
     const jar = this.jarPath || HeadlessLspClient.findJarPath();
-    const catPath = this.cataloguePath || path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    const catPath =
+      this.cataloguePath ||
+      process.env.ROSMODEL_CATALOGUE_DIR ||
+      path.join(os.homedir(), '.rostooling', 'catalogue_repos');
 
     const args = [
       '--add-opens=java.base/java.lang=ALL-UNNAMED',

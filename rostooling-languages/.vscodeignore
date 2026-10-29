@@ -4,8 +4,12 @@
 build/**
 src/**
 !src/server/**
+!bin/**
+!out/mcp/**
 .gitignore
+.npmignore
 .yarnrc
+*.vsix
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
