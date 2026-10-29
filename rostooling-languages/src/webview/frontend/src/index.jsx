@@ -3,12 +3,13 @@ import { createRoot } from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
 import './studio.css';
 import { RosStudioApp } from './RosStudioApp';
-import { RosSystemView } from './views/RosSystemView';
+import { RosSystemView, estimateCardHeight, estimateCardWidth } from './views/RosSystemView';
 import { RosComponentView } from './views/RosComponentView';
 import { RosCommObjectsView } from './views/RosCommObjectsView';
 import { ProcessGroupNode } from './components/ProcessGroupNode';
 import { RosNodeCard } from './components/RosNodeCard';
 import { SubsystemNodeCard } from './components/SubsystemNodeCard';
+import { JumpOrthogonalEdge } from './components/JumpOrthogonalEdge';
 import { CatalogueDrawer, filterCatalogueSystems } from './components/CatalogueDrawer';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner';
 import {
@@ -27,9 +28,12 @@ if (typeof window !== 'undefined') {
     ProcessGroupNode,
     RosNodeCard,
     SubsystemNodeCard,
+    JumpOrthogonalEdge,
     CatalogueDrawer,
     filterCatalogueSystems,
     ReadOnlyBanner,
+    estimateCardHeight,
+    estimateCardWidth,
     validatePortConnection,
     updateNodeLabel,
     updateNodePackageAndArtifact,

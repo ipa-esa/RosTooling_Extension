@@ -6,7 +6,8 @@ import {
   Controls,
   MiniMap,
   MarkerType,
-  applyNodeChanges,
+  useNodesState,
+  useEdgesState,
   useReactFlow,
 } from '@xyflow/react';
 import {
@@ -31,12 +32,15 @@ import {
   importCatalogueNode,
   validatePortConnection,
   KIND_META,
+  SRC_SIDE,
   showToast,
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
 import { RosNodeCard } from '../components/RosNodeCard';
 import { ProcessGroupNode } from '../components/ProcessGroupNode';
 import { SubsystemNodeCard } from '../components/SubsystemNodeCard';
+import { JumpOrthogonalEdge } from '../components/JumpOrthogonalEdge';
+import { insertWaypointIntoConnection } from '../state/orthogonalRouter';
 
 const NODE_TYPES = {
   rosNode: RosNodeCard,
@@ -44,13 +48,72 @@ const NODE_TYPES = {
   subsystemNode: SubsystemNodeCard,
 };
 
-const PAD_X = 28;
-const PAD_TOP = 54;
-const PAD_BOTTOM = 26;
+const EDGE_TYPES = {
+  jumpOrthogonal: JumpOrthogonalEdge,
+};
 
-function estimateCardHeight(node) {
-  const ports = (node.ifaces || []).filter((f) => f.exposed !== false).length;
-  return Math.max(118, 78 + ports * 32);
+const PAD_X = 36;
+const PAD_TOP = 58;
+const PAD_BOTTOM = 38;
+
+export function estimateCardWidth(node) {
+  // Base card width in CSS is 280px, but React Flow port handles protrude ~6px
+  // on each side, and cards with wide names or parameter badges expand up to 300-320px.
+  return Math.max(node?.w || 0, 300);
+}
+
+export function estimateCardHeight(node) {
+  if (!node) return 140;
+
+  // 1. Header: icon (16px), title (~18px), padding (18px), border (1px) = ~37px.
+  // Optional subtitle (from / package / artifact) adds another ~16px text block.
+  const hasSubtitle = Boolean(
+    node.from ||
+    (node.pkg ? `${node.pkg}.${node.artifact || node.label}` : node.artifact)
+  );
+  const headerHeight = hasSubtitle ? 54 : 38;
+
+  // 2. Badges row (lifecycle, namespace, parameters, diagnostics, subsystem)
+  // .rt-node-badges has 9px padding/border. Badges wrap when multiple are present (~2 per line).
+  const diags = node.diagnostics || [];
+  const errCount = diags.filter((d) => d.severity === 'error').length;
+  const warnCount = diags.filter((d) => d.severity === 'warning').length;
+  const totalParams = (node.params || []).length;
+
+  let badgeCount = 0;
+  if (node.isLifecycle) badgeCount++;
+  if (node.namespace) badgeCount++;
+  if (totalParams > 0) badgeCount++;
+  if (node.subRef) badgeCount++;
+  if (errCount > 0) badgeCount++;
+  if (warnCount > 0) badgeCount++;
+
+  let badgesHeight = 0;
+  if (badgeCount > 0) {
+    const badgeRows = Math.max(1, Math.ceil(badgeCount / 2.2));
+    badgesHeight = 9 + badgeRows * 22;
+  }
+
+  // 3. Ports container
+  // .rt-ports-container: padding 5px 0 (10px).
+  // Each port row has padding 4px 12px and vertical stack of port name (~16px) + port type (~14px) = 38px.
+  const exposedIfaces = (node.ifaces || []).filter((f) => f.exposed !== false);
+  let portsHeight = 0;
+  if (exposedIfaces.length === 0) {
+    portsHeight = 36;
+  } else {
+    portsHeight = 10 + exposedIfaces.length * 38;
+  }
+
+  // 4. Parameter overrides/rows (if node has parameters expanded or listed)
+  const paramRowsHeight = node.showParams && totalParams > 0 ? totalParams * 28 : 0;
+
+  // 5. Card container border (1.5px top + 1.5px bottom) + breathing margin
+  const cardBorderAndBuffer = 8;
+
+  const totalHeight = headerHeight + badgesHeight + portsHeight + paramRowsHeight + cardBorderAndBuffer;
+
+  return Math.max(140, Math.ceil(totalHeight));
 }
 
 function resolveHandleEndpoint(rfNodeId, rfHandleId, project) {
@@ -71,7 +134,6 @@ function resolveHandleEndpoint(rfNodeId, rfHandleId, project) {
 function SystemCanvasInner() {
   const studio = useStudio();
   const rfInstance = useReactFlow();
-  const [draftNodes, setDraftNodes] = useState(null);
   const [canvasSearch, setCanvasSearch] = useState('');
 
   const {
@@ -84,6 +146,62 @@ function SystemCanvasInner() {
     selectedProcessName,
     fitTrigger,
   } = studio;
+
+  const handleMoveMidX = useCallback((connId, newMidX) => {
+    mutateLayout((proj) => {
+      if (!proj.view) proj.view = {};
+      if (!proj.view.connMidX) proj.view.connMidX = {};
+      proj.view.connMidX[connId] = newMidX;
+      const conn = (proj.connections || []).find((c) => c.id === connId);
+      if (conn) conn.midX = newMidX;
+    });
+  }, []);
+
+  const handleMoveMidY = useCallback((connId, newMidY) => {
+    mutateLayout((proj) => {
+      if (!proj.view) proj.view = {};
+      if (!proj.view.connMidY) proj.view.connMidY = {};
+      proj.view.connMidY[connId] = newMidY;
+      const conn = (proj.connections || []).find((c) => c.id === connId);
+      if (conn) conn.midY = newMidY;
+    });
+  }, []);
+
+  const handleMoveWaypoint = useCallback((connId, wpIdx, newX, newY) => {
+    mutateLayout((proj) => {
+      if (!proj.view) proj.view = {};
+      if (!proj.view.connWaypoints) proj.view.connWaypoints = {};
+      const conn = (proj.connections || []).find((c) => c.id === connId);
+      if (conn && conn.waypoints && conn.waypoints[wpIdx]) {
+        conn.waypoints[wpIdx] = { x: newX, y: newY };
+        proj.view.connWaypoints[connId] = [...conn.waypoints];
+      }
+    });
+  }, []);
+
+  const handleAddWaypoint = useCallback((connId, clickX, clickY, existingPts) => {
+    mutateLayout((proj) => {
+      if (!proj.view) proj.view = {};
+      if (!proj.view.connWaypoints) proj.view.connWaypoints = {};
+      const conn = (proj.connections || []).find((c) => c.id === connId);
+      if (conn) {
+        conn.waypoints = insertWaypointIntoConnection(conn.waypoints, clickX, clickY, existingPts);
+        proj.view.connWaypoints[connId] = [...conn.waypoints];
+      }
+    });
+  }, []);
+
+  const handleDeleteWaypoint = useCallback((connId, wpIdx) => {
+    mutateLayout((proj) => {
+      if (!proj.view) proj.view = {};
+      if (!proj.view.connWaypoints) proj.view.connWaypoints = {};
+      const conn = (proj.connections || []).find((c) => c.id === connId);
+      if (conn && conn.waypoints) {
+        conn.waypoints.splice(wpIdx, 1);
+        proj.view.connWaypoints[connId] = [...conn.waypoints];
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -112,6 +230,11 @@ function SystemCanvasInner() {
     const q = canvasSearch.trim().toLowerCase();
 
     const directNodes = (project.nodes || []).filter((n) => !n.subRef && n.backing !== 'sub');
+    directNodes.forEach((node, idx) => {
+      if (node.x == null) node.x = 80 + (idx % 3) * 360;
+      if (node.y == null) node.y = 80 + Math.floor(idx / 3) * 280;
+    });
+
     const nodeToProcess = new Map();
     for (const proc of project.processes || []) {
       for (const nl of proc.nodes || []) {
@@ -129,20 +252,20 @@ function SystemCanvasInner() {
       let height;
 
       if (members.length > 0) {
-        const minX = Math.min(...members.map((m) => m.x ?? 80)) - PAD_X;
-        const minY = Math.min(...members.map((m) => m.y ?? 80)) - PAD_TOP;
-        const maxX = Math.max(...members.map((m) => (m.x ?? 80) + (m.w || 280))) + PAD_X;
-        const maxY = Math.max(...members.map((m) => (m.y ?? 80) + estimateCardHeight(m))) + PAD_BOTTOM;
+        const minX = Math.min(...members.map((m) => m.x)) - PAD_X;
+        const minY = Math.min(...members.map((m) => m.y)) - PAD_TOP;
+        const maxX = Math.max(...members.map((m) => m.x + estimateCardWidth(m))) + PAD_X;
+        const maxY = Math.max(...members.map((m) => m.y + estimateCardHeight(m))) + PAD_BOTTOM;
         originX = minX;
         originY = minY;
-        width = Math.max(336, maxX - minX);
-        height = Math.max(190, maxY - minY);
+        width = Math.max(360, maxX - minX);
+        height = Math.max(200, maxY - minY);
       } else {
         const saved = project.view?.subPos?.[procId];
         originX = saved?.x ?? 80 + pIdx * 370;
         originY = saved?.y ?? 420;
-        width = 340;
-        height = 150;
+        width = 360;
+        height = 160;
       }
 
       origins[procId] = { x: originX, y: originY };
@@ -154,7 +277,7 @@ function SystemCanvasInner() {
         id: procId,
         type: 'processGroup',
         position: { x: originX, y: originY },
-        style: { width, height, zIndex: 0 },
+        style: { width, height, zIndex: -1 },
         selected: selectedProcessName === proc.name,
         data: {
           process: proc,
@@ -219,21 +342,21 @@ function SystemCanvasInner() {
         let height;
         if (members.length > 0) {
           members.forEach((m, idx) => {
-            if (m.x == null) m.x = (sub.x ?? 100) + PAD_X + idx * 305;
+            if (m.x == null) m.x = (sub.x ?? 100) + PAD_X + idx * 320;
             if (m.y == null) m.y = (sub.y ?? 320) + PAD_TOP;
           });
           const minX = Math.min(...members.map((m) => m.x)) - PAD_X;
           const minY = Math.min(...members.map((m) => m.y)) - PAD_TOP;
-          const maxX = Math.max(...members.map((m) => m.x + (m.w || 280))) + PAD_X;
+          const maxX = Math.max(...members.map((m) => m.x + estimateCardWidth(m))) + PAD_X;
           const maxY = Math.max(...members.map((m) => m.y + estimateCardHeight(m))) + PAD_BOTTOM;
           originX = minX;
           originY = minY;
-          width = Math.max(340, maxX - minX);
+          width = Math.max(360, maxX - minX);
           height = Math.max(200, maxY - minY);
         } else {
           originX = sub.x ?? 100 + sIdx * 360;
           originY = sub.y ?? 320;
-          width = 340;
+          width = 360;
           height = 180;
         }
         origins[subId] = { x: originX, y: originY };
@@ -241,7 +364,7 @@ function SystemCanvasInner() {
           id: subId,
           type: 'subsystemNode',
           position: { x: originX, y: originY },
-          style: { width, height, zIndex: 0 },
+          style: { width, height, zIndex: -1 },
           selected: selectedSubsystemRef === sub.ref,
           data: {
             subsystem: sub,
@@ -258,10 +381,9 @@ function SystemCanvasInner() {
           rfNodes.push({
             id: m.id,
             type: 'rosNode',
-            parentId: subId,
             position: {
-              x: (m.x ?? originX + PAD_X) - originX,
-              y: (m.y ?? originY + PAD_TOP) - originY,
+              x: m.x ?? originX + PAD_X,
+              y: m.y ?? originY + PAD_TOP,
             },
             selected: selectedNodeId === m.id,
             data: {
@@ -275,12 +397,9 @@ function SystemCanvasInner() {
     });
 
     // 3. Direct System Nodes (standalone or inside a ProcessGroupNode)
-    directNodes.forEach((node, idx) => {
-      const absX = node.x ?? 80 + (idx % 3) * 340;
-      const absY = node.y ?? 80 + Math.floor(idx / 3) * 230;
-      const assignedProc = nodeToProcess.get(node.label);
-      const parentId = assignedProc ? `proc_${assignedProc}` : undefined;
-      const parentOrigin = parentId ? origins[parentId] : null;
+    directNodes.forEach((node) => {
+      const absX = node.x;
+      const absY = node.y;
 
       const nodeDiags = diags.filter(
         (d) =>
@@ -302,11 +421,8 @@ function SystemCanvasInner() {
       rfNodes.push({
         id: node.id,
         type: 'rosNode',
-        ...(parentId ? { parentId } : {}),
-        position: parentOrigin
-          ? { x: absX - parentOrigin.x, y: absY - parentOrigin.y }
-          : { x: absX, y: absY },
-        hidden: !matchesSearch && !parentId,
+        position: { x: absX, y: absY },
+        hidden: !matchesSearch,
         selected: selectedNodeId === node.id,
         data: {
           node,
@@ -320,9 +436,10 @@ function SystemCanvasInner() {
     const modeMap = {
       spline: 'default',
       linear: 'straight',
-      orthogonal: 'smoothstep',
+      orthogonal: 'jumpOrthogonal',
     };
-    const defaultEdgeType = modeMap[project.view?.connectorMode || 'orthogonal'] || 'smoothstep';
+    const defaultConnectorMode = project.view?.connectorMode || 'orthogonal';
+    const defaultEdgeType = modeMap[defaultConnectorMode] || 'jumpOrthogonal';
 
     const rfEdges = [];
     for (const conn of project.connections || []) {
@@ -359,7 +476,9 @@ function SystemCanvasInner() {
         ? '#ef4444'
         : KIND_META[fromIface.kind]?.color || '#4c9aff';
       const resolvedType = (fromIface.type || toIface.type || '').split('/').pop() || (fromIface.label || fromIface.name);
-      const edgeType = conn.connectorMode ? modeMap[conn.connectorMode] || defaultEdgeType : defaultEdgeType;
+      const edgeType = conn.connectorMode
+        ? (conn.connectorMode === 'orthogonal' ? 'jumpOrthogonal' : modeMap[conn.connectorMode] || 'jumpOrthogonal')
+        : defaultEdgeType;
 
       rfEdges.push({
         id: conn.id,
@@ -372,10 +491,18 @@ function SystemCanvasInner() {
         label: resolvedType,
         markerEnd: { type: MarkerType.ArrowClosed, color: strokeColor },
         style: { stroke: strokeColor, strokeWidth: selectedEdgeId === conn.id ? 2.8 : 2 },
-        labelStyle: { fontSize: 10, fill: '#cbd5e1', fontWeight: 600 },
-        labelBgStyle: { fill: 'rgba(24, 26, 31, 0.85)', rx: 4, ry: 4 },
-        labelBgPadding: [5, 3],
-        data: { connection: conn },
+        data: {
+          connection: conn,
+          midX: conn.midX ?? project.view?.connMidX?.[conn.id],
+          midY: conn.midY ?? project.view?.connMidY?.[conn.id],
+          waypoints: conn.waypoints || project.view?.connWaypoints?.[conn.id] || [],
+          isReadOnly,
+          onMoveMidX: handleMoveMidX,
+          onMoveMidY: handleMoveMidY,
+          onMoveWaypoint: handleMoveWaypoint,
+          onAddWaypoint: handleAddWaypoint,
+          onDeleteWaypoint: handleDeleteWaypoint,
+        },
       });
     }
 
@@ -390,21 +517,42 @@ function SystemCanvasInner() {
     canvasSearch,
     isReadOnly,
     handleToggleSubsystem,
+    handleMoveMidX,
+    handleMoveMidY,
+    handleMoveWaypoint,
+    handleAddWaypoint,
+    handleDeleteWaypoint,
   ]);
+
+  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(computedNodes);
+  const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(computedEdges);
+
+  useEffect(() => {
+    setNodes(computedNodes);
+  }, [computedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(computedEdges);
+  }, [computedEdges, setEdges]);
 
   const onNodesChange = useCallback(
     (changes) => {
       if (isReadOnly) return;
-      if (changes.some((c) => c.type === 'position')) {
-        setDraftNodes((prev) => applyNodeChanges(changes, prev || computedNodes));
-      }
+      onNodesChangeInternal(changes);
     },
-    [isReadOnly, computedNodes]
+    [isReadOnly, onNodesChangeInternal]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes) => {
+      if (isReadOnly) return;
+      onEdgesChangeInternal(changes);
+    },
+    [isReadOnly, onEdgesChangeInternal]
   );
 
   const onNodeDragStop = useCallback(
     (_, draggedNode) => {
-      setDraftNodes(null);
       if (isReadOnly || !draggedNode) return;
 
       mutateLayout((proj) => {
@@ -459,9 +607,8 @@ function SystemCanvasInner() {
         if (draggedNode.type === 'rosNode') {
           const target = (proj.nodes || []).find((n) => n.id === draggedNode.id);
           if (!target) return;
-          const pOrigin = draggedNode.parentId ? parentOrigins[draggedNode.parentId] : null;
-          target.x = Math.round((pOrigin ? pOrigin.x : 0) + draggedNode.position.x);
-          target.y = Math.round((pOrigin ? pOrigin.y : 0) + draggedNode.position.y);
+          target.x = Math.round(draggedNode.position.x);
+          target.y = Math.round(draggedNode.position.y);
         }
       });
     },
@@ -677,10 +824,12 @@ function SystemCanvasInner() {
         onDrop={handleDrop}
       >
         <ReactFlow
-          nodes={draftNodes || computedNodes}
-          edges={computedEdges}
+          nodes={nodes}
+          edges={edges}
           nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
           isValidConnection={isValidConnection}

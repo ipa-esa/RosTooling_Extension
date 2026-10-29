@@ -280,6 +280,76 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.strictEqual(roundTripped.nodes.length, 1);
   });
 
+  test('Parse and emit string constants and numeric constants across msgs, srvs, and actions', () => {
+    const rosText = `my_msgs:
+  msgs:
+    StatusMsg
+      message
+        uint8 STATUS_ACTIVE=1
+        string DEFAULT_FRAME="base_link"
+        string GREETING='hello world'
+        string SIMPLE_STRING=robot
+        string SPACED_ASSIGN = "spaced value"
+    EmptyMsg
+      message
+        string EMPTY_STR=""
+  srvs:
+    ConfigService
+      request
+        string MODE="fast"
+      response
+        string RESULT="ok"
+  actions:
+    MoveAction
+      goal
+        string CMD="start"
+      result
+        string STATUS="done"
+      feedback
+        string STAGE="active"
+`;
+
+    const parsed = RosModelParser.parseRos(rosText, 'my_msgs.ros');
+    assert.strictEqual(parsed.system.name, 'my_msgs');
+    assert.strictEqual(parsed.nodes.length, 4);
+
+    const statusSpec = parsed.types['my_msgs.StatusMsg'];
+    assert.ok(statusSpec);
+    const msgFields = statusSpec.fields?.['message'] || [];
+    assert.strictEqual(msgFields.length, 5);
+
+    assert.deepStrictEqual(msgFields[0], { type: 'uint8', name: 'STATUS_ACTIVE', constant: true, value: '1', array: false });
+    assert.deepStrictEqual(msgFields[1], { type: 'string', name: 'DEFAULT_FRAME', constant: true, value: 'base_link', array: false });
+    assert.deepStrictEqual(msgFields[2], { type: 'string', name: 'GREETING', constant: true, value: 'hello world', array: false });
+    assert.deepStrictEqual(msgFields[3], { type: 'string', name: 'SIMPLE_STRING', constant: true, value: 'robot', array: false });
+    assert.deepStrictEqual(msgFields[4], { type: 'string', name: 'SPACED_ASSIGN', constant: true, value: 'spaced value', array: false });
+
+    const srvSpec = parsed.types['my_msgs.ConfigService'];
+    assert.ok(srvSpec);
+    assert.deepStrictEqual(srvSpec.fields?.['request']?.[0], { type: 'string', name: 'MODE', constant: true, value: 'fast', array: false });
+    assert.deepStrictEqual(srvSpec.fields?.['response']?.[0], { type: 'string', name: 'RESULT', constant: true, value: 'ok', array: false });
+
+    const actionSpec = parsed.types['my_msgs.MoveAction'];
+    assert.ok(actionSpec);
+    assert.deepStrictEqual(actionSpec.fields?.['goal']?.[0], { type: 'string', name: 'CMD', constant: true, value: 'start', array: false });
+    assert.deepStrictEqual(actionSpec.fields?.['result']?.[0], { type: 'string', name: 'STATUS', constant: true, value: 'done', array: false });
+    assert.deepStrictEqual(actionSpec.fields?.['feedback']?.[0], { type: 'string', name: 'STAGE', constant: true, value: 'active', array: false });
+
+    const emitted = RosModelEmitter.emitRos(parsed);
+    assert.ok(emitted.includes('string DEFAULT_FRAME=base_link'));
+    assert.ok(emitted.includes('string GREETING="hello world"'));
+    assert.ok(emitted.includes('string SPACED_ASSIGN="spaced value"'));
+    assert.ok(emitted.includes('string MODE=fast'));
+    assert.ok(emitted.includes('string RESULT=ok'));
+    assert.ok(emitted.includes('string CMD=start'));
+    assert.ok(emitted.includes('string STATUS=done'));
+    assert.ok(emitted.includes('string STAGE=active'));
+
+    const roundTrip = RosModelParser.parseRos(emitted, 'my_msgs.ros');
+    assert.strictEqual(roundTrip.nodes.length, 4);
+    assert.strictEqual(roundTrip.types['my_msgs.StatusMsg'].fields?.['message']?.length, 5);
+  });
+
   test('Preserve distinct artifact target references in .rossystem when node label, from:, and artifact differ', () => {
     const doc = `ros2_control_simulation:
   fromFile: "ros2_control_simulation.rossystem"

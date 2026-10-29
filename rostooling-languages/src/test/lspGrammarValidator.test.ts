@@ -458,7 +458,7 @@ suite('LSP Protocol Model Validation Test Suite', () => {
     );
   });
 
-  test('Validate .ros model (messages, services, actions) against Xtext RosValidator via LSP', async function () {
+  test('Validate .ros model (messages, services, actions with string/numeric constants) against Xtext RosValidator via LSP', async function () {
     this.timeout(10000);
 
     const rosText = `my_msgs:
@@ -473,23 +473,31 @@ suite('LSP Protocol Model Validation Test Suite', () => {
       message
         int32 seq
         string frame_id
+        string DEFAULT_FRAME="base_link"
+        string GREETING='hello world'
+        string CODE=active
   srvs:
     CalculateTransform
       request
         string source_frame
         string target_frame
+        string MODE="fast"
       response
         float64 distance
         bool success
+        string STATUS="done"
   actions:
     ExecuteTrajectory
       goal
         string trajectory_id
         float64 target_velocity
+        string ACTION_TYPE="start"
       result
         bool reached
+        string RESULT_CODE="completed"
       feedback
         float64 current_progress
+        string STAGE_MSG="executing"
 `;
 
     const project = RosModelParser.parseRos(rosText, 'my_msgs.ros');

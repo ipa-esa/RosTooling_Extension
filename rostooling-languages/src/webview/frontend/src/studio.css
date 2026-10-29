@@ -616,6 +616,45 @@ body,
   filter: drop-shadow(0 0 4px rgba(76, 154, 255, 0.6));
 }
 
+/* Movable Connection Edge Handles & Waypoints */
+.rt-edge-handle {
+  fill: var(--rt-surface, #1e293b);
+  stroke: var(--rt-accent, #3b82f6);
+  stroke-width: 2.2;
+  transition: stroke 0.15s ease, r 0.15s ease, fill 0.15s ease;
+  pointer-events: auto !important;
+}
+
+.rt-edge-handle.handle-v {
+  cursor: col-resize;
+}
+
+.rt-edge-handle.handle-h {
+  cursor: row-resize;
+}
+
+.rt-edge-handle.handle-waypoint {
+  fill: #10b981;
+  stroke: #ffffff;
+  stroke-width: 2.5;
+  cursor: move;
+}
+
+.rt-edge-handle:hover,
+.rt-edge-handle.sel {
+  stroke: #ffffff;
+  fill: var(--rt-accent, #3b82f6);
+  r: 7.5;
+}
+
+.rt-edge-handle.handle-waypoint:hover,
+.rt-edge-handle.handle-waypoint.sel {
+  stroke: #ffffff;
+  fill: #059669;
+  r: 8.5;
+  filter: drop-shadow(0 0 5px #10b981);
+}
+
 /* Custom RosNodeCard */
 .rt-node-card {
   width: 280px;
@@ -838,7 +877,7 @@ body,
   border-radius: 12px;
   display: flex;
   flex-direction: column;
-  pointer-events: all;
+  pointer-events: none;
 }
 
 .rt-process-group.selected {
@@ -856,6 +895,8 @@ body,
   background: rgba(14, 116, 144, 0.16);
   border-bottom: 1px dashed rgba(56, 189, 248, 0.35);
   border-radius: 10px 10px 0 0;
+  pointer-events: all;
+  cursor: grab;
 }
 
 .rt-process-title {
@@ -895,6 +936,12 @@ body,
   height: 100%;
   background: rgba(245, 158, 11, 0.05);
   border-style: dashed;
+  pointer-events: none;
+}
+
+.rt-subsystem-card.framed .rt-subsystem-hdr {
+  pointer-events: all;
+  cursor: grab;
 }
 
 .rt-subsystem-card.selected {

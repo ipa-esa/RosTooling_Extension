@@ -716,7 +716,8 @@ export const RosModelParser = {
   tokenizeRosLine(line: string): string[] {
     const clean = this.splitComment(line)[0].trim();
     if (!clean) return [];
-    const regex = /('[^']*'(?:\[\])?|"[^"]*"(?:\[\])?|\S+)/g;
+    // Match tokens including assignments with quoted/unquoted values (e.g. string FOO="hello world")
+    const regex = /((?:'[^']*'|"[^"]*"|[^\s=]+)=(?:'[^']*'|"[^"]*"|\S+)|'[^']*'(?:\[\])?|"[^"]*"(?:\[\])?|\S+)/g;
     const tokens: string[] = [];
     let m: RegExpExecArray | null;
     while ((m = regex.exec(clean)) !== null) {
@@ -851,19 +852,40 @@ export const RosModelParser = {
         if (!curTypeSpec.fields) curTypeSpec.fields = {};
         if (!curTypeSpec.fields[curCompartment]) curTypeSpec.fields[curCompartment] = [];
 
-        for (let j = 0; j < tokens.length; j += 2) {
+        let j = 0;
+        while (j < tokens.length) {
           const typeToken = tokens[j];
           const dataToken = tokens[j + 1];
           if (!typeToken || !dataToken) break;
 
-          const isConst = dataToken.includes('=');
+          let isConst = false;
           let fName = dataToken;
           let fVal: string | undefined = undefined;
-          if (isConst) {
+          let step = 2;
+
+          if (dataToken.includes('=')) {
+            isConst = true;
             const eqIdx = dataToken.indexOf('=');
             fName = dataToken.slice(0, eqIdx);
             fVal = dataToken.slice(eqIdx + 1);
+            step = 2;
+          } else if (tokens[j + 2] === '=' && tokens[j + 3] !== undefined) {
+            isConst = true;
+            fName = dataToken;
+            fVal = tokens[j + 3];
+            step = 4;
+          } else if (dataToken.endsWith('=') && tokens[j + 2] !== undefined) {
+            isConst = true;
+            fName = dataToken.slice(0, -1);
+            fVal = tokens[j + 2];
+            step = 3;
+          } else if (tokens[j + 2] && tokens[j + 2].startsWith('=')) {
+            isConst = true;
+            fName = dataToken;
+            fVal = tokens[j + 2].slice(1);
+            step = 3;
           }
+
           curTypeSpec.fields[curCompartment].push({
             type: typeToken,
             name: this.unquote(fName),
@@ -871,6 +893,7 @@ export const RosModelParser = {
             value: fVal !== undefined ? this.unquote(fVal) : undefined,
             array: typeToken.endsWith('[]'),
           });
+          j += step;
         }
       }
     }

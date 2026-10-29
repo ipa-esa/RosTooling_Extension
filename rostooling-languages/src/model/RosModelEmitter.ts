@@ -2,6 +2,7 @@ import {
   RosProject,
   RosInteractionKind,
   RosTypeSpec,
+  RosField,
 } from './RosModelTypes';
 
 const KIND_TO_BLOCK: Record<RosInteractionKind, string> = {
@@ -384,6 +385,32 @@ export const RosModelEmitter = {
     return `${base}${isArray ? '[]' : ''}`;
   },
 
+  formatRosField(f: RosField): string {
+    const formattedType = this.formatRosType(f.type);
+    if (f.constant) {
+      let name = f.name;
+      let val = f.value;
+      if (name.includes('=')) {
+        const parts = name.split('=');
+        name = parts[0];
+        if (val === undefined) {
+          val = parts.slice(1).join('=');
+        }
+      }
+      val = val ?? '';
+      const isStringType = f.type === 'string' || f.type.endsWith('string');
+      if (isStringType) {
+        if (!val.startsWith('"') && !val.startsWith("'")) {
+          if (/\s|[^a-zA-Z0-9_]/.test(val) || val === '') {
+            val = `"${val.replace(/"/g, '\\"')}"`;
+          }
+        }
+      }
+      return `        ${formattedType} ${name}=${val}`;
+    }
+    return `        ${formattedType} ${f.name}`;
+  },
+
   /**
    * Emit a formatted .ros document (ROS Communication Objects) adhering strictly to Ros.xtext grammar
    */
@@ -460,12 +487,7 @@ export const RosModelEmitter = {
           lines.push(`    ${this.formatKey(m.name)}`);
           lines.push('      message');
           for (const f of m.fields?.['message'] || []) {
-            const formattedType = this.formatRosType(f.type);
-            if (f.constant) {
-              lines.push(`        ${formattedType} ${f.name}=${f.value ?? ''}`);
-            } else {
-              lines.push(`        ${formattedType} ${f.name}`);
-            }
+            lines.push(this.formatRosField(f));
           }
         }
       }
@@ -476,11 +498,11 @@ export const RosModelEmitter = {
           lines.push(`    ${this.formatKey(s.name)}`);
           lines.push('      request');
           for (const f of s.fields?.['request'] || []) {
-            lines.push(`        ${this.formatRosType(f.type)} ${f.name}`);
+            lines.push(this.formatRosField(f));
           }
           lines.push('      response');
           for (const f of s.fields?.['response'] || []) {
-            lines.push(`        ${this.formatRosType(f.type)} ${f.name}`);
+            lines.push(this.formatRosField(f));
           }
         }
       }
@@ -491,15 +513,15 @@ export const RosModelEmitter = {
           lines.push(`    ${this.formatKey(a.name)}`);
           lines.push('      goal');
           for (const f of a.fields?.['goal'] || []) {
-            lines.push(`        ${this.formatRosType(f.type)} ${f.name}`);
+            lines.push(this.formatRosField(f));
           }
           lines.push('      result');
           for (const f of a.fields?.['result'] || []) {
-            lines.push(`        ${this.formatRosType(f.type)} ${f.name}`);
+            lines.push(this.formatRosField(f));
           }
           lines.push('      feedback');
           for (const f of a.fields?.['feedback'] || []) {
-            lines.push(`        ${this.formatRosType(f.type)} ${f.name}`);
+            lines.push(this.formatRosField(f));
           }
         }
       }

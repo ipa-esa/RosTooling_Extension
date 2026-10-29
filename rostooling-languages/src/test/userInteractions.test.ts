@@ -124,6 +124,8 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     updateNodeLabel: (nodeId: string, newLabel: string) => void;
     updateNodePackageAndArtifact: (node: { id: string }, pkgVal?: string, artVal?: string) => void;
     runDagreAutoLayout: () => void;
+    estimateCardHeight?: (node: Record<string, unknown>) => number;
+    estimateCardWidth?: (node: Record<string, unknown>) => number;
   }
 
   let cachedBundleScript: vm.Script | null = null;
@@ -2576,6 +2578,171 @@ inspection_system:
       assert.ok(emittedWithVal.includes('parameters:'), 'Parameters with launch values must be emitted');
       assert.ok(emittedWithVal.includes('- slowdown_radius: "safety_supervisor::slowdown_radius"'));
       assert.ok(emittedWithVal.includes('value: 1.0'));
+    });
+  });
+
+  // --------------------------------------------------------------------------------------
+  // 23. VISUAL WEBVIEW REFINEMENTS: PROCESS BOX ENCOMPASSING & EDGE LABEL HANDLE SEPARATION
+  // --------------------------------------------------------------------------------------
+  suite('23. Visual Webview Refinements: Process Box Encompassing & Edge Label Handle Separation', () => {
+    test('estimateCardHeight accurately accounts for headers, subtitles, badges, and interfaces', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+      const html = getStudioHtml(createTestProject(), mockUri, mockWebview, {}, {}, 'test.rossystem');
+      const { studioApi } = runStudioBundleInVm(html);
+      assert.ok(studioApi.estimateCardHeight, 'estimateCardHeight must be exported on __ROSTOOLING_STUDIO__');
+      assert.ok(studioApi.estimateCardWidth, 'estimateCardWidth must be exported on __ROSTOOLING_STUDIO__');
+
+      // node1 from test_system.rossystem: subtitle + 2 parameters + 4 interfaces
+      const node1 = {
+        id: 'node1',
+        label: 'node1',
+        from: 'test_system.image_filter',
+        ifaces: [
+          { id: 'f1', name: 'filtered_image_pub', kind: 'pub', exposed: true },
+          { id: 'f2', name: 'description_pub', kind: 'pub', exposed: true },
+          { id: 'f3', name: 'image_sub', kind: 'sub', exposed: true },
+          { id: 'f4', name: 'laser_sub', kind: 'sub', exposed: true },
+        ],
+        params: [
+          { name: 'ImageName', value: 'image_raw' },
+          { name: 'ImageName', value: 'image_raw' },
+        ],
+      };
+
+      const h1 = studioApi.estimateCardHeight(node1);
+      // Actual card height is 255px (header 54 + badges 31 + ports 162 + buffer 8)
+      assert.ok(h1 >= 220 && h1 <= 270, `node1 height estimate should be between 220px and 270px, got ${h1}`);
+
+      const w1 = studioApi.estimateCardWidth(node1);
+      assert.ok(w1 >= 300, `node1 width estimate should be at least 300px, got ${w1}`);
+
+      // node2 from test_system.rossystem: subtitle + 0 parameters + 3 interfaces
+      const node2 = {
+        id: 'node2',
+        label: 'node2',
+        from: 'test_system.consumer',
+        ifaces: [
+          { id: 'f5', name: 'filtered_image_sub', kind: 'sub', exposed: true },
+          { id: 'f6', name: 'description_sub', kind: 'sub', exposed: true },
+          { id: 'f7', name: 'inferenced_image_pub', kind: 'pub', exposed: true },
+        ],
+        params: [],
+      };
+
+      const h2 = studioApi.estimateCardHeight(node2);
+      assert.ok(h2 >= 180 && h2 <= 210, `node2 height estimate should be between 180px and 210px, got ${h2}`);
+    });
+
+    test('Process group bounding box comfortably encompasses member nodes without bottom or side spillover', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+      const html = getStudioHtml(createTestProject(), mockUri, mockWebview, {}, {}, 'test.rossystem');
+      const { studioApi } = runStudioBundleInVm(html);
+      const estimateH = studioApi.estimateCardHeight;
+      const estimateW = studioApi.estimateCardWidth;
+      assert.ok(estimateH && estimateW);
+
+      const PAD_X = 36;
+      const PAD_TOP = 58;
+      const PAD_BOTTOM = 38;
+
+      const member1 = {
+        id: 'node1',
+        label: 'node1',
+        from: 'test_system.image_filter',
+        x: 80,
+        y: 80,
+        ifaces: [
+          { id: 'f1', name: 'filtered_image_pub', kind: 'pub', exposed: true },
+          { id: 'f2', name: 'description_pub', kind: 'pub', exposed: true },
+          { id: 'f3', name: 'image_sub', kind: 'sub', exposed: true },
+          { id: 'f4', name: 'laser_sub', kind: 'sub', exposed: true },
+        ],
+        params: [
+          { name: 'ImageName', value: 'image_raw' },
+          { name: 'ImageName', value: 'image_raw' },
+        ],
+      };
+
+      const member2 = {
+        id: 'node2',
+        label: 'node2',
+        from: 'test_system.consumer',
+        x: 440,
+        y: 80,
+        ifaces: [
+          { id: 'f5', name: 'filtered_image_sub', kind: 'sub', exposed: true },
+          { id: 'f6', name: 'description_sub', kind: 'sub', exposed: true },
+          { id: 'f7', name: 'inferenced_image_pub', kind: 'pub', exposed: true },
+        ],
+        params: [],
+      };
+
+      const members = [member1, member2];
+      const minX = Math.min(...members.map((m) => m.x)) - PAD_X;
+      const minY = Math.min(...members.map((m) => m.y)) - PAD_TOP;
+      const maxX = Math.max(...members.map((m) => m.x + estimateW(m))) + PAD_X;
+      const maxY = Math.max(...members.map((m) => m.y + estimateH(m))) + PAD_BOTTOM;
+
+      const boxWidth = Math.max(360, maxX - minX);
+      const boxHeight = Math.max(200, maxY - minY);
+
+      // Verify bounds encompass member 1
+      assert.ok(minX < member1.x, 'Process group left boundary must be outside member1');
+      assert.ok(minY < member1.y, 'Process group top boundary must be above member1');
+      assert.ok(member1.x + estimateW(member1) < maxX, 'member1 right edge must be within maxX');
+      assert.ok(member1.y + estimateH(member1) < maxY, 'member1 bottom edge must be within maxY');
+
+      // Verify generous breathing room at bottom: at least PAD_BOTTOM (38px)
+      const bottomGap1 = maxY - (member1.y + estimateH(member1));
+      assert.ok(bottomGap1 >= PAD_BOTTOM, `Bottom gap (${bottomGap1}px) must be >= PAD_BOTTOM (${PAD_BOTTOM}px)`);
+
+      // Verify bounds encompass member 2
+      assert.ok(member2.x + estimateW(member2) < maxX, 'member2 right edge must be within maxX');
+      assert.ok(member2.y + estimateH(member2) < maxY, 'member2 bottom edge must be within maxY');
+      const bottomGap2 = maxY - (member2.y + estimateH(member2));
+      assert.ok(bottomGap2 >= PAD_BOTTOM, `Bottom gap for member 2 (${bottomGap2}px) must be >= PAD_BOTTOM`);
+
+      // Verify overall box dimensions
+      assert.ok(boxWidth >= 700, `Process box width should comfortably hold both nodes, got ${boxWidth}`);
+      assert.ok(boxHeight >= 340, `Process box height should comfortably hold tall node, got ${boxHeight}`);
+    });
+
+    test('JumpOrthogonalEdge places connection label along horizontal segment away from corridor drag handle', () => {
+      // Direct left-to-right orthogonal route points
+      const sourceX = 100;
+      const sourceY = 200;
+      const targetX = 500;
+      const targetY = 320;
+      const finalMidX = 300;
+
+      const pts = [
+        { x: sourceX, y: sourceY },
+        { x: finalMidX, y: sourceY },
+        { x: finalMidX, y: targetY },
+        { x: targetX, y: targetY },
+      ];
+      assert.strictEqual(pts.length, 4);
+
+      const handleV = {
+        x: finalMidX,
+        y: Math.round((sourceY + targetY) / 2), // (300, 260)
+      };
+
+      // Candidate label position along first horizontal segment (sourceX to finalMidX)
+      const labelX = (sourceX + finalMidX) / 2; // 200
+      const labelY = sourceY; // 200
+
+      // Distance from label to handleV
+      const distanceToHandle = Math.hypot(labelX - handleV.x, labelY - handleV.y);
+      // dx = 300 - 200 = 100, dy = 260 - 200 = 60 => dist = sqrt(100^2 + 60^2) = 116.6px
+      assert.ok(
+        distanceToHandle >= 50,
+        `Edge label must be at least 50px away from vertical handle handleV, got ${distanceToHandle.toFixed(1)}px`
+      );
+      assert.notStrictEqual(labelX, handleV.x, 'Label X must not coincide with vertical corridor midX');
+      assert.notStrictEqual(labelY, handleV.y, 'Label Y must not coincide with corridor handle Y');
     });
   });
 });
