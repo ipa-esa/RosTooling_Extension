@@ -4,6 +4,7 @@
 build/**
 src/**
 !src/server/**
+!src/webview/frontend/dist/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md

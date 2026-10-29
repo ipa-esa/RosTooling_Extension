@@ -207,3 +207,8 @@ graphify-out/**
 
 **/install/
 **/log/
+
+# React Flow Webview frontend dependencies (keep compiled dist/ bundle tracked)
+rostooling-languages/src/webview/frontend/node_modules/
+!rostooling-languages/src/webview/frontend/dist/
+!rostooling-languages/src/webview/frontend/dist/**

@@ -10,6 +10,6 @@ export default defineConfig(
   tseslint.configs.strict,
   tseslint.configs.stylistic,
   {
-    ignores: ["package.json", "package-lock.json","*.json","*.md","/public","/out","/build"]
+    ignores: ["package.json", "package-lock.json", "*.json", "*.md", "/public", "/out", "/build", "src/webview/frontend/**"]
   }
 );
