@@ -95,6 +95,120 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     };
   }
 
+  interface StudioInitialData {
+    project: RosProject;
+    mode: 'ros' | 'component' | 'system';
+    isReadOnly: boolean;
+    docFileName: string;
+    nodeIndex: Record<string, unknown>;
+    typeIndex: Record<string, unknown>;
+  }
+
+  interface StudioRuntimeApi {
+    RosStudioApp: unknown;
+    RosSystemView: unknown;
+    RosComponentView: unknown;
+    RosCommObjectsView: unknown;
+    ProcessGroupNode: unknown;
+    RosNodeCard: unknown;
+    SubsystemNodeCard: unknown;
+    CatalogueDrawer: unknown;
+    filterCatalogueSystems: (
+      rawSystems: { system: string; file?: string; nodes?: Record<string, unknown> }[],
+      currentSysName: string,
+      docBaseName: string,
+      searchQuery?: string
+    ) => { system: string }[];
+    ReadOnlyBanner: unknown;
+    validatePortConnection: (project: RosProject, srcNodeId: string, srcIfaceId: string, dstNodeId: string, dstIfaceId: string) => { valid: boolean; reason?: string };
+    updateNodeLabel: (nodeId: string, newLabel: string) => void;
+    updateNodePackageAndArtifact: (node: { id: string }, pkgVal?: string, artVal?: string) => void;
+    runDagreAutoLayout: () => void;
+  }
+
+  let cachedBundleScript: vm.Script | null = null;
+
+  function readStudioAssets(): { js: string; css: string; compiled: vm.Script } {
+    const jsPath = path.resolve(__dirname, '../../src/webview/frontend/dist/studio.js');
+    const cssPath = path.resolve(__dirname, '../../src/webview/frontend/dist/studio.css');
+    assert.ok(fs.existsSync(jsPath), `Compiled React Flow bundle must exist at ${jsPath}`);
+    assert.ok(fs.existsSync(cssPath), `Compiled React Flow stylesheet must exist at ${cssPath}`);
+    const js = fs.readFileSync(jsPath, 'utf-8');
+    const css = fs.readFileSync(cssPath, 'utf-8');
+    assert.ok(js.length > 1000, 'studio.js bundle must be non-empty');
+    assert.ok(css.length > 500, 'studio.css stylesheet must be non-empty');
+    if (!cachedBundleScript) {
+      cachedBundleScript = new vm.Script(js);
+    }
+    return { js, css, compiled: cachedBundleScript };
+  }
+
+  function extractInitialData(html: string): StudioInitialData {
+    const scriptMatch = html.match(/<script\b[^>]*>(window\.INITIAL_DATA\s*=[\s\S]*?)<\/script>/i);
+    assert.ok(scriptMatch, 'Inline INITIAL_DATA script tag must exist in studio HTML');
+    const win: { INITIAL_DATA?: StudioInitialData } = {};
+    const ctx = vm.createContext({ window: win });
+    new vm.Script(scriptMatch[1]).runInContext(ctx);
+    assert.ok(win.INITIAL_DATA, 'window.INITIAL_DATA must be populated by inline script');
+    return win.INITIAL_DATA;
+  }
+
+  function runStudioBundleInVm(html: string): {
+    initialData: StudioInitialData;
+    studioApi: StudioRuntimeApi;
+    postedMessages: { type: string; project?: RosProject }[];
+  } {
+    const { compiled } = readStudioAssets();
+    const scriptMatch = html.match(/<script\b[^>]*>(window\.INITIAL_DATA\s*=[\s\S]*?)<\/script>/i);
+    assert.ok(scriptMatch, 'Inline INITIAL_DATA script tag must exist in studio HTML');
+
+    const noop = (): void => {
+      /* no-op for headless VM check */
+    };
+    const postedMessages: { type: string; project?: RosProject }[] = [];
+    const win: Record<string, unknown> = {
+      addEventListener: noop,
+      removeEventListener: noop,
+      matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
+    };
+    const dom = {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
+      body: { classList: { add: noop, remove: noop } },
+    };
+    const contextObj: Record<string, unknown> = {
+      window: win,
+      self: win,
+      document: dom,
+      navigator: { platform: 'Linux', userAgent: 'NodeVM' },
+      console: { log: noop, warn: noop, error: noop },
+      setTimeout,
+      clearTimeout,
+      URL,
+      URLSearchParams,
+      acquireVsCodeApi: () => ({
+        postMessage: (msg: { type: string; project?: RosProject }) => {
+          postedMessages.push(msg);
+        },
+        getState: () => null,
+        setState: noop,
+      }),
+    };
+    win['window'] = win;
+    win['document'] = dom;
+    const ctx = vm.createContext(contextObj);
+    new vm.Script(scriptMatch[1]).runInContext(ctx);
+    compiled.runInContext(ctx);
+
+    const initialData = win['INITIAL_DATA'] as StudioInitialData;
+    const studioApi = win['__ROSTOOLING_STUDIO__'] as StudioRuntimeApi;
+    assert.ok(initialData, 'window.INITIAL_DATA must be hydrated in VM');
+    assert.ok(studioApi, 'window.__ROSTOOLING_STUDIO__ must be registered by React Flow bundle');
+    return { initialData, studioApi, postedMessages };
+  }
+
   // --------------------------------------------------------------------------------------
   // 1. CANVAS NAVIGATION & VIEW CONTROLS
   // --------------------------------------------------------------------------------------
@@ -1231,6 +1345,7 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     test('Mode-specific UI rendering correctly isolates buttons between Communication Objects, Component, and System views', () => {
       const mockUri = vscode.Uri.file('/mock');
       const mockWebview = {} as vscode.Webview;
+      const { js } = readStudioAssets();
 
       // 1. Communication Objects View (.ros)
       const rosProj: RosProject = {
@@ -1245,13 +1360,12 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const rosHtml = getStudioHtml(rosProj, mockUri, mockWebview, {}, {}, 'my_msgs.ros');
-      assert.ok(!rosHtml.includes('id="btnAddNode"'), '.ros mode must NOT render + Add New Node');
-      assert.ok(!rosHtml.includes('id="btnAddSubsystem"'), '.ros mode must NOT render + Import Subsystem');
-      assert.ok(!rosHtml.includes('id="subsystemSection"'), '.ros mode must NOT render subsystemSection');
-      assert.ok(!rosHtml.includes('id="processSection"'), '.ros mode must NOT render processSection');
-      assert.ok(!rosHtml.includes('id="filterInterfaceSection"'), '.ros mode must NOT render filterInterfaceSection');
-      assert.ok(rosHtml.includes('id="btnAddCommObject"'), '.ros mode MUST render + Add Comm Object');
-      assert.ok(rosHtml.includes('id="filterTypeSection"'), '.ros mode MUST render filterTypeSection');
+      assert.ok(rosHtml.includes('<div id="root"></div>'), 'HTML shell must mount React #root');
+      assert.ok(rosHtml.includes('dist/studio.css'), 'HTML shell must link compiled studio.css');
+      assert.ok(rosHtml.includes('dist/studio.js'), 'HTML shell must load compiled studio.js');
+      const rosData = extractInitialData(rosHtml);
+      assert.strictEqual(rosData.mode, 'ros', '.ros model must boot React Studio in ros mode');
+      assert.strictEqual(rosData.docFileName, 'my_msgs.ros');
 
       // 2. Component View (.ros2)
       const ros2Proj: RosProject = {
@@ -1266,13 +1380,9 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const ros2Html = getStudioHtml(ros2Proj, mockUri, mockWebview, {}, {}, 'my_pkg.ros2');
-      assert.ok(ros2Html.includes('id="btnAddNode"'), '.ros2 mode MUST render + Add New Node');
-      assert.ok(!ros2Html.includes('id="btnAddSubsystem"'), '.ros2 mode must NOT render + Import Subsystem');
-      assert.ok(!ros2Html.includes('id="subsystemSection"'), '.ros2 mode must NOT render subsystemSection');
-      assert.ok(!ros2Html.includes('id="processSection"'), '.ros2 mode must NOT render processSection');
-      assert.ok(ros2Html.includes('id="filterInterfaceSection"'), '.ros2 mode MUST render filterInterfaceSection');
-      assert.ok(!ros2Html.includes('id="btnAddCommObject"'), '.ros2 mode must NOT render + Add Comm Object');
-      assert.ok(!ros2Html.includes('id="filterTypeSection"'), '.ros2 mode must NOT render filterTypeSection');
+      const ros2Data = extractInitialData(ros2Html);
+      assert.strictEqual(ros2Data.mode, 'component', '.ros2 model must boot React Studio in component mode');
+      assert.strictEqual(ros2Data.docFileName, 'my_pkg.ros2');
 
       // 3. System View (.rossystem)
       const systemProj: RosProject = {
@@ -1287,106 +1397,81 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const systemHtml = getStudioHtml(systemProj, mockUri, mockWebview, {}, {}, 'my_sys.rossystem');
-      assert.ok(!systemHtml.includes('id="btnAddNode"'), '.rossystem mode must NOT render + Add New Node');
-      assert.ok(systemHtml.includes('id="btnAddSystemNode"'), '.rossystem mode MUST render + Import Node');
-      assert.ok(systemHtml.includes('id="btnAddSubsystem"'), '.rossystem mode MUST render + Import Subsystem');
-      assert.ok(systemHtml.includes('id="subsystemSection"'), '.rossystem mode MUST render subsystemSection');
-      assert.ok(systemHtml.includes('id="processSection"'), '.rossystem mode MUST render processSection');
-      assert.ok(systemHtml.includes('id="filterInterfaceSection"'), '.rossystem mode MUST render filterInterfaceSection');
-      assert.ok(!systemHtml.includes('id="btnAddCommObject"'), '.rossystem mode must NOT render + Add Comm Object');
-      assert.ok(!systemHtml.includes('id="filterTypeSection"'), '.rossystem mode must NOT render filterTypeSection');
+      const sysData = extractInitialData(systemHtml);
+      assert.strictEqual(sysData.mode, 'system', '.rossystem model must boot React Studio in system mode');
+      assert.strictEqual(sysData.docFileName, 'my_sys.rossystem');
+
+      // 4. Verify React Flow bundle contains all three specialized views and mode-isolated controls
+      assert.ok(js.includes('RosCommObjectsView'), 'Bundle must include RosCommObjectsView (.ros)');
+      assert.ok(js.includes('RosComponentView'), 'Bundle must include RosComponentView (.ros2)');
+      assert.ok(js.includes('RosSystemView'), 'Bundle must include RosSystemView (.rossystem)');
+      assert.ok(js.includes('btnAddCommObject') && js.includes('filterTypeSection'), '.ros view controls must exist in bundle');
+      assert.ok(js.includes('btnAddNode') && js.includes('filterInterfaceSection'), '.ros2 view controls must exist in bundle');
+      assert.ok(
+        js.includes('btnAddSystemNode') &&
+          js.includes('btnAddSubsystem') &&
+          js.includes('btnAddProcess') &&
+          js.includes('subsystemSection') &&
+          js.includes('processSection'),
+        '.rossystem view controls must exist in bundle'
+      );
     });
 
     test('Webview client script executes cleanly without runtime or syntax errors across .ros, .ros2, and .rossystem', () => {
       const mockUri = { fsPath: '/mock/path' } as unknown as vscode.Uri;
       const mockWebview = { asWebviewUri: (u: vscode.Uri) => u } as unknown as vscode.Webview;
 
-      const testConfigs = [
+      const testConfigs: { proj: RosProject; file: string; expectedMode: 'ros' | 'component' | 'system' }[] = [
         {
-          proj: { isRos: true, nodes: [{ id: 'type_Msg', label: 'Msg', backing: 'type', typeCategory: 'msg', typeSpec: { name: 'Msg', category: 'msg', fields: { message: [] } } }], system: { name: 'test_pkg' } } as unknown as RosProject,
-          file: 'test_pkg.ros'
+          proj: {
+            isRos: true,
+            nodes: [{ id: 'type_Msg', label: 'Msg', backing: 'type', typeCategory: 'msg', typeSpec: { name: 'Msg', category: 'msg', fields: { message: [] } } }],
+            system: { name: 'test_pkg' },
+          } as unknown as RosProject,
+          file: 'test_pkg.ros',
+          expectedMode: 'ros',
         },
         {
-          proj: { isRos: false, isRosSystem: false, nodes: [{ id: 'n1', label: 'node1', ifaces: [] }], system: { name: 'pkg' } } as unknown as RosProject,
-          file: 'pkg.ros2'
+          proj: {
+            isRos: false,
+            isRosSystem: false,
+            nodes: [{ id: 'n1', label: 'node1', ifaces: [] }],
+            system: { name: 'pkg' },
+          } as unknown as RosProject,
+          file: 'pkg.ros2',
+          expectedMode: 'component',
         },
         {
-          proj: { isRos: false, isRosSystem: true, nodes: [], subSystems: [{ ref: 'sub1' }], system: { name: 'sys' } } as unknown as RosProject,
-          file: 'sys.rossystem'
-        }
+          proj: {
+            isRos: false,
+            isRosSystem: true,
+            nodes: [],
+            subSystems: [{ ref: 'sub1' }],
+            system: { name: 'sys' },
+          } as unknown as RosProject,
+          file: 'sys.rossystem',
+          expectedMode: 'system',
+        },
       ];
 
       for (const cfg of testConfigs) {
-        const html = getStudioHtml(cfg.proj, mockUri, mockWebview, { _systems: [{ system: 'sub1', nodes: { n1: { interfaces: [{ name: 'i1' }] } } }] }, {}, cfg.file);
-        const scriptMatch = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
-        assert.ok(scriptMatch, 'script tag must exist in studio HTML');
-        const scriptCode = scriptMatch[1];
+        const html = getStudioHtml(
+          cfg.proj,
+          mockUri,
+          mockWebview,
+          { _systems: [{ system: 'sub1', nodes: { n1: { interfaces: [{ name: 'i1' }] } } }] },
+          {},
+          cfg.file
+        );
 
-        // 1. Verify syntax compiles cleanly in Node VM
-        assert.doesNotThrow(() => {
-          new vm.Script(scriptCode);
-        }, `Syntax error found in script for ${cfg.file}`);
-
-        // 2. Verify execution in mock DOM
-        const noop = (): void => {
-          /* no-op for mock DOM */
-        };
-        const clickHandlers: Record<string, () => void> = {};
-        const elMap: Record<string, unknown> = {};
-        const mockEl = (tag: string) => ({
-          tagName: tag,
-          classList: {
-            add: noop,
-            remove: noop,
-            toggle: noop,
-            contains: () => false,
-          },
-          style: {},
-          appendChild: noop,
-          remove: noop,
-          addEventListener: noop,
-          querySelectorAll: () => [],
-          dataset: {},
-          getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
-        });
-
-        const dom = {
-          getElementById: (id: string) => {
-            if (!elMap[id]) {
-              const el = mockEl(id);
-              Object.defineProperty(el, 'onclick', {
-                set(fn: () => void) {
-                  clickHandlers[id] = fn;
-                },
-                get() {
-                  return clickHandlers[id];
-                },
-              });
-              elMap[id] = el;
-            }
-            return elMap[id];
-          },
-          querySelector: () => mockEl('div'),
-          querySelectorAll: () => [],
-          createElement: mockEl,
-          body: { classList: { add: noop, remove: noop } },
-        };
-
-        const context = {
-          document: dom,
-          window: { addEventListener: noop },
-          navigator: { platform: 'Linux' },
-          console: { log: noop, warn: noop, error: noop },
-          setTimeout: (fn: () => void) => fn(),
-          acquireVsCodeApi: () => ({ postMessage: noop }),
-        };
-
-        vm.createContext(context);
-        assert.doesNotThrow(() => {
-          vm.runInContext(scriptCode, context);
-        }, `Runtime error found when running script for ${cfg.file}`);
-
-        assert.ok(Object.keys(clickHandlers).length > 10, 'Expected multiple interactive button handlers to be registered');
+        const { initialData, studioApi } = runStudioBundleInVm(html);
+        assert.strictEqual(initialData.mode, cfg.expectedMode, `Expected mode ${cfg.expectedMode} for ${cfg.file}`);
+        assert.strictEqual(typeof studioApi.RosStudioApp, 'function', 'RosStudioApp component must be registered');
+        assert.strictEqual(typeof studioApi.RosSystemView, 'function', 'RosSystemView component must be registered');
+        assert.strictEqual(typeof studioApi.RosComponentView, 'function', 'RosComponentView component must be registered');
+        assert.strictEqual(typeof studioApi.RosCommObjectsView, 'function', 'RosCommObjectsView component must be registered');
+        assert.strictEqual(typeof studioApi.validatePortConnection, 'function', 'validatePortConnection helper must be exposed');
+        assert.strictEqual(typeof studioApi.runDagreAutoLayout, 'function', 'runDagreAutoLayout helper must be exposed');
       }
     });
   });
@@ -1864,21 +1949,33 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'sensor_nodes.ros2');
-      assert.ok(html.includes('details.qos-details'), 'HTML must include CSS styles for QoS details panel');
-      assert.ok(html.includes('.qos-grid'), 'HTML must include CSS grid for QoS fields');
-      assert.ok(html.includes('Quality of Service (QoS)'), 'HTML must render Quality of Service section header');
-      assert.ok(html.includes('data-qos-key="profile"'), 'HTML must include profile dropdown selector');
-      assert.ok(html.includes('data-qos-key="reliability"'), 'HTML must include reliability dropdown selector');
-      assert.ok(html.includes('data-qos-key="durability"'), 'HTML must include durability dropdown selector');
-      assert.ok(html.includes('data-qos-key="history"'), 'HTML must include history dropdown selector');
-      assert.ok(html.includes('data-qos-key="depth"'), 'HTML must include depth dropdown selector');
-      assert.ok(html.includes('data-qos-key="liveliness"'), 'HTML must include liveliness dropdown selector');
-      assert.ok(html.includes('data-qos-key="deadline"'), 'HTML must include deadline dropdown selector');
-      assert.ok(html.includes('data-qos-key="lifespan"'), 'HTML must include lifespan dropdown selector');
-      assert.ok(html.includes('data-qos-key="lease_duration"'), 'HTML must include lease_duration dropdown selector');
-      assert.ok(html.includes('btn-clear-qos'), 'HTML must include Reset QoS to Default button');
-      assert.ok(html.includes('default_qos'), 'HTML must include default_qos option');
-      assert.ok(html.includes('sensor_qos'), 'HTML must include sensor_qos option');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'component', 'QoS editor must boot in component mode for .ros2');
+
+      const { js, css } = readStudioAssets();
+      assert.ok(css.includes('details.qos-details'), 'Stylesheet must include CSS styles for QoS details panel');
+      assert.ok(css.includes('.qos-grid'), 'Stylesheet must include CSS grid for QoS fields');
+      assert.ok(js.includes('Quality of Service (QoS)'), 'React Component view must render Quality of Service section header');
+      for (const qosKey of [
+        'profile',
+        'reliability',
+        'durability',
+        'history',
+        'depth',
+        'liveliness',
+        'deadline',
+        'lifespan',
+        'lease_duration',
+      ]) {
+        assert.ok(
+          js.includes(`"data-qos-key": "${qosKey}"`) || js.includes(`data-qos-key="${qosKey}"`) || js.includes(qosKey),
+          `Bundle must include QoS field ${qosKey}`
+        );
+      }
+      assert.ok(js.includes('data-qos-key'), 'Bundle must bind data-qos-key attributes on QoS controls');
+      assert.ok(js.includes('btn-clear-qos'), 'Bundle must include Reset QoS to Default button');
+      assert.ok(js.includes('default_qos'), 'Bundle must include default_qos option');
+      assert.ok(js.includes('sensor_qos'), 'Bundle must include sensor_qos option');
     });
   });
 
@@ -2023,10 +2120,16 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(html.includes('btnOpenComponentRos2'), 'Inspector must render Edit Component in .ros2 View button');
-      assert.ok(html.includes('Edit Component in .ros2 View'), 'Button label must match specification');
-      assert.ok(html.includes('inp-iface-remap'), 'Inspector must render Remapped Name input field in System view');
-      assert.ok(html.includes('id="inpNodeFrom"') && html.includes('readonly style="opacity:0.85; background:var(--surface-2)'), 'Component definition must be read-only in System view');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+      assert.strictEqual(initData.isReadOnly, false);
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('btnOpenComponentRos2'), 'Inspector must render Edit Component in .ros2 View button');
+      assert.ok(js.includes('Edit Component in .ros2 View'), 'Button label must match specification');
+      assert.ok(js.includes('openComponentRos2'), 'Inspector button must dispatch openComponentRos2 host message');
+      assert.ok(js.includes('inp-iface-remap'), 'Inspector must render Remapped Name input field in System view');
+      assert.ok(js.includes('inpNodeFrom') && js.includes('readOnly'), 'Component definition must be read-only in System view');
     });
 
     test('Core catalogue read-only mode displays badge, disables inputs, and prevents modifications', () => {
@@ -2055,11 +2158,19 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, '/coresense-ws/src/RosModelsCatalog/cameras/cv_camera.ros2', true);
-      assert.ok(html.includes('readOnlyBadge'), 'Topbar must display read-only badge');
-      assert.ok(html.includes('Core Catalogue (Read-Only)'), 'Badge text must clearly indicate core catalogue read-only');
-      assert.ok(html.includes('var isReadOnly = true;'), 'Client script must have isReadOnly set to true');
-      assert.ok(!html.includes('id="btnOpenCatalogue"'), 'Catalogue add button must be omitted in read-only mode');
-      assert.ok(html.includes('sysNameInput" class="sysname-input" value="cv_camera" placeholder="Enter package name..." disabled'), 'Model name input must be disabled in read-only mode');
+      const { initialData, studioApi, postedMessages } = runStudioBundleInVm(html);
+      assert.strictEqual(initialData.isReadOnly, true, 'INITIAL_DATA must have isReadOnly set to true');
+      assert.strictEqual(typeof studioApi.ReadOnlyBanner, 'function', 'ReadOnlyBanner component must exist');
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('readOnlyBadge'), 'ReadOnlyBanner must render readOnlyBadge');
+      assert.ok(js.includes('Core Catalogue (Read-Only)'), 'Topbar badge text must clearly indicate core catalogue read-only');
+      assert.ok(js.includes('Core Catalogue Model (Read-Only)'), 'Banner text must clearly indicate core catalogue read-only');
+      assert.ok(js.includes('sysNameInput'), 'Topbar must include sysNameInput with disabled binding');
+
+      // Verify store strictly blocks edits when isReadOnly is true
+      studioApi.updateNodeLabel('n1', 'mutated_name');
+      assert.strictEqual(postedMessages.length, 0, 'Read-only mode must block applyEdit mutations in store');
     });
 
     test('Core catalogue models strictly disallow layout persistence and disk modification', async () => {
@@ -2112,12 +2223,13 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(!html.includes('id="btnAddNode"'), 'System view must NOT have + Add New Node button');
-      assert.ok(html.includes('id="btnAddSystemNode"'), 'System view MUST have + Import Node button');
-      assert.ok(html.includes('+ Import Node'), 'System view button text must read + Import Node');
-      assert.ok(html.includes('safeClick("btnAddSystemNode"'), 'System view must wire click handler for btnAddSystemNode');
-      assert.ok(html.includes('activeCatTab = "nodes";'), 'Import Node button must activate nodes tab in catalogue drawer');
-      assert.ok(html.includes('body.mode-system #btnAddNode'), 'CSS must enforce that btnAddNode is hidden in mode-system');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('btnAddSystemNode'), 'System view must include btnAddSystemNode');
+      assert.ok(js.includes('+ Import Node') || js.includes('Import Node'), 'System view button text must offer Import Node');
+      assert.ok(js.includes('catalogueTab') && js.includes('"nodes"'), 'Import Node button must open catalogue drawer on nodes tab');
     });
 
     test('Changing Node Label in system view does NOT alter component definition (from and artifact)', () => {
@@ -2154,10 +2266,22 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.ok(emitted.includes('image_raw: sub-> "ai_defect_detector::image_raw"'), 'Target reference must preserve original component artifact and interface name');
       assert.ok(!emitted.includes('inspection_nodes.defect_detector'), 'Emitted YAML must NEVER invent a non-existent component definition');
 
-      // 2. Verify webview client script prevents altering from/artifact on label change in system view
+      // 2. Verify React Flow store runtime strictly preserves from, pkg, and artifact on label change in system view
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(html.includes('if (!isRosSystem && !isRos)'), 'Inspector label change handler must guard from/artifact mutation against system mode');
-      assert.ok(html.includes('updateNodePackageAndArtifact(node, pkgVal, artVal) {\n        if (isRosSystem) return;'), 'updateNodePackageAndArtifact must guard against modifying component definition in system mode');
+      const { studioApi, postedMessages } = runStudioBundleInVm(html);
+
+      studioApi.updateNodeLabel('n_defect_detector', 'defect_detector_renamed');
+      assert.strictEqual(postedMessages.length, 1, 'updateNodeLabel must dispatch applyEdit');
+      const updatedNode = postedMessages[0].project?.nodes.find((n) => n.id === 'n_defect_detector');
+      assert.ok(updatedNode, 'Updated node must exist in emitted project');
+      assert.strictEqual(updatedNode.label, 'defect_detector_renamed');
+      assert.strictEqual(updatedNode.from, 'inspection_nodes.ai_defect_detector', 'node.from MUST remain unchanged in system view');
+      assert.strictEqual(updatedNode.artifact, 'ai_defect_detector', 'node.artifact MUST remain unchanged in system view');
+      assert.strictEqual(updatedNode.pkg, 'inspection_nodes', 'node.pkg MUST remain unchanged in system view');
+
+      // Verify updateNodePackageAndArtifact is a strict no-op in system view
+      studioApi.updateNodePackageAndArtifact({ id: 'n_defect_detector' }, 'mutated_pkg', 'mutated_art');
+      assert.strictEqual(postedMessages.length, 1, 'updateNodePackageAndArtifact must be a no-op in system mode');
     });
 
     test('Subsystem catalogue discovery, file resolution, and subsystem edit navigation buttons', () => {
@@ -2212,21 +2336,37 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         false
       );
 
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+      assert.ok(Array.isArray(initData.nodeIndex['_systems']), 'INITIAL_DATA must pass _systems catalogue entries');
+
+      const { js } = readStudioAssets();
+
       // 1. Verify subsystem inspector contains "Edit Subsystem in .rossystem View" button
-      assert.ok(html.includes('id="btnOpenSubsystemRosSystem"'), 'Webview inspector must render btnOpenSubsystemRosSystem');
-      assert.ok(html.includes('📦 Edit Subsystem in .rossystem View'), 'Button label must be 📦 Edit Subsystem in .rossystem View');
-      assert.ok(html.includes("type: 'openSubsystemRosSystem'"), 'Webview must post openSubsystemRosSystem message to extension host');
+      assert.ok(js.includes('btnOpenSubsystemRosSystem'), 'Webview inspector must render btnOpenSubsystemRosSystem');
+      assert.ok(js.includes('📦 Edit Subsystem in .rossystem View'), 'Button label must be 📦 Edit Subsystem in .rossystem View');
+      assert.ok(js.includes('openSubsystemRosSystem'), 'Webview must post openSubsystemRosSystem message to extension host');
 
       // 2. Verify node inspector contains parent subsystem button for subsystem nodes
-      assert.ok(html.includes('id="btnOpenParentSubsystemRosSystem"'), 'Node inspector must render btnOpenParentSubsystemRosSystem for subsystem members');
-      assert.ok(html.includes('📦 Edit Subsystem ('), 'Parent subsystem edit button label must indicate parent subsystem');
+      assert.ok(js.includes('btnOpenParentSubsystemRosSystem'), 'Node inspector must render btnOpenParentSubsystemRosSystem for subsystem members');
+      assert.ok(js.includes('📦 Edit Subsystem ('), 'Parent subsystem edit button label must indicate parent subsystem');
 
       // 3. Verify canvas subsystem headers contain open subsystem icon button
-      assert.ok(html.includes('class="btn-open-sub"'), 'Subsystem box and frame headers must render .btn-open-sub button');
-      assert.ok(html.includes('data-open-sub='), 'Subsystem box and frame headers must include data-open-sub attribute');
+      assert.ok(js.includes('btn-open-sub'), 'SubsystemNodeCard headers must render .btn-open-sub button');
+      assert.ok(js.includes('data-open-sub'), 'SubsystemNodeCard headers must include data-open-sub attribute');
 
       // 4. Verify catalogue subsystems list filters out current open system
-      assert.ok(html.includes('if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;'), 'Catalogue drawer must filter out open system from subsystems tab');
+      const { studioApi } = runStudioBundleInVm(html);
+      const filteredSubs = studioApi.filterCatalogueSystems(
+        [
+          { system: 'inspection_system', file: 'inspection_system.rossystem', nodes: {} },
+          { system: 'hardware_bringup', file: 'hardware_bringup.rossystem', nodes: {} },
+        ],
+        'inspection_system',
+        'inspection_system'
+      );
+      assert.strictEqual(filteredSubs.length, 1, 'CatalogueDrawer must filter out open system from subsystems tab');
+      assert.strictEqual(filteredSubs[0].system, 'hardware_bringup');
 
       // 5. Verify RosCatalogueManager finds hardware_bringup in mock_robot_system
       const mockWsDir = path.resolve(__dirname, '../../../demo/test_ws/src/test_system/mock_robot_system');

@@ -23,6 +23,26 @@ import {
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
 
+export function filterCatalogueSystems(rawSystems, currentSysName, docBaseName, searchQuery = '') {
+  const q = String(searchQuery || '').trim().toLowerCase();
+  const filtered = [];
+  (rawSystems || []).forEach((sys) => {
+    const sysName = sys?.system || '';
+    if (!sysName) return;
+    if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;
+    if (
+      q &&
+      !sysName.toLowerCase().includes(q) &&
+      !(sys.file || '').toLowerCase().includes(q) &&
+      !Object.keys(sys.nodes || {}).some((n) => n.toLowerCase().includes(q))
+    ) {
+      return;
+    }
+    filtered.push(sys);
+  });
+  return filtered;
+}
+
 export function CatalogueDrawer() {
   const studio = useStudio();
   const [search, setSearch] = useState('');
@@ -71,23 +91,7 @@ export function CatalogueDrawer() {
 
   const systemEntries = useMemo(() => {
     const rawSystems = studio.nodeIndex?._systems || studio.nodeIndex?.systems || [];
-    const q = search.trim().toLowerCase();
-    const filtered = [];
-    rawSystems.forEach((sys) => {
-      const sysName = sys?.system || '';
-      if (!sysName) return;
-      if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;
-      if (
-        q &&
-        !sysName.toLowerCase().includes(q) &&
-        !(sys.file || '').toLowerCase().includes(q) &&
-        !Object.keys(sys.nodes || {}).some((n) => n.toLowerCase().includes(q))
-      ) {
-        return;
-      }
-      filtered.push(sys);
-    });
-    return filtered;
+    return filterCatalogueSystems(rawSystems, currentSysName, docBaseName, search);
   }, [studio.nodeIndex, search, currentSysName, docBaseName]);
 
   const typeEntries = useMemo(() => {

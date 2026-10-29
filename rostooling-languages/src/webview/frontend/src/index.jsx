@@ -9,7 +9,7 @@ import { RosCommObjectsView } from './views/RosCommObjectsView';
 import { ProcessGroupNode } from './components/ProcessGroupNode';
 import { RosNodeCard } from './components/RosNodeCard';
 import { SubsystemNodeCard } from './components/SubsystemNodeCard';
-import { CatalogueDrawer } from './components/CatalogueDrawer';
+import { CatalogueDrawer, filterCatalogueSystems } from './components/CatalogueDrawer';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner';
 import {
   validatePortConnection,
@@ -28,6 +28,7 @@ if (typeof window !== 'undefined') {
     RosNodeCard,
     SubsystemNodeCard,
     CatalogueDrawer,
+    filterCatalogueSystems,
     ReadOnlyBanner,
     validatePortConnection,
     updateNodeLabel,
