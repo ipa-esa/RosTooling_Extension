@@ -13,6 +13,6 @@
     "esbuild": "^0.28.2"
   },
   "scripts": {
-    "build": "esbuild src/index.jsx --bundle --minify --format=iife --outfile=dist/studio.js --loader:.woff2=file"
+    "build": "esbuild src/index.jsx --bundle --minify --keep-names --format=iife --outfile=dist/studio.js --loader:.woff2=file"
   }
 }
