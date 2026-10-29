@@ -173,20 +173,63 @@ export class HeadlessLspClient {
     );
   }
 
+  public static findCataloguePath(hintPath?: string): string | undefined {
+    if (hintPath && fs.existsSync(hintPath)) {
+      return hintPath;
+    }
+    if (process.env.ROSMODEL_CATALOGUE_DIR && fs.existsSync(process.env.ROSMODEL_CATALOGUE_DIR)) {
+      return process.env.ROSMODEL_CATALOGUE_DIR;
+    }
+
+    // 1. Standard standalone shared catalogue directory
+    const standalone = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    if (fs.existsSync(standalone)) {
+      return standalone;
+    }
+
+    // 2. Auto-discover catalogue synced by VS Code / Antigravity IDE / Cursor
+    const candidateDirs = [
+      path.join(os.homedir(), '.config', 'Antigravity IDE', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.config', 'Antigravity IDE', 'User', 'globalStorage', 'fraunhoferipa.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.config', 'Code', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.config', 'Code', 'User', 'globalStorage', 'fraunhoferipa.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.config', 'VSCodium', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.config', 'Cursor', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+      path.join(os.homedir(), '.vscode-server', 'data', 'User', 'globalStorage', 'rostooling.rostooling-languages', 'catalogue_repos'),
+    ];
+
+    for (const d of candidateDirs) {
+      if (fs.existsSync(d)) {
+        // Opportunistically link to ~/.rostooling/catalogue_repos for other tools
+        try {
+          const parent = path.dirname(standalone);
+          if (!fs.existsSync(parent)) {
+            fs.mkdirSync(parent, { recursive: true });
+          }
+          if (!fs.existsSync(standalone)) {
+            fs.symlinkSync(d, standalone);
+          }
+        } catch {
+          // Ignore symlink errors
+        }
+        return d;
+      }
+    }
+
+    return undefined;
+  }
+
   public async start(workspaceDir: string): Promise<void> {
     const javaBin = this.javaExecutable || HeadlessLspClient.findJavaExecutable();
     const jar = this.jarPath || HeadlessLspClient.findJarPath();
-    const catPath =
-      this.cataloguePath ||
-      process.env.ROSMODEL_CATALOGUE_DIR ||
-      path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    const catPath = HeadlessLspClient.findCataloguePath(this.cataloguePath);
 
     const args = [
       '--add-opens=java.base/java.lang=ALL-UNNAMED',
       '--add-opens=java.base/java.util=ALL-UNNAMED',
     ];
 
-    if (fs.existsSync(catPath)) {
+    if (catPath && fs.existsSync(catPath)) {
       args.push(`-Drostooling.catalogue.path=${catPath}`);
     }
 
