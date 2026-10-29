@@ -62,7 +62,17 @@ export async function activate(context: ExtensionContext) {
 
 
     const extensionVersion = context.extension.packageJSON.version;
-    const jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
+    let jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
+    if (!fs.existsSync(jarPath)) {
+        const serverDir = context.asAbsolutePath('server');
+        if (fs.existsSync(serverDir)) {
+            const jars = fs.readdirSync(serverDir).filter(f => f.endsWith('.jar'));
+            if (jars.length > 0) {
+                jarPath = path.join(serverDir, jars[0]);
+                outputChannel.appendLine(`Resolved fallback Language Server JAR: ${jarPath}`);
+            }
+        }
+    }
 
     const config = workspace.getConfiguration('rostooling-languages');
     let javaExecutable = 'java';
