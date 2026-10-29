@@ -20,6 +20,9 @@
   "categories": [
     "Programming Languages"
   ],
+  "bin": {
+    "rostooling-mcp": "./bin/rostooling-mcp.js"
+  },
   "contributes": {
     "languages": [
       {
@@ -136,6 +139,11 @@
             "-Xmx1024m"
           ],
           "description": "Additional JVM arguments for the RosTooling Language Server process (e.g. tuning flags, memory limits)."
+        },
+        "rostooling-languages.server.jarPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a custom RosTooling Language Server fat JAR (e.g., from local Gradle shadowJar builds). If left empty, uses the bundled extension JAR."
         }
       }
     },
@@ -166,6 +174,11 @@
         "title": "Open in RosTooling Visual Studio",
         "category": "RosTooling",
         "icon": "$(graph)"
+      },
+      {
+        "command": "rostooling.selectServerJar",
+        "title": "Select Language Server JAR...",
+        "category": "RosTooling"
       },
       {
         "command": "rossystem.triggerCodeGeneration",
@@ -233,6 +246,7 @@
     "onLanguage:ros2",
     "onLanguage:rossystem",
     "onCommand:rostooling.openVisualStudio",
+    "onCommand:rostooling.selectServerJar",
     "onCommand:ros2.generateWrappers",
     "onCommand:rossystem.triggerCodeGeneration",
     "onCommand:rossdl.buildPackage",
@@ -265,6 +279,8 @@
     "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "vscode-languageclient": "^9.0.1",
+    "zod": "^4.6.7"
   }
 }

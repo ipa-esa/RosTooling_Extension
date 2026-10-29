@@ -145,6 +145,48 @@ For developers who want to modify or contribute to the extension:
 
 ---
 
+## 🤖 Standalone Model Context Protocol (MCP) Server
+
+This extension provides a built-in **Model Context Protocol (MCP)** server, enabling external AI coding agents (such as Google Antigravity, Claude Code, Cursor, and CLI agents) to interact with the RosTooling toolchain **headlessly outside VS Code**, even when VS Code is not running.
+
+### Available MCP Tools
+
+* **`generate_ros2_wrappers`**: Generates C++, Python, or Hybrid ROS 2 node wrappers, runners, `CMakeLists.txt`, `package.xml`, and starter domain logic stubs (`*Algorithm.hpp`, `*_logic.py`) from a `.ros2` model file into `src-gen/<pkg>/`.
+* **`generate_rossystem_code`**: Generates ROS 2 launch files (`<system>.launch.py`), `ComposableNodeContainer` descriptions, parameter YAMLs, and PlantUML diagrams from a `.rossystem` model.
+* **`validate_ros_model`**: Runs real-time syntax, type, and semantic validation through the official Xtext Language Server and returns structured diagnostic reports (`ERROR`, `WARNING`, line numbers, and messages).
+* **`build_ros2_package`**: Triggers `colcon build --symlink-install` in the target ROS 2 workspace.
+
+### Agent Configuration
+
+Add the server to your agent's MCP configuration (e.g., in Claude Desktop, Cursor, or Antigravity):
+
+```json
+{
+  "mcpServers": {
+    "rostooling": {
+      "command": "node",
+      "args": [
+        "/path/to/RosTooling_Extension/rostooling-languages/bin/rostooling-mcp.js"
+      ]
+    }
+  }
+}
+```
+
+Or if installed globally via npm:
+
+```json
+{
+  "mcpServers": {
+    "rostooling": {
+      "command": "rostooling-mcp"
+    }
+  }
+}
+```
+
+---
+
 ## Requirements
 
 * **Visual Studio Code**: version 1.107.0 or later.

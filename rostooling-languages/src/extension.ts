@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation, StatusBarAlignment } from 'vscode';
+import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation, StatusBarAlignment, ConfigurationTarget } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
@@ -61,20 +61,42 @@ export async function activate(context: ExtensionContext) {
     outputChannel.appendLine('Initializing ROS LSP client');
 
 
+    const config = workspace.getConfiguration('rostooling-languages');
     const extensionVersion = context.extension.packageJSON.version;
-    let jarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
-    if (!fs.existsSync(jarPath)) {
-        const serverDir = context.asAbsolutePath('server');
-        if (fs.existsSync(serverDir)) {
-            const jars = fs.readdirSync(serverDir).filter(f => f.endsWith('.jar'));
-            if (jars.length > 0) {
-                jarPath = path.join(serverDir, jars[0]);
-                outputChannel.appendLine(`Resolved fallback Language Server JAR: ${jarPath}`);
+    const bundledJarPath = context.asAbsolutePath(path.join('server', `rostooling_extension-${extensionVersion}.jar`));
+    let jarPath = bundledJarPath;
+    let isCustomJar = false;
+
+    // Check 1: Explicit environment variable override ROSMODEL_JAR
+    const envJar = process.env.ROSMODEL_JAR?.trim();
+    // Check 2: Configuration override rostooling-languages.server.jarPath
+    const configJar = config.get<string>('server.jarPath')?.trim();
+
+    if (envJar && fs.existsSync(envJar)) {
+        jarPath = path.resolve(envJar);
+        isCustomJar = true;
+        outputChannel.appendLine(`[LSP] Using CUSTOM jarPath override from ROSMODEL_JAR: ${jarPath}`);
+    } else if (configJar && fs.existsSync(configJar)) {
+        jarPath = path.resolve(configJar);
+        isCustomJar = true;
+        outputChannel.appendLine(`[LSP] Using CUSTOM jarPath override from configuration: ${jarPath}`);
+    } else {
+        if (configJar && !fs.existsSync(configJar)) {
+            window.showWarningMessage(`Configured RosTooling Language Server JAR not found at '${configJar}'. Falling back to bundled server.`);
+            outputChannel.appendLine(`[LSP] Configured server.jarPath not found: ${configJar}`);
+        }
+        if (!fs.existsSync(jarPath)) {
+            const serverDir = context.asAbsolutePath('server');
+            if (fs.existsSync(serverDir)) {
+                const jars = fs.readdirSync(serverDir).filter(f => f.endsWith('.jar'));
+                if (jars.length > 0) {
+                    jarPath = path.join(serverDir, jars[0]);
+                    outputChannel.appendLine(`[LSP] Resolved fallback Language Server JAR: ${jarPath}`);
+                }
             }
         }
+        outputChannel.appendLine(`[LSP] Using BUNDLED Language Server JAR: ${jarPath}`);
     }
-
-    const config = workspace.getConfiguration('rostooling-languages');
     let javaExecutable = 'java';
     outputChannel.appendLine(`Using Java executable: ${javaExecutable}`);
     const javaHome = config.get<string>('java.home');
@@ -304,10 +326,106 @@ export async function activate(context: ExtensionContext) {
         outputChannel.show(true);
     });
 
+    safeRegisterCommand('rostooling.selectServerJar', async () => {
+        interface JarOption {
+            label: string;
+            description?: string;
+            detail?: string;
+            targetPath: string;
+        }
+
+        const options: JarOption[] = [];
+
+        // Option 1: Bundled default
+        const hasBundled = fs.existsSync(bundledJarPath);
+        options.push({
+            label: '$(package) Default Bundled JAR',
+            description: hasBundled ? path.basename(bundledJarPath) : 'Not found',
+            detail: bundledJarPath,
+            targetPath: ''
+        });
+
+        // Option 2: Search local build JARs in workspace or sibling repos
+        const candidateBuildDirs = [
+            path.resolve(context.extensionPath, '..', 'build', 'libs'),
+            path.resolve(context.extensionPath, 'build', 'libs'),
+            path.resolve(context.extensionPath, '..', '..', 'RosTooling', 'build', 'libs'),
+            path.resolve(context.extensionPath, '..', '..', 'RosTooling_Extension', 'build', 'libs')
+        ];
+        for (const dir of candidateBuildDirs) {
+            if (fs.existsSync(dir)) {
+                try {
+                    const jars = fs.readdirSync(dir).filter(f => f.endsWith('.jar') && !f.endsWith('-sources.jar') && !f.endsWith('-javadoc.jar'));
+                    for (const j of jars) {
+                        const full = path.join(dir, j);
+                        options.push({
+                            label: `$(file-binary) Local Build: ${j}`,
+                            description: 'Gradle shadowJar build',
+                            detail: full,
+                            targetPath: full
+                        });
+                    }
+                } catch {
+                    // Ignore
+                }
+            }
+        }
+
+        // Option 3: Browse for JAR
+        options.push({
+            label: '$(folder-opened) Browse for Custom JAR file...',
+            description: 'Select any .jar from filesystem',
+            targetPath: '__BROWSE__'
+        });
+
+        const activeSetting = config.get<string>('server.jarPath')?.trim();
+        if (activeSetting) {
+            options.push({
+                label: '$(trash) Clear Custom Override',
+                description: `Reset to bundled extension JAR (current: ${path.basename(activeSetting)})`,
+                targetPath: ''
+            });
+        }
+
+        const chosen = await window.showQuickPick(options, {
+            placeHolder: `Select Language Server JAR (Active: ${isCustomJar ? path.basename(jarPath) + ' [Custom]' : 'Bundled'})`
+        });
+
+        if (!chosen) {
+            return;
+        }
+
+        let selectedPath = chosen.targetPath;
+        if (selectedPath === '__BROWSE__') {
+            const picked = await window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: { 'Java Archive (*.jar)': ['jar'] },
+                title: 'Select RosTooling Language Server JAR'
+            });
+            if (!picked || picked.length === 0) {
+                return;
+            }
+            selectedPath = picked[0].fsPath;
+        }
+
+        await config.update('server.jarPath', selectedPath, ConfigurationTarget.Global);
+        const reloadChoice = await window.showInformationMessage(
+            selectedPath
+                ? `RosTooling Language Server set to: ${path.basename(selectedPath)}. Reload window to apply changes?`
+                : 'RosTooling Language Server reset to bundled JAR. Reload window to apply changes?',
+            'Reload Window'
+        );
+        if (reloadChoice === 'Reload Window') {
+            commands.executeCommand('workbench.action.reloadWindow');
+        }
+    });
+
     const lspStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
     lspStatusBarItem.text = '$(sync~spin) ROS LSP: Starting...';
-    lspStatusBarItem.tooltip = 'RosTooling Language Server is starting in the background (click to view logs)';
-    lspStatusBarItem.command = 'rostooling.showOutputChannel';
+    lspStatusBarItem.tooltip = 'RosTooling Language Server is starting in the background (click to change JAR or view logs)';
+    lspStatusBarItem.command = 'rostooling.selectServerJar';
     lspStatusBarItem.show();
     context.subscriptions.push(lspStatusBarItem);
 
@@ -316,11 +434,17 @@ export async function activate(context: ExtensionContext) {
         isLspReady = true;
         const tLspElapsed = Math.round(performance.now() - tLspStart);
         outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
-        lspStatusBarItem.text = '$(check) ROS LSP: Ready';
-        lspStatusBarItem.tooltip = `RosTooling Language Server is ready (${tLspElapsed}ms - click to view logs)`;
-        setTimeout(() => {
-            lspStatusBarItem.hide();
-        }, 5000);
+        if (isCustomJar) {
+            lspStatusBarItem.text = '$(tools) ROS LSP (Custom): Ready';
+            lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Custom Override] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
+            lspStatusBarItem.show();
+        } else {
+            lspStatusBarItem.text = '$(check) ROS LSP: Ready';
+            lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Bundled] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
+            setTimeout(() => {
+                lspStatusBarItem.hide();
+            }, 5000);
+        }
     }).catch((error) => {
         isLspReady = false;
         outputChannel.appendLine(`Failed to start server: ${error}`);
