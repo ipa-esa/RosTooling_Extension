@@ -5,6 +5,25 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-10-28
+
+### Added
+- **Multi-IDE Fallback Cache Discovery**:
+  - Added discovery and copying of cached catalogue repositories across common local user storage paths (`~/.rostooling/catalogue_repos` as well as IDE `globalStorage` locations across Antigravity IDE, VS Code, and VSCodium for `rostooling.rostooling-languages`), enabling immediate offline access and preventing redundant downloads.
+- **Dynamic Language Server JAR Resolution Fallback**:
+  - Added dynamic fallback discovery in `server/` when launching the Language Server client. If the exact versioned JAR (`rostooling_extension-${extensionVersion}.jar`) is not present in development or local builds, the extension automatically locates and loads any available JAR in `server/`.
+
+### Fixed
+- **Blocking Catalogue Download on Clean Install**:
+  - Fixed issue where installing the extension on clean environments (such as from Open VSX or VSCodium) caused the ROS Language Server to launch immediately against an empty catalogue path before default models (`RosModelsCatalog` and `RosCommonObjects`) finished syncing in the background, producing dozens of unresolved reference diagnostics when opening demo workspaces.
+  - Initial catalogue synchronization is now awaited via a modal progress notification prior to Language Server initialization when repositories are absent.
+- **Companion Artifact Parsing for `.ros` Definition Files**:
+  - Excluded `.ros` files (which define ROS message, service, and action specifications) from `parseRos2()` in `RosCustomEditorProvider.loadCompanionArtifacts`, preventing erroneous parsing attempts and corrupted artifact state.
+- **Portable Local Storage Paths**:
+  - Replaced hardcoded local development paths in `RosCustomEditorProvider` and test suites with dynamic `os.homedir()` and standard `~/.rostooling/catalogue_repos` paths.
+- **Deprecated Publisher Cleanup**:
+  - Strictly discontinued support for the legacy `fraunhoferipa` publisher; standardized entirely on the official `RosTooling` publisher namespace.
+
 ## [2.2.0] - 2026-10-15
 ### Added
 - **Composable Component & Process Support**:
