@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -526,6 +526,7 @@ function SystemCanvasInner() {
 
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState(computedNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(computedEdges);
+  const dragGroupRef = useRef(null);
 
   useEffect(() => {
     setNodes(computedNodes);
@@ -551,9 +552,123 @@ function SystemCanvasInner() {
     [isReadOnly, onEdgesChangeInternal]
   );
 
+  const onNodeDragStart = useCallback(
+    (_, node) => {
+      if (isReadOnly || !node) return;
+
+      if (node.type === 'subsystemNode') {
+        const subRef = node.id.replace(/^sub_/, '');
+        const sub = (project.subSystems || []).find((s) => s.ref === subRef);
+        const isFramed = (project.view?.subStates?.[subRef] || sub?.state) === 'framed';
+        if (!isFramed) {
+          dragGroupRef.current = null;
+          return;
+        }
+
+        const memberIds = new Set(
+          (project.nodes || []).filter((n) => n.subRef === subRef).map((n) => n.id)
+        );
+        if (memberIds.size === 0) {
+          dragGroupRef.current = null;
+          return;
+        }
+
+        const memberStarts = new Map();
+        for (const n of nodes) {
+          if (memberIds.has(n.id)) {
+            memberStarts.set(n.id, { x: n.position.x, y: n.position.y });
+          }
+        }
+
+        dragGroupRef.current = {
+          containerId: node.id,
+          type: 'subsystemNode',
+          subRef,
+          startX: node.position.x,
+          startY: node.position.y,
+          memberStarts,
+        };
+        return;
+      }
+
+      if (node.type === 'processGroup') {
+        const procName = node.id.replace(/^proc_/, '');
+        const proc = (project.processes || []).find((p) => p.name === procName);
+        const procNodeLabels = new Set(proc?.nodes || []);
+        const memberIds = new Set(
+          (project.nodes || [])
+            .filter((n) => !n.subRef && procNodeLabels.has(n.label))
+            .map((n) => n.id)
+        );
+        if (memberIds.size === 0) {
+          dragGroupRef.current = null;
+          return;
+        }
+
+        const memberStarts = new Map();
+        for (const n of nodes) {
+          if (memberIds.has(n.id)) {
+            memberStarts.set(n.id, { x: n.position.x, y: n.position.y });
+          }
+        }
+
+        dragGroupRef.current = {
+          containerId: node.id,
+          type: 'processGroup',
+          procName,
+          startX: node.position.x,
+          startY: node.position.y,
+          memberStarts,
+        };
+        return;
+      }
+
+      dragGroupRef.current = null;
+    },
+    [isReadOnly, project, nodes]
+  );
+
+  const onNodeDrag = useCallback(
+    (event, node) => {
+      if (isReadOnly || !node) return;
+
+      if (!dragGroupRef.current || dragGroupRef.current.containerId !== node.id) {
+        if (node.type === 'subsystemNode' || node.type === 'processGroup') {
+          onNodeDragStart(event, node);
+        }
+      }
+
+      const dragInfo = dragGroupRef.current;
+      if (!dragInfo || dragInfo.containerId !== node.id) return;
+
+      const dx = node.position.x - dragInfo.startX;
+      const dy = node.position.y - dragInfo.startY;
+
+      setNodes((prevNodes) =>
+        prevNodes.map((n) => {
+          const startPos = dragInfo.memberStarts.get(n.id);
+          if (startPos) {
+            return {
+              ...n,
+              position: {
+                x: Math.round(startPos.x + dx),
+                y: Math.round(startPos.y + dy),
+              },
+            };
+          }
+          return n;
+        })
+      );
+    },
+    [isReadOnly, onNodeDragStart, setNodes]
+  );
+
   const onNodeDragStop = useCallback(
     (_, draggedNode) => {
       if (isReadOnly || !draggedNode) return;
+
+      const groupDrag = dragGroupRef.current;
+      dragGroupRef.current = null;
 
       mutateLayout((proj) => {
         if (!proj.view) proj.view = {};
@@ -562,18 +677,52 @@ function SystemCanvasInner() {
         if (draggedNode.type === 'processGroup') {
           const procName = draggedNode.id.replace(/^proc_/, '');
           const proc = (proj.processes || []).find((p) => p.name === procName);
-          const oldOrigin = parentOrigins[draggedNode.id] || { x: 0, y: 0 };
-          const dx = Math.round(draggedNode.position.x - oldOrigin.x);
-          const dy = Math.round(draggedNode.position.y - oldOrigin.y);
+          const startOrigin =
+            groupDrag && groupDrag.containerId === draggedNode.id
+              ? { x: groupDrag.startX, y: groupDrag.startY }
+              : parentOrigins[draggedNode.id] || { x: 0, y: 0 };
+          const dx = Math.round(draggedNode.position.x - startOrigin.x);
+          const dy = Math.round(draggedNode.position.y - startOrigin.y);
+
           proj.view.subPos[draggedNode.id] = {
             x: Math.round(draggedNode.position.x),
             y: Math.round(draggedNode.position.y),
           };
+
           if (proc && (dx !== 0 || dy !== 0)) {
+            const procMemberLabels = new Set(proc.nodes || []);
+            const procMemberIds = new Set();
             for (const n of proj.nodes || []) {
-              if (!n.subRef && (proc.nodes || []).includes(n.label)) {
+              if (!n.subRef && procMemberLabels.has(n.label)) {
+                procMemberIds.add(n.id);
                 n.x = Math.round((n.x ?? 80) + dx);
                 n.y = Math.round((n.y ?? 80) + dy);
+              }
+            }
+
+            // Also shift internal connections
+            for (const conn of proj.connections || []) {
+              if (procMemberIds.has(conn.from.n) && procMemberIds.has(conn.to.n)) {
+                if (conn.midX != null) conn.midX = Math.round(conn.midX + dx);
+                if (conn.midY != null) conn.midY = Math.round(conn.midY + dy);
+                if (Array.isArray(conn.waypoints)) {
+                  conn.waypoints = conn.waypoints.map((wp) => ({
+                    x: Math.round(wp.x + dx),
+                    y: Math.round(wp.y + dy),
+                  }));
+                }
+                if (proj.view?.connMidX?.[conn.id] != null) {
+                  proj.view.connMidX[conn.id] = Math.round(proj.view.connMidX[conn.id] + dx);
+                }
+                if (proj.view?.connMidY?.[conn.id] != null) {
+                  proj.view.connMidY[conn.id] = Math.round(proj.view.connMidY[conn.id] + dy);
+                }
+                if (Array.isArray(proj.view?.connWaypoints?.[conn.id])) {
+                  proj.view.connWaypoints[conn.id] = proj.view.connWaypoints[conn.id].map((wp) => ({
+                    x: Math.round(wp.x + dx),
+                    y: Math.round(wp.y + dy),
+                  }));
+                }
               }
             }
           }
@@ -583,9 +732,13 @@ function SystemCanvasInner() {
         if (draggedNode.type === 'subsystemNode') {
           const subRef = draggedNode.id.replace(/^sub_/, '');
           const sub = (proj.subSystems || []).find((s) => s.ref === subRef);
-          const oldOrigin = parentOrigins[draggedNode.id] || { x: sub?.x || 0, y: sub?.y || 0 };
-          const dx = Math.round(draggedNode.position.x - oldOrigin.x);
-          const dy = Math.round(draggedNode.position.y - oldOrigin.y);
+          const startOrigin =
+            groupDrag && groupDrag.containerId === draggedNode.id
+              ? { x: groupDrag.startX, y: groupDrag.startY }
+              : parentOrigins[draggedNode.id] || { x: sub?.x || 0, y: sub?.y || 0 };
+          const dx = Math.round(draggedNode.position.x - startOrigin.x);
+          const dy = Math.round(draggedNode.position.y - startOrigin.y);
+
           const newPos = {
             x: Math.round(draggedNode.position.x),
             y: Math.round(draggedNode.position.y),
@@ -595,10 +748,41 @@ function SystemCanvasInner() {
             sub.y = newPos.y;
           }
           proj.view.subPos[subRef] = newPos;
-          for (const m of proj.nodes || []) {
-            if (m.subRef === subRef) {
-              m.x = Math.round((m.x ?? oldOrigin.x + PAD_X) + dx);
-              m.y = Math.round((m.y ?? oldOrigin.y + PAD_TOP) + dy);
+
+          if (dx !== 0 || dy !== 0) {
+            const subMemberIds = new Set();
+            for (const m of proj.nodes || []) {
+              if (m.subRef === subRef) {
+                subMemberIds.add(m.id);
+                m.x = Math.round((m.x ?? startOrigin.x + PAD_X) + dx);
+                m.y = Math.round((m.y ?? startOrigin.y + PAD_TOP) + dy);
+              }
+            }
+
+            // Also shift internal connections
+            for (const conn of proj.connections || []) {
+              if (subMemberIds.has(conn.from.n) && subMemberIds.has(conn.to.n)) {
+                if (conn.midX != null) conn.midX = Math.round(conn.midX + dx);
+                if (conn.midY != null) conn.midY = Math.round(conn.midY + dy);
+                if (Array.isArray(conn.waypoints)) {
+                  conn.waypoints = conn.waypoints.map((wp) => ({
+                    x: Math.round(wp.x + dx),
+                    y: Math.round(wp.y + dy),
+                  }));
+                }
+                if (proj.view?.connMidX?.[conn.id] != null) {
+                  proj.view.connMidX[conn.id] = Math.round(proj.view.connMidX[conn.id] + dx);
+                }
+                if (proj.view?.connMidY?.[conn.id] != null) {
+                  proj.view.connMidY[conn.id] = Math.round(proj.view.connMidY[conn.id] + dy);
+                }
+                if (Array.isArray(proj.view?.connWaypoints?.[conn.id])) {
+                  proj.view.connWaypoints[conn.id] = proj.view.connWaypoints[conn.id].map((wp) => ({
+                    x: Math.round(wp.x + dx),
+                    y: Math.round(wp.y + dy),
+                  }));
+                }
+              }
             }
           }
           return;
@@ -830,6 +1014,8 @@ function SystemCanvasInner() {
           edgeTypes={EDGE_TYPES}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
           isValidConnection={isValidConnection}

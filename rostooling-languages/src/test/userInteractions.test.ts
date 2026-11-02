@@ -2744,5 +2744,116 @@ inspection_system:
       assert.notStrictEqual(labelX, handleV.x, 'Label X must not coincide with vertical corridor midX');
       assert.notStrictEqual(labelY, handleV.y, 'Label Y must not coincide with corridor handle Y');
     });
+
+    test('Framed subsystem moving on canvas moves member nodes and internal wires synchronously', () => {
+      // Create project with a framed subsystem and 2 member nodes
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'test_system' },
+        subSystems: [
+          {
+            ref: 'ur_robot',
+            state: 'framed',
+            x: 100,
+            y: 100,
+          },
+        ],
+        nodes: [
+          {
+            id: 'n_ur_robot_driver',
+            label: 'driver',
+            subRef: 'ur_robot',
+            x: 140,
+            y: 160,
+            ifaces: [
+              { id: 'i_driver_pub', name: 'joint_states', kind: 'pub', exposed: true },
+            ],
+            params: [],
+          },
+          {
+            id: 'n_ur_robot_controller',
+            label: 'controller',
+            subRef: 'ur_robot',
+            x: 480,
+            y: 160,
+            ifaces: [
+              { id: 'i_controller_sub', name: 'joint_states', kind: 'sub', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [
+          {
+            id: 'c_driver_controller',
+            from: { n: 'n_ur_robot_driver', i: 'i_driver_pub' },
+            to: { n: 'n_ur_robot_controller', i: 'i_controller_sub' },
+            connectorMode: 'orthogonal',
+            midX: 310,
+            waypoints: [{ x: 310, y: 160 }],
+          },
+        ],
+        packages: {},
+        types: {},
+      };
+
+      // Simulated start drag on sub_ur_robot
+      const startX = 100;
+      const startY = 100;
+      const memberStarts = new Map([
+        ['n_ur_robot_driver', { x: 140, y: 160 }],
+        ['n_ur_robot_controller', { x: 480, y: 160 }],
+      ]);
+
+      // Move container by dx = +150, dy = +80 during live drag
+      const currentContainerPos = { x: 250, y: 180 };
+      const dx = currentContainerPos.x - startX; // 150
+      const dy = currentContainerPos.y - startY; // 80
+
+      const driverStart = memberStarts.get('n_ur_robot_driver') || { x: 0, y: 0 };
+      const controllerStart = memberStarts.get('n_ur_robot_controller') || { x: 0, y: 0 };
+
+      // During drag: member nodes calculate their positions live
+      const liveDriverPos = {
+        x: driverStart.x + dx,
+        y: driverStart.y + dy,
+      };
+      const liveControllerPos = {
+        x: controllerStart.x + dx,
+        y: controllerStart.y + dy,
+      };
+
+      assert.strictEqual(liveDriverPos.x, 290, 'Driver node must move live to 290px');
+      assert.strictEqual(liveDriverPos.y, 240, 'Driver node must move live to 240px');
+      assert.strictEqual(liveControllerPos.x, 630, 'Controller node must move live to 630px');
+      assert.strictEqual(liveControllerPos.y, 240, 'Controller node must move live to 240px');
+
+      // On drag stop: mutate layout updates project coordinates and internal connections
+      const sub = project.subSystems[0];
+      sub.x = currentContainerPos.x;
+      sub.y = currentContainerPos.y;
+      for (const m of project.nodes) {
+        if (m.subRef === 'ur_robot') {
+          m.x = (m.x ?? 0) + dx;
+          m.y = (m.y ?? 0) + dy;
+        }
+      }
+      for (const conn of project.connections) {
+        if (conn.midX != null) conn.midX += dx;
+        if (conn.midY != null) conn.midY += dy;
+        if (conn.waypoints) {
+          conn.waypoints = conn.waypoints.map((wp) => ({ x: wp.x + dx, y: wp.y + dy }));
+        }
+      }
+
+      assert.strictEqual(project.nodes[0].x, 290, 'Committed driver x must match live position');
+      assert.strictEqual(project.nodes[0].y, 240, 'Committed driver y must match live position');
+      assert.strictEqual(project.nodes[1].x, 630, 'Committed controller x must match live position');
+      assert.strictEqual(project.nodes[1].y, 240, 'Committed controller y must match live position');
+      assert.strictEqual(project.connections[0].midX, 460, 'Internal connection midX must shift by +150px to 460px');
+      const firstWp = project.connections[0].waypoints?.[0];
+      assert.ok(firstWp, 'Waypoint must exist');
+      assert.strictEqual(firstWp.x, 460, 'Internal connection waypoint X must shift by +150px');
+      assert.strictEqual(firstWp.y, 240, 'Internal connection waypoint Y must shift by +80px');
+    });
   });
 });
