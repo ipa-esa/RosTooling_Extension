@@ -4,6 +4,7 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { RosCatalogueManager } from '../model/RosCatalogueManager.js';
 
 export interface Diagnostic {
   file: string;
@@ -173,17 +174,144 @@ export class HeadlessLspClient {
     );
   }
 
+  public static findCataloguePath(hintPath?: string): string | undefined {
+    if (hintPath && fs.existsSync(hintPath)) {
+      return hintPath;
+    }
+    if (process.env.ROSMODEL_CATALOGUE_DIR && fs.existsSync(process.env.ROSMODEL_CATALOGUE_DIR)) {
+      return process.env.ROSMODEL_CATALOGUE_DIR;
+    }
+
+    const home = os.homedir();
+
+    // 1. Standard standalone shared catalogue directory
+    const standalone = path.join(home, '.rostooling', 'catalogue_repos');
+    if (fs.existsSync(standalone)) {
+      return standalone;
+    }
+
+    // 2. Cross-platform config roots (Linux, macOS, Windows)
+    const configRoots: string[] = [
+      path.join(home, '.config'),
+      path.join(home, 'Library', 'Application Support'),
+    ];
+    if (process.env.APPDATA) {
+      configRoots.push(process.env.APPDATA);
+    }
+    configRoots.push(path.join(home, 'AppData', 'Roaming'));
+
+    // IDE distributions based on VS Code
+    const ideNames = [
+      'Code',
+      'Code - Insiders',
+      'Code - OSS',
+      'VSCodium',
+      'Cursor',
+      'Windsurf',
+      'Antigravity IDE',
+      'Antigravity',
+      'Trae',
+    ];
+
+    // Extension identifier variants
+    const extNames = [
+      'rostooling.rostooling-languages',
+      'fraunhoferipa.rostooling-languages',
+      'RosTooling.rostooling-languages',
+    ];
+
+    const candidateDirs: string[] = [];
+
+    // Local GUI desktop IDE globalStorage paths
+    for (const root of configRoots) {
+      for (const ide of ideNames) {
+        for (const ext of extNames) {
+          candidateDirs.push(path.join(root, ide, 'User', 'globalStorage', ext, 'catalogue_repos'));
+        }
+      }
+    }
+
+    // Remote server / SSH / container IDE paths
+    const remoteRoots = [
+      path.join(home, '.vscode-server'),
+      path.join(home, '.vscode-server-insiders'),
+      path.join(home, '.cursor-server'),
+    ];
+    for (const r of remoteRoots) {
+      for (const ext of extNames) {
+        candidateDirs.push(path.join(r, 'data', 'User', 'globalStorage', ext, 'catalogue_repos'));
+      }
+    }
+
+    for (const d of candidateDirs) {
+      if (fs.existsSync(d)) {
+        // Opportunistically link to ~/.rostooling/catalogue_repos for other tools/CLIs
+        try {
+          const parent = path.dirname(standalone);
+          if (!fs.existsSync(parent)) {
+            fs.mkdirSync(parent, { recursive: true });
+          }
+          if (!fs.existsSync(standalone)) {
+            fs.symlinkSync(d, standalone);
+          }
+        } catch {
+          // Ignore symlink errors
+        }
+        return d;
+      }
+    }
+
+    // 3. Check workspace sibling paths or vendored studio assets
+    const workspaceFallbacks = [
+      path.resolve(process.cwd(), '..', 'RosCommonObjects'),
+      path.resolve(__dirname, '..', '..', '..', '..', 'RosCommonObjects'),
+      path.resolve(process.cwd(), '..', 'ipa-rostooling-studio', 'assets', 'roscommonobjects'),
+      path.resolve(__dirname, '..', '..', '..', '..', 'ipa-rostooling-studio', 'assets', 'roscommonobjects'),
+    ];
+    for (const fb of workspaceFallbacks) {
+      if (fs.existsSync(fb)) {
+        return fb;
+      }
+    }
+
+    return undefined;
+  }
+
+  public static async ensureCatalogue(): Promise<string | undefined> {
+    const existing = HeadlessLspClient.findCataloguePath();
+    if (existing) {
+      return existing;
+    }
+
+    // Fallback: If no catalogue exists anywhere, shallow-clone default repos into ~/.rostooling/catalogue_repos
+    try {
+      const manager = RosCatalogueManager.getInstance();
+      await manager.syncRepositories();
+      const storageDir = manager.getStorageDir();
+      if (fs.existsSync(storageDir)) {
+        return storageDir;
+      }
+    } catch {
+      // Ignore git/network errors (e.g. offline setups)
+    }
+
+    return undefined;
+  }
+
   public async start(workspaceDir: string): Promise<void> {
     const javaBin = this.javaExecutable || HeadlessLspClient.findJavaExecutable();
     const jar = this.jarPath || HeadlessLspClient.findJarPath();
-    const catPath = this.cataloguePath || path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+    let catPath = HeadlessLspClient.findCataloguePath(this.cataloguePath);
+    if (!catPath) {
+      catPath = await HeadlessLspClient.ensureCatalogue();
+    }
 
     const args = [
       '--add-opens=java.base/java.lang=ALL-UNNAMED',
       '--add-opens=java.base/java.util=ALL-UNNAMED',
     ];
 
-    if (fs.existsSync(catPath)) {
+    if (catPath && fs.existsSync(catPath)) {
       args.push(`-Drostooling.catalogue.path=${catPath}`);
     }
 

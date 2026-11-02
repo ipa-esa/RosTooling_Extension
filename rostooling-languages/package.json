@@ -8,11 +8,15 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ipa-esa/RosTooling_Extension.git",
+    "url": "git+https://github.com/ipa-esa/RosTooling_Extension.git",
     "directory": "rostooling-languages"
   },
   "bugs": {
     "url": "https://github.com/ipa-esa/RosTooling_Extension/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "engines": {
     "vscode": "^1.107.0"
@@ -21,7 +25,7 @@
     "Programming Languages"
   ],
   "bin": {
-    "rostooling-mcp": "./bin/rostooling-mcp.js"
+    "rostooling-mcp": "bin/rostooling-mcp.js"
   },
   "contributes": {
     "languages": [
