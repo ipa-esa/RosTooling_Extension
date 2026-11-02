@@ -712,32 +712,90 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
       if (!fromNode || !fromIface) {
         const targetLabel = fromLookup || conn.from.i;
-        for (const n of project.nodes) {
-          const matchIface = n.ifaces?.find(
-            (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
-          );
-          if (matchIface) {
-            conn.from.n = n.id;
-            conn.from.i = matchIface.id;
-            fromNode = n;
-            fromIface = matchIface;
-            break;
+        if (targetLabel) {
+          const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
+          if (sepIdx > 0) {
+            const nodePart = targetLabel.slice(0, sepIdx).replace(/::/g, '.');
+            const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
+            const n = project.nodes.find(
+              (cand) =>
+                cand.label === nodePart ||
+                cand.id === nodePart ||
+                cand.id === `n_${nodePart}` ||
+                (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
+                (cand.subRef && cand.label === nodePart) ||
+                (cand.subRef && cand.id === `n_${cand.subRef}_${nodePart}`)
+            );
+            if (n) {
+              const matchIface = n.ifaces?.find(
+                (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+              );
+              if (matchIface) {
+                conn.from.n = n.id;
+                conn.from.i = matchIface.id;
+                fromNode = n;
+                fromIface = matchIface;
+              }
+            }
+          }
+          if (!fromNode || !fromIface) {
+            for (const n of project.nodes) {
+              const matchIface = n.ifaces?.find(
+                (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+              );
+              if (matchIface) {
+                conn.from.n = n.id;
+                conn.from.i = matchIface.id;
+                fromNode = n;
+                fromIface = matchIface;
+                break;
+              }
+            }
           }
         }
       }
 
       if (!toNode || !toIface) {
         const targetLabel = toLookup || conn.to.i;
-        for (const n of project.nodes) {
-          const matchIface = n.ifaces?.find(
-            (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
-          );
-          if (matchIface) {
-            conn.to.n = n.id;
-            conn.to.i = matchIface.id;
-            toNode = n;
-            toIface = matchIface;
-            break;
+        if (targetLabel) {
+          const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
+          if (sepIdx > 0) {
+            const nodePart = targetLabel.slice(0, sepIdx).replace(/::/g, '.');
+            const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
+            const n = project.nodes.find(
+              (cand) =>
+                cand.label === nodePart ||
+                cand.id === nodePart ||
+                cand.id === `n_${nodePart}` ||
+                (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
+                (cand.subRef && cand.label === nodePart) ||
+                (cand.subRef && cand.id === `n_${cand.subRef}_${nodePart}`)
+            );
+            if (n) {
+              const matchIface = n.ifaces?.find(
+                (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+              );
+              if (matchIface) {
+                conn.to.n = n.id;
+                conn.to.i = matchIface.id;
+                toNode = n;
+                toIface = matchIface;
+              }
+            }
+          }
+          if (!toNode || !toIface) {
+            for (const n of project.nodes) {
+              const matchIface = n.ifaces?.find(
+                (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+              );
+              if (matchIface) {
+                conn.to.n = n.id;
+                conn.to.i = matchIface.id;
+                toNode = n;
+                toIface = matchIface;
+                break;
+              }
+            }
           }
         }
       }

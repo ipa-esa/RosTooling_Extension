@@ -427,23 +427,64 @@ export const RosModelParser = {
         }
 
         if (fromLabel && toLabel) {
-          let fromNode: RosNode | undefined;
-          let fromIface: RosInterface | undefined;
-          let toNode: RosNode | undefined;
-          let toIface: RosInterface | undefined;
+          const resolveEndpoint = (raw: string, isFrom: boolean): { node?: RosNode; iface?: RosInterface } => {
+            if (!raw) return {};
+            const clean = raw.trim();
 
-          for (const n of proj.nodes) {
-            for (const f of n.ifaces) {
-              if (f.label === fromLabel || f.name === fromLabel) {
-                fromNode = n;
-                fromIface = f;
-              }
-              if (f.label === toLabel || f.name === toLabel) {
-                toNode = n;
-                toIface = f;
+            // 1. Qualified name: node.interface or node::interface or sub.node.interface
+            const sepIdx = clean.includes('::') ? clean.lastIndexOf('::') : clean.lastIndexOf('.');
+            if (sepIdx > 0) {
+              const nodePart = clean.slice(0, sepIdx).replace(/::/g, '.');
+              const ifacePart = clean.slice(sepIdx + (clean.includes('::') ? 2 : 1));
+              const node = proj.nodes.find(
+                (n) =>
+                  n.label === nodePart ||
+                  n.id === nodePart ||
+                  (n.subRef && `${n.subRef}.${n.label}` === nodePart) ||
+                  (n.subRef && n.label === nodePart)
+              );
+              if (node) {
+                const iface = node.ifaces.find(
+                  (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+                );
+                if (iface) return { node, iface };
               }
             }
-          }
+
+            // 2. Unqualified search across all nodes
+            const matches: { node: RosNode; iface: RosInterface }[] = [];
+            for (const n of proj.nodes) {
+              for (const f of n.ifaces) {
+                if (f.label === clean || f.name === clean || f.id === clean) {
+                  matches.push({ node: n, iface: f });
+                }
+              }
+            }
+
+            if (matches.length === 1) {
+              return matches[0];
+            }
+
+            if (matches.length > 1) {
+              // Prefer role-aligned interface: from -> outputs (pub, ss, as), to -> inputs (sub, sc, ac)
+              const outputKinds = new Set(['pub', 'ss', 'as']);
+              const inputKinds = new Set(['sub', 'sc', 'ac']);
+              const roleMatch = matches.find((m) =>
+                isFrom ? outputKinds.has(m.iface.kind) : inputKinds.has(m.iface.kind)
+              );
+              if (roleMatch) return roleMatch;
+              return matches[0];
+            }
+
+            return {};
+          };
+
+          const fromMatch = resolveEndpoint(fromLabel, true);
+          const toMatch = resolveEndpoint(toLabel, false);
+          const fromNode = fromMatch.node;
+          const fromIface = fromMatch.iface;
+          const toNode = toMatch.node;
+          const toIface = toMatch.iface;
 
           proj.connections.push({
             id: `c_${fromLabel}_${toLabel}`,

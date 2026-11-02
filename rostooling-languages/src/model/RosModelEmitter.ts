@@ -188,6 +188,54 @@ export const RosModelEmitter = {
     // connections: connections+=RosSystemConnection* (RosSystem.xtext:85-88)
     if (project.connections && project.connections.length > 0) {
       lines.push('  connections:');
+
+      // Count occurrences of each bare interface name/label across all nodes and subsystems to identify duplicates
+      const ifaceCounts: Record<string, number> = {};
+      for (const n of project.nodes || []) {
+        const nodeNames = new Set<string>();
+        for (const f of n.ifaces || []) {
+          const key = f.label || f.name;
+          if (key) nodeNames.add(key);
+        }
+        for (const key of nodeNames) {
+          ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
+        }
+      }
+
+      // Also count interfaces in subsystems' graphs
+      for (const sub of project.subSystems || []) {
+        for (const sn of sub.graph?.nodes || []) {
+          const subNodeNames = new Set<string>();
+          for (const iface of sn.interfaces || []) {
+            const key = iface.label || iface.name;
+            if (key) subNodeNames.add(key);
+          }
+          for (const key of subNodeNames) {
+            ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
+          }
+        }
+      }
+
+      // If rawFrom / rawTo contain qualified names (e.g. "map_server::map" or "slam.map"),
+      // account for the interface name so that homonymous direct node interfaces are recognized as duplicates
+      for (const conn of project.connections || []) {
+        for (const raw of [conn.rawFrom, conn.rawTo]) {
+          if (raw) {
+            const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
+            if (sepIdx > 0) {
+              const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
+              const nodePart = raw.slice(0, sepIdx).trim();
+              const alreadyCountedNode = (project.nodes || []).some(
+                (n) => n.label === nodePart || n.id === nodePart || (n.subRef && `${n.subRef}.${n.label}` === nodePart)
+              );
+              if (!alreadyCountedNode && ifacePart) {
+                ifaceCounts[ifacePart] = (ifaceCounts[ifacePart] || 0) + 1;
+              }
+            }
+          }
+        }
+      }
+
       for (const conn of project.connections) {
         const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
         const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
@@ -198,11 +246,31 @@ export const RosModelEmitter = {
           (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
         );
 
-        let fromName = fromIface ? (fromIface.label || fromIface.name) : '';
-        let toName = toIface ? (toIface.label || toIface.name) : '';
+        let fromName = '';
+        if (fromIface && fromNode) {
+          const rawName = fromIface.label || fromIface.name;
+          // If the interface name is shared by more than 1 node, qualify with node name using colon format (::)
+          if (ifaceCounts[rawName] > 1) {
+            fromName = `${fromNode.label || fromNode.id}::${rawName}`;
+          } else {
+            fromName = rawName;
+          }
+        } else if (conn.rawFrom) {
+          fromName = conn.rawFrom;
+        }
 
-        if (!fromName && conn.rawFrom) fromName = conn.rawFrom;
-        if (!toName && conn.rawTo) toName = conn.rawTo;
+        let toName = '';
+        if (toIface && toNode) {
+          const rawName = toIface.label || toIface.name;
+          // If the interface name is shared by more than 1 node, qualify with node name using colon format (::)
+          if (ifaceCounts[rawName] > 1) {
+            toName = `${toNode.label || toNode.id}::${rawName}`;
+          } else {
+            toName = rawName;
+          }
+        } else if (conn.rawTo) {
+          toName = conn.rawTo;
+        }
 
         if (!fromName && conn.from?.i) {
           const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(

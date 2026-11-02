@@ -2855,5 +2855,107 @@ inspection_system:
       assert.strictEqual(firstWp.x, 460, 'Internal connection waypoint X must shift by +150px');
       assert.strictEqual(firstWp.y, 240, 'Internal connection waypoint Y must shift by +80px');
     });
+
+    test('Qualified and short interface names in connections support backwards-compatible scoping and duplicate resolution', () => {
+      // 1. Model with unique names and identical duplicate remapped names (map)
+      const modelText = `test_system:
+  nodes:
+    slam:
+      from: "slam_pkg.slam_node"
+      interfaces:
+        - map: pub-> "slam_node::map_out"
+        - scan_in: sub-> "slam_node::scan_raw"
+    nav2:
+      from: "nav2_pkg.nav2_node"
+      interfaces:
+        - map: sub-> "nav2_node::map_in"
+        - cmd_vel: pub-> "nav2_node::cmd_out"
+    rviz:
+      from: "rviz_pkg.rviz_node"
+      interfaces:
+        - map: sub-> "rviz_node::map_display"
+  connections:
+    - ["slam.map", "nav2.map"]
+    - ["slam.map", "rviz.map"]
+    - ["cmd_vel", "scan_in"]
+`;
+
+      const parsed = RosModelParser.parseRosSystem(modelText, 'test_system.rossystem');
+      assert.strictEqual(parsed.connections.length, 3, 'Must parse all 3 connections');
+
+      // Connection 1: slam.map -> nav2.map
+      const conn1 = parsed.connections[0];
+      assert.strictEqual(conn1.from.n, 'n_slam', 'from node must resolve to slam');
+      assert.strictEqual(conn1.to.n, 'n_nav2', 'to node must resolve to nav2');
+
+      // Connection 2: slam.map -> rviz.map
+      const conn2 = parsed.connections[1];
+      assert.strictEqual(conn2.from.n, 'n_slam', 'from node must resolve to slam');
+      assert.strictEqual(conn2.to.n, 'n_rviz', 'to node must resolve to rviz');
+
+      // Connection 3: cmd_vel -> scan_in (unqualified unique names)
+      const conn3 = parsed.connections[2];
+      assert.strictEqual(conn3.from.n, 'n_nav2', 'from node must resolve to nav2');
+      assert.strictEqual(conn3.to.n, 'n_slam', 'to node must resolve to slam');
+
+      // 2. Test emitting: unique interfaces remain short, duplicate remapped interfaces (map) emit qualified
+      const emitted = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(emitted.includes('- ["slam.map", "nav2.map"]'), 'Duplicate map interface must be qualified with slam and nav2');
+      assert.ok(emitted.includes('- ["slam.map", "rviz.map"]'), 'Duplicate map interface must be qualified with slam and rviz');
+      assert.ok(emitted.includes('- ["cmd_vel", "scan_in"]'), 'Unique interfaces must remain short unqualified for 100% backward compatibility');
+    });
+
+    test('33. Subsystems are considered when determining whether a remapped interface exports a short name or scoped name', () => {
+      // Model matching turtlebot3_navigation: direct node rviz2 has 'map', subsystem turtlebot3_navigation2 also has 'map'
+      const modelText = `turtlebot3_navigation:
+  subSystems:
+    turtlebot3_navigation2
+  nodes:
+    rviz2:
+      from: "rviz2.rviz2"
+      interfaces:
+        - map: sub-> "rviz2::map"
+        - downsampled_costmap: sub-> "rviz2::downsampled_costmap"
+  connections:
+    - ["map_server::map", "rviz2::map"]
+`;
+
+      const parsed = RosModelParser.parseRosSystem(modelText, 'turtlebot3_navigation.rossystem');
+      assert.strictEqual(parsed.subSystems.length, 1, 'Must parse subsystem');
+      assert.strictEqual(parsed.nodes.length, 1, 'Must parse rviz2 node');
+
+      // Check parsing of scoped rviz2::map
+      const conn = parsed.connections[0];
+      assert.strictEqual(conn.to.n, 'n_rviz2', 'to node must resolve to rviz2');
+
+      // Test emitting: because "map_server::map" contains interface "map",
+      // rviz2's "map" is recognized as duplicate (occurrences > 1) and must be emitted qualified as "rviz2::map"
+      const emitted = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(
+        emitted.includes('rviz2::map'),
+        `Direct node rviz2 map must be emitted qualified because subsystem also contains map. Emitted:\n${emitted}`
+      );
+      assert.ok(
+        !emitted.includes('- ["map_server::map", "map"]'),
+        `Direct node map must NOT be emitted as unqualified short name when subsystem contains map. Emitted:\n${emitted}`
+      );
+
+      // Also test with subsystem graph nodes
+      parsed.subSystems[0].graph = {
+        nodes: [
+          {
+            label: 'map_server',
+            interfaces: [{ label: 'map', name: 'map', kind: 'pub' }],
+          },
+        ],
+        connections: [],
+      };
+
+      const emittedWithGraph = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(
+        emittedWithGraph.includes('rviz2::map'),
+        `rviz2 map must be scoped when subsystem graph node declares map. Emitted:\n${emittedWithGraph}`
+      );
+    });
   });
 });
