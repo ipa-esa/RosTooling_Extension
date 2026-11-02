@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: false
+      publish_npm:
+        description: 'Publish to npm registry as rostooling-mcp'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -17,7 +22,7 @@ jobs:
     permissions:
       contents: write
       packages: write
-      id-token: write # Required for Open VSX Trusted Publishing
+      id-token: write # Required for Open VSX and npm Trusted Publishing (OIDC)
 
     steps:
       - uses: actions/checkout@v4
@@ -62,3 +67,11 @@ jobs:
       - name: Publish to Open VSX
         if: github.event_name == 'release' || inputs.publish_openvsx
         run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --trusted-publishing
+
+      - name: Publish to npm (rostooling-mcp)
+        if: github.event_name == 'release' || inputs.publish_npm
+        working-directory: rostooling-languages
+        run: |
+          npm pkg set name=rostooling-mcp
+          npm publish --provenance --access public
+          git checkout package.json
