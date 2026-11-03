@@ -5,7 +5,7 @@ import * as os from 'os';
 import { RosModelParser } from '../model/RosModelParser';
 import { RosModelEmitter } from '../model/RosModelEmitter';
 import { getStudioHtml } from '../webview/studioHtml';
-import { RosProject, RosNode, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic } from '../model/RosModelTypes';
+import { RosProject, RosNode, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic, RosConnection } from '../model/RosModelTypes';
 import { RosLayoutManager } from '../model/RosLayoutManager';
 import { RosCatalogueManager } from '../model/RosCatalogueManager';
 import { SRC_SIDE } from '../model/ConnectionValidator';
@@ -696,6 +696,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       this.enrichNodeWithDefinitions(node, declaredArt, catEntry);
     }
 
+    const outputKinds = new Set(['pub', 'ss', 'as']);
+    const inputKinds = new Set(['sub', 'sc', 'ac']);
+
     // 3. Resolve connection endpoints across all nodes (including subsystem nodes)
     for (const conn of project.connections || []) {
       const fromLookup = conn.rawFrom || (!conn.from.n ? conn.from.i : undefined);
@@ -705,10 +708,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       let fromIface = fromNode?.ifaces?.find(
         (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
       );
+      // Validate that fromIface is indeed an output port
+      if (fromIface && !outputKinds.has(fromIface.kind)) {
+        fromNode = undefined;
+        fromIface = undefined;
+      }
+
       let toNode = project.nodes.find((n) => n.id === conn.to.n);
       let toIface = toNode?.ifaces?.find(
         (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
       );
+      // Validate that toIface is indeed an input port
+      if (toIface && !inputKinds.has(toIface.kind)) {
+        toNode = undefined;
+        toIface = undefined;
+      }
 
       if (!fromNode || !fromIface) {
         const targetLabel = fromLookup || conn.from.i;
@@ -728,7 +742,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             );
             if (n) {
               const matchIface = n.ifaces?.find(
-                (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+                (f) => (f.label === ifacePart || f.name === ifacePart || f.id === ifacePart) && outputKinds.has(f.kind)
               );
               if (matchIface) {
                 conn.from.n = n.id;
@@ -741,7 +755,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           if (!fromNode || !fromIface) {
             for (const n of project.nodes) {
               const matchIface = n.ifaces?.find(
-                (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+                (f) => (f.label === targetLabel || f.name === targetLabel || f.id === targetLabel) && outputKinds.has(f.kind)
               );
               if (matchIface) {
                 conn.from.n = n.id;
@@ -773,7 +787,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             );
             if (n) {
               const matchIface = n.ifaces?.find(
-                (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+                (f) => (f.label === ifacePart || f.name === ifacePart || f.id === ifacePart) && inputKinds.has(f.kind)
               );
               if (matchIface) {
                 conn.to.n = n.id;
@@ -786,7 +800,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           if (!toNode || !toIface) {
             for (const n of project.nodes) {
               const matchIface = n.ifaces?.find(
-                (f) => f.label === targetLabel || f.name === targetLabel || f.id === targetLabel
+                (f) => (f.label === targetLabel || f.name === targetLabel || f.id === targetLabel) && inputKinds.has(f.kind)
               );
               if (matchIface) {
                 conn.to.n = n.id;
@@ -814,6 +828,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
       }
     }
+
+    // Prune invalid self-connections where a node connects an interface to itself
+    project.connections = (project.connections || []).filter(
+      (c) => !(c.from?.n && c.to?.n && c.from.n === c.to.n && c.from.i === c.to.i)
+    );
   }
 
   public normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
@@ -930,37 +949,25 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     }
 
-    // Preserve connection middle segment custom offsets
-    const connMap = new Map<string, number>();
-    for (const c of source.connections) {
-      if (c.midX != null) {
-        const key = `${c.from.n}::${c.from.i}->${c.to.n}::${c.to.i}`;
-        connMap.set(c.id, c.midX);
-        connMap.set(key, c.midX);
-      }
-    }
-    for (const c of target.connections) {
+    // Preserve connection layout attributes (midX, midY, connectorMode, waypoints)
+    const connMap = new Map<
+      string,
+      { midX?: number; midY?: number; connectorMode?: RosConnection['connectorMode']; waypoints?: { x: number; y: number }[] }
+    >();
+    for (const c of source.connections || []) {
       const key = `${c.from.n}::${c.from.i}->${c.to.n}::${c.to.i}`;
-      const savedMidX = connMap.get(c.id) || connMap.get(key);
-      if (savedMidX != null) {
-        c.midX = savedMidX;
-      }
+      const data = { midX: c.midX, midY: c.midY, connectorMode: c.connectorMode, waypoints: c.waypoints };
+      connMap.set(c.id, data);
+      connMap.set(key, data);
     }
-
-    // Preserve connections from source if not already present in target
-    for (const sc of source.connections || []) {
-      const exists = target.connections.some(
-        (tc) =>
-          tc.id === sc.id ||
-          (tc.from.n === sc.from.n && tc.from.i === sc.from.i && tc.to.n === sc.to.n && tc.to.i === sc.to.i) ||
-          ((tc.rawFrom || tc.from.i) === (sc.rawFrom || sc.from.i) && (tc.rawTo || tc.to.i) === (sc.rawTo || sc.to.i))
-      );
-      if (!exists && sc.from?.n && sc.to?.n) {
-        const fromExists = target.nodes.some((n) => n.id === sc.from.n);
-        const toExists = target.nodes.some((n) => n.id === sc.to.n);
-        if (fromExists && toExists) {
-          target.connections.push({ ...sc });
-        }
+    for (const c of target.connections || []) {
+      const key = `${c.from.n}::${c.from.i}->${c.to.n}::${c.to.i}`;
+      const saved = connMap.get(c.id) || connMap.get(key);
+      if (saved) {
+        if (saved.midX != null) c.midX = saved.midX;
+        if (saved.midY != null) c.midY = saved.midY;
+        if (saved.connectorMode) c.connectorMode = saved.connectorMode;
+        if (saved.waypoints) c.waypoints = saved.waypoints;
       }
     }
 

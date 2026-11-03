@@ -470,6 +470,10 @@ function SystemCanvasInner() {
       const target = toCollapsedSub ? `sub_${toNode.subRef}` : toNode.id;
       const targetHandle = toCollapsedSub ? `${toNode.id}::${toIface.id}` : toIface.id;
 
+      if (source === target && sourceHandle === targetHandle) {
+        continue;
+      }
+
       const connDiags = diags.filter((d) => d.elementId === conn.id);
       const hasErr = connDiags.some((d) => d.severity === 'error');
       const strokeColor = hasErr

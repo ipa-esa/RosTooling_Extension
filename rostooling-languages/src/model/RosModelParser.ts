@@ -453,6 +453,10 @@ export const RosModelParser = {
 
             // 2. Unqualified search across all nodes
             const matches: { node: RosNode; iface: RosInterface }[] = [];
+            const outputKinds = new Set(['pub', 'ss', 'as']);
+            const inputKinds = new Set(['sub', 'sc', 'ac']);
+            const allowedKinds = isFrom ? outputKinds : inputKinds;
+
             for (const n of proj.nodes) {
               for (const f of n.ifaces) {
                 if (f.label === clean || f.name === clean || f.id === clean) {
@@ -461,19 +465,9 @@ export const RosModelParser = {
               }
             }
 
-            if (matches.length === 1) {
-              return matches[0];
-            }
-
-            if (matches.length > 1) {
-              // Prefer role-aligned interface: from -> outputs (pub, ss, as), to -> inputs (sub, sc, ac)
-              const outputKinds = new Set(['pub', 'ss', 'as']);
-              const inputKinds = new Set(['sub', 'sc', 'ac']);
-              const roleMatch = matches.find((m) =>
-                isFrom ? outputKinds.has(m.iface.kind) : inputKinds.has(m.iface.kind)
-              );
-              if (roleMatch) return roleMatch;
-              return matches[0];
+            const roleMatches = matches.filter((m) => allowedKinds.has(m.iface.kind));
+            if (roleMatches.length > 0) {
+              return roleMatches[0];
             }
 
             return {};
@@ -485,6 +479,12 @@ export const RosModelParser = {
           const fromIface = fromMatch.iface;
           const toNode = toMatch.node;
           const toIface = toMatch.iface;
+
+          if (fromNode && toNode && fromNode.id === toNode.id && fromIface?.id === toIface?.id) {
+            // Disallow invalid self-loop connection on the same interface
+            leadComments = [];
+            continue;
+          }
 
           proj.connections.push({
             id: `c_${fromLabel}_${toLabel}`,

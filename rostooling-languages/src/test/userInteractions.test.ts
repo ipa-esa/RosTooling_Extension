@@ -2957,5 +2957,84 @@ inspection_system:
         `rviz2 map must be scoped when subsystem graph node declares map. Emitted:\n${emittedWithGraph}`
       );
     });
+
+    test('34. Manual removal of connection from model file syncs cleanly and is not resurrected by layout cache', () => {
+      const mockContext = {
+        subscriptions: [],
+        extensionPath: path.resolve(__dirname, '../../'),
+        globalStorageUri: vscode.Uri.file('/tmp/rostooling_test_storage'),
+      } as unknown as vscode.ExtensionContext;
+      const provider = new RosCustomEditorProvider(mockContext);
+
+      // Cached project before text edit (contained a connection)
+      const cachedProject = {
+        formatVersion: 2,
+        isRosSystem: true,
+        system: { name: 'turtlebot3_mapping' },
+        subSystems: [],
+        packages: {},
+        types: {},
+        nodes: [
+          {
+            id: 'n_carto',
+            label: 'carto',
+            ifaces: [{ id: 'i_map_pub', name: 'map', label: 'map', kind: 'pub' as const, exposed: true }],
+            params: [],
+          },
+          {
+            id: 'n_rviz2',
+            label: 'rviz2',
+            ifaces: [{ id: 'i_map_sub', name: 'map', label: 'map', kind: 'sub' as const, exposed: true }],
+            params: [],
+          },
+        ],
+        connections: [
+          {
+            id: 'c_carto_map_rviz2_map',
+            from: { n: 'n_carto', i: 'i_map_pub' },
+            to: { n: 'n_rviz2', i: 'i_map_sub' },
+            midX: 150,
+          },
+        ],
+      };
+
+      // Freshly parsed project after user manually deleted the connection line in .rossystem text
+      const freshProject = {
+        formatVersion: 2,
+        isRosSystem: true,
+        system: { name: 'turtlebot3_mapping' },
+        subSystems: [],
+        packages: {},
+        types: {},
+        nodes: [
+          {
+            id: 'n_carto',
+            label: 'carto',
+            ifaces: [{ id: 'i_map_pub', name: 'map', label: 'map', kind: 'pub' as const, exposed: true }],
+            params: [],
+          },
+          {
+            id: 'n_rviz2',
+            label: 'rviz2',
+            ifaces: [{ id: 'i_map_sub', name: 'map', label: 'map', kind: 'sub' as const, exposed: true }],
+            params: [],
+          },
+        ],
+        connections: [], // Empty connections because user deleted it
+      };
+
+      // Call restoreCachedLayout
+      (provider as unknown as { restoreCachedLayout: (target: unknown, source: unknown) => void })['restoreCachedLayout'](
+        freshProject,
+        cachedProject
+      );
+
+      // Verify that the removed connection was NOT resurrected into freshProject
+      assert.strictEqual(
+        freshProject.connections.length,
+        0,
+        'Manually removed connection must NOT be resurrected by restoreCachedLayout'
+      );
+    });
   });
 });

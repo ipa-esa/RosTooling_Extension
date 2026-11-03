@@ -605,5 +605,79 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.deepStrictEqual(roundTripped.processes?.[1].nodes, ['scan_node']);
     assert.strictEqual(roundTripped.processes?.[1].threads, 1);
   });
+
+  test('Reject and omit self-connections and enforce directional port roles for connections', () => {
+    const rossystemWithSelfConn = `turtlebot3_mapping:
+  nodes:
+    rviz2:
+      from: "rviz2.rviz2"
+      interfaces:
+        - map: sub-> "rviz2::map"
+  connections:
+    - ["rviz2::map", "rviz2::map"]
+    - ["map", "rviz2::map"]
+`;
+
+    const parsed = RosModelParser.parseRosSystem(rossystemWithSelfConn, 'turtlebot3_mapping.rossystem');
+    // Both connections should be rejected:
+    // 1. Explicit self-connection ["rviz2::map", "rviz2::map"] is dropped.
+    // 2. Unqualified "map" for `from` does not match rviz2::map because rviz2.map is a subscriber (sub),
+    //    so from is not matched to rviz2.map, preventing an accidental self-loop.
+    assert.strictEqual(parsed.connections.length, 1);
+    // The second connection retains rawFrom: "map" for subsystem resolution, but from.n is not set to rviz2
+    assert.notStrictEqual(parsed.connections[0].from?.n, 'rviz2');
+
+    // Test that RosModelEmitter strips any self-connections and deduplicates identical connections
+    const projectWithSelf: RosProject = {
+      formatVersion: 2,
+      system: { name: 'test_sys' },
+      isRosSystem: true,
+      subSystems: [],
+      packages: {},
+      types: {},
+      nodes: [
+        {
+          id: 'n_rviz2',
+          label: 'rviz2',
+          ifaces: [
+            { id: 'i_map', name: 'map', label: 'map', kind: 'sub', exposed: true },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_carto',
+          label: 'carto',
+          ifaces: [
+            { id: 'i_map', name: 'map', label: 'map', kind: 'pub', exposed: true },
+          ],
+          params: [],
+        },
+      ],
+      connections: [
+        {
+          id: 'c_self',
+          from: { n: 'n_rviz2', i: 'i_map' },
+          to: { n: 'n_rviz2', i: 'i_map' },
+        },
+        {
+          id: 'c_valid_1',
+          from: { n: 'n_carto', i: 'i_map' },
+          to: { n: 'n_rviz2', i: 'i_map' },
+        },
+        {
+          id: 'c_valid_2',
+          from: { n: 'n_carto', i: 'i_map' },
+          to: { n: 'n_rviz2', i: 'i_map' },
+        },
+      ],
+    };
+
+    const emitted = RosModelEmitter.emitRosSystem(projectWithSelf);
+    // Erroneous self-connection must not be emitted
+    assert.ok(!emitted.includes('["rviz2::map", "rviz2::map"]'));
+    // Valid connection must be emitted exactly once
+    const matches = emitted.match(/\["carto::map", "rviz2::map"\]/g);
+    assert.strictEqual(matches?.length, 1);
+  });
 });
 

@@ -236,7 +236,11 @@ export const RosModelEmitter = {
         }
       }
 
+      const emittedConnections = new Set<string>();
       for (const conn of project.connections) {
+        if (conn.from?.n && conn.to?.n && conn.from.n === conn.to.n && conn.from.i === conn.to.i) {
+          continue;
+        }
         const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
         const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
         const fromIface = fromNode?.ifaces?.find(
@@ -286,6 +290,14 @@ export const RosModelEmitter = {
         }
 
         if (fromName && toName) {
+          if (fromNode && toNode && fromNode.id === toNode.id && fromName === toName) {
+            continue;
+          }
+          const connKey = `${fromName}->${toName}`;
+          if (emittedConnections.has(connKey)) {
+            continue;
+          }
+          emittedConnections.add(connKey);
           // Format as bracketed connection pair [from, to]
           lines.push(`    - [${this.qDouble(fromName)}, ${this.qDouble(toName)}]`);
         }
