@@ -1008,8 +1008,51 @@ export function normalizeRosType(type) {
 
 export function nameOf(node, iface, proj = state.project) {
   const bound = proj?.studio?.modules?.[node?.id]?.portBindings?.[iface?.id];
-  const raw = bound || iface?.label || iface?.name || '';
+  const raw = bound || iface?.name || iface?.label || '';
   return String(raw).trim().replace(/^\/+/, '');
+}
+
+export function getPortTokens(node, iface, proj = state.project) {
+  const bound = proj?.studio?.modules?.[node?.id]?.portBindings?.[iface?.id];
+  const cleanBound = bound ? String(bound).trim().replace(/^\/+/, '') : null;
+  const cleanName = iface?.name ? String(iface.name).trim().replace(/^\/+/, '') : null;
+  const cleanLabel = iface?.label ? String(iface.label).trim().replace(/^\/+/, '') : null;
+
+  const remapName = cleanBound || cleanLabel || null;
+  const baseName = cleanName || cleanLabel || null;
+
+  return { baseName, remapName, bound: cleanBound };
+}
+
+/**
+ * Tiered interface matching for auto-wiring:
+ * - Tier 1: Intentional Remapping Match (Both ports explicitly remapped or bound to the same topic/service name)
+ * - Tier 2: Directed Remapping Match (One port remapped to target the other component's interface name)
+ * - Tier 3: Underlying Contract Match (Both ports share the same default ROS interface name)
+ */
+export function portsMatch(nodeA, ifaceA, nodeB, ifaceB, proj = state.project) {
+  const tokA = getPortTokens(nodeA, ifaceA, proj);
+  const tokB = getPortTokens(nodeB, ifaceB, proj);
+
+  // 1. Tier 1: Intentional Remapping Match (Both ports bound or remapped to the exact same name)
+  if (tokA.remapName && tokB.remapName && tokA.remapName === tokB.remapName) {
+    return { matched: true, tier: 'remap', resolvedName: tokA.remapName };
+  }
+
+  // 2. Tier 2: Directed Remapping Match (One port remapped to target the other port)
+  if (tokA.remapName && tokB.baseName && tokA.remapName === tokB.baseName) {
+    return { matched: true, tier: 'directed-remap', resolvedName: tokB.baseName };
+  }
+  if (tokB.remapName && tokA.baseName && tokB.remapName === tokA.baseName) {
+    return { matched: true, tier: 'directed-remap', resolvedName: tokA.baseName };
+  }
+
+  // 3. Tier 3: Underlying Contract Match (Both ports declare the same ROS interface name)
+  if (tokA.baseName && tokB.baseName && tokA.baseName === tokB.baseName) {
+    return { matched: true, tier: 'contract', resolvedName: tokA.baseName };
+  }
+
+  return { matched: false, tier: null, resolvedName: null };
 }
 
 function isContractLocked(node) {
@@ -1070,9 +1113,9 @@ export function connectMatchingOnProject(proj, skipped = [], connected = []) {
           if (t.exposed === false) continue;
           if (t.kind !== KIND_META[f.kind].partner) continue;
 
-          const srcResolvedName = nameOf(a, f, proj);
-          const tgtResolvedName = nameOf(b, t, proj);
-          if (!srcResolvedName || srcResolvedName !== tgtResolvedName) continue;
+          const matchResult = portsMatch(a, f, b, t, proj);
+          if (!matchResult.matched) continue;
+          const srcResolvedName = matchResult.resolvedName;
 
           // Dynamic runtime token guard ({...})
           if (

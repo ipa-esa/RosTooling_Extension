@@ -69,8 +69,8 @@ export interface RosNode {
 
 export interface RosConnection {
   id: string;
-  from: { n: string; i: string };
-  to: { n: string; i: string };
+  from: { n: string; i: string; kind?: string };
+  to: { n: string; i: string; kind?: string };
   rawFrom?: string;
   rawTo?: string;
   midX?: number;
@@ -78,6 +78,9 @@ export interface RosConnection {
   connectorMode?: 'orthogonal' | 'linear' | 'spline';
   waypoints?: { x: number; y: number }[];
   midOffset?: number;
+  type?: string;
+  resolvedName?: string;
+  matchTier?: string;
   line?: number;
   comments?: Record<string, unknown>;
 }

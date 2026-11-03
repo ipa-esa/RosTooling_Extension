@@ -30,6 +30,18 @@ export const SRC_SIDE: Record<string, boolean> = {
   ac: false,
 };
 
+export interface PortTokens {
+  baseName: string | null;
+  remapName: string | null;
+  bound: string | null;
+}
+
+export interface PortMatchResult {
+  matched: boolean;
+  tier: 'remap' | 'directed-remap' | 'contract' | null;
+  resolvedName: string | null;
+}
+
 export const ConnectionValidator = {
   /**
    * Validate if two interface ports can be connected.
@@ -184,5 +196,131 @@ export const ConnectionValidator = {
         subText: `Source: ${sourceIface.name} (${srcType})`,
       };
     }
+  },
+
+  /**
+   * Extract base contract name, remapped name, and studio port binding tokens.
+   */
+  getPortTokens(
+    node: { id?: string; label?: string },
+    iface: { id?: string; name?: string; label?: string },
+    project?: { studio?: { modules?: Record<string, { portBindings?: Record<string, string> }> } }
+  ): PortTokens {
+    const bound = project?.studio?.modules?.[node?.id || '']?.portBindings?.[iface?.id || ''];
+    const cleanBound = bound ? String(bound).trim().replace(/^\/+/, '') : null;
+    const cleanName = iface?.name ? String(iface.name).trim().replace(/^\/+/, '') : null;
+    const cleanLabel = iface?.label ? String(iface.label).trim().replace(/^\/+/, '') : null;
+
+    const remapName = cleanBound || cleanLabel || null;
+    const baseName = cleanName || cleanLabel || null;
+
+    return { baseName, remapName, bound: cleanBound };
+  },
+
+  /**
+   * Tiered interface matching for auto-wiring:
+   * - Tier 1: Intentional Remapping Match (Both ports explicitly remapped or bound to the same topic/service name)
+   * - Tier 2: Directed Remapping Match (One port remapped to target the other component's interface name)
+   * - Tier 3: Underlying Contract Match (Both ports share the same default ROS interface name)
+   */
+  portsMatch(
+    nodeA: { id?: string; label?: string },
+    ifaceA: { id?: string; name?: string; label?: string },
+    nodeB: { id?: string; label?: string },
+    ifaceB: { id?: string; name?: string; label?: string },
+    project?: { studio?: { modules?: Record<string, { portBindings?: Record<string, string> }> } }
+  ): PortMatchResult {
+    const tokA = this.getPortTokens(nodeA, ifaceA, project);
+    const tokB = this.getPortTokens(nodeB, ifaceB, project);
+
+    // 1. Tier 1: Intentional Remapping Match (Both ports bound or remapped to the exact same name)
+    if (tokA.remapName && tokB.remapName && tokA.remapName === tokB.remapName) {
+      return { matched: true, tier: 'remap', resolvedName: tokA.remapName };
+    }
+
+    // 2. Tier 2: Directed Remapping Match (One port remapped to target the other port)
+    if (tokA.remapName && tokB.baseName && tokA.remapName === tokB.baseName) {
+      return { matched: true, tier: 'directed-remap', resolvedName: tokB.baseName };
+    }
+    if (tokB.remapName && tokA.baseName && tokB.remapName === tokA.baseName) {
+      return { matched: true, tier: 'directed-remap', resolvedName: tokA.baseName };
+    }
+
+    // 3. Tier 3: Underlying Contract Match (Both ports declare the same ROS interface name)
+    if (tokA.baseName && tokB.baseName && tokA.baseName === tokB.baseName) {
+      return { matched: true, tier: 'contract', resolvedName: tokA.baseName };
+    }
+
+    return { matched: false, tier: null, resolvedName: null };
+  },
+
+  /**
+   * Auto-connect matching interfaces across all nodes in the project based on the tiered matching algorithm.
+   */
+  autoConnectMatching(
+    proj: RosProject,
+    skipped: string[] = [],
+    connected: string[] = []
+  ): { connectionsAdded: number } {
+    if (!proj.connections) {
+      proj.connections = [];
+    }
+    let count = 0;
+    const nodes = proj.nodes || [];
+    for (const a of nodes) {
+      for (const f of a.ifaces || []) {
+        if (f.exposed === false) continue;
+        if (!SRC_SIDE[f.kind]) continue;
+        for (const b of nodes) {
+          if (b.id === a.id) continue;
+          if (a.subRef && a.subRef === b.subRef) continue;
+          for (const t of b.ifaces || []) {
+            if (t.exposed === false) continue;
+            if (t.kind !== COMPLEMENT_KINDS[f.kind]) continue;
+
+            const matchResult = this.portsMatch(a, f, b, t, proj);
+            if (!matchResult.matched) continue;
+            const srcResolvedName = matchResult.resolvedName || '';
+
+            // Dynamic runtime token guard ({...})
+            if (
+              (f.name || '').includes('{') ||
+              (f.label || '').includes('{') ||
+              (t.name || '').includes('{') ||
+              (t.label || '').includes('{') ||
+              srcResolvedName.includes('{')
+            ) {
+              skipped.push(`${a.label} ${f.label || f.name} -> ${b.label}: dynamic token`);
+              continue;
+            }
+
+            const val = this.validate(a, f, b, t, proj.connections);
+            const wireLabel = `${a.label} ${srcResolvedName} -> ${b.label}`;
+            if (!val.valid) {
+              if (!/already exists/i.test(val.reason || '')) {
+                skipped.push(`${wireLabel}: ${val.reason}`);
+              }
+              continue;
+            }
+
+            if (!f.type) f.type = t.type;
+            if (!t.type) t.type = f.type;
+
+            const connId = `c_${f.id}_${t.id}_${proj.connections.length + 1}`;
+            proj.connections.push({
+              id: connId,
+              from: { n: a.id, i: f.id, kind: f.kind },
+              to: { n: b.id, i: t.id, kind: t.kind },
+              type: f.type || t.type,
+              resolvedName: srcResolvedName,
+              matchTier: matchResult.tier || undefined,
+            });
+            connected.push(`${wireLabel} (${matchResult.tier})`);
+            count++;
+          }
+        }
+      }
+    }
+    return { connectionsAdded: count };
   },
 };
