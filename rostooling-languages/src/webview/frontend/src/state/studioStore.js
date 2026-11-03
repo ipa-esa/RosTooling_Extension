@@ -520,6 +520,8 @@ const state = {
   macroMcpResult: null,
   macroSources: null,
   macroBusy: false,
+  macroWorkspaceRoot: init.macroWorkspaceRoot || '',
+  macroCustomScanPath: '',
 
   isReadOnly: init.isReadOnly,
   docFileName: init.docFileName,
@@ -640,6 +642,9 @@ registerHostMessageListener({
     if (msg.stage && !state.macroPinnedStage) {
       state.macroStage = msg.stage;
     }
+    if (msg.workspaceRoot !== undefined) {
+      state.macroWorkspaceRoot = msg.workspaceRoot || '';
+    }
     emitChange();
   },
   onMacroChecksResult(msg) {
@@ -658,6 +663,10 @@ registerHostMessageListener({
   onMacroSourcesResult(msg) {
     state.macroBusy = false;
     state.macroSources = msg.sources || null;
+    emitChange();
+  },
+  onMacroWorkspaceFolderPicked(folderPath) {
+    state.macroCustomScanPath = folderPath;
     emitChange();
   },
   onMacroToast(text, isError) {

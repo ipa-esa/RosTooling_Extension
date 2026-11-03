@@ -187,6 +187,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
       initialStage: opts.stage,
       pinnedStage: opts.pinnedStage,
       initialProjectId: this.activeProjectId,
+      workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
       nodeIndex: this.nodeIndex,
       typeIndex: this.typeIndex,
     });
@@ -625,9 +626,15 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         case 'macroInspectSources': {
           const pid = await this.ensureActiveProjectId();
           this.setBusy(true);
+          const defaultWs = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const targetPath =
+            typeof msg.path === 'string' && msg.path.trim()
+              ? msg.path.trim()
+              : defaultWs;
+          const queryParam = targetPath ? `?path=${encodeURIComponent(targetPath)}` : '';
           const sources = await this.daemonManager.request(
             'GET',
-            `/api/projects/${encodeURIComponent(pid)}/source/inspect`
+            `/api/projects/${encodeURIComponent(pid)}/source/inspect${queryParam}`
           );
           this.setBusy(false);
           for (const inst of this.panels) {
@@ -635,6 +642,25 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
               type: 'macroSourcesResult',
               sources,
             });
+          }
+          break;
+        }
+        case 'macroBrowseWorkspaceFolder': {
+          const defaultWs = vscode.workspace.workspaceFolders?.[0]?.uri;
+          const picked = await vscode.window.showOpenDialog({
+            title: 'Select ROS Workspace to Scan',
+            defaultUri: defaultWs,
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+          });
+          if (picked?.[0]) {
+            for (const inst of this.panels) {
+              void inst.panel.webview.postMessage({
+                type: 'macroWorkspaceFolderPicked',
+                path: picked[0].fsPath,
+              });
+            }
           }
           break;
         }
@@ -708,6 +734,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
   }
 
   private broadcastMacroState(): void {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     for (const inst of this.panels) {
       void inst.panel.webview.postMessage({
         type: 'macroState',
@@ -715,6 +742,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         activeProjectId: this.activeProjectId,
         envelope: this.latestEnvelope,
         mcpStatus: this.latestMcpStatus,
+        workspaceRoot: wsRoot,
         busy: false,
       });
     }

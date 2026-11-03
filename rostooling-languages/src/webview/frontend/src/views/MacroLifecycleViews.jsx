@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Target,
   Package,
@@ -399,9 +399,18 @@ export function MacroIntentView() {
 }
 
 export function MacroPackagesView() {
-  const { nodeIndex, typeIndex, macroSources, macroBusy } = useStudio();
+  const { nodeIndex, typeIndex, macroSources, macroBusy, macroWorkspaceRoot, macroCustomScanPath } = useStudio();
   const [repoUrl, setRepoUrl] = useState('');
   const [repoBranch, setRepoBranch] = useState('main');
+  const [scanPath, setScanPath] = useState(macroCustomScanPath || macroWorkspaceRoot || '');
+
+  useEffect(() => {
+    if (macroCustomScanPath) {
+      setScanPath(macroCustomScanPath);
+    } else if (!scanPath && macroWorkspaceRoot) {
+      setScanPath(macroWorkspaceRoot);
+    }
+  }, [macroCustomScanPath, macroWorkspaceRoot]);
 
   const nodeCount = Object.keys(nodeIndex?.nodes || {}).length;
   const sysCount = Object.keys(nodeIndex?._systems || {}).length;
@@ -507,23 +516,78 @@ export function MacroPackagesView() {
               </div>
               <button
                 type="button"
-                className="rt-btn"
+                className="rt-btn primary"
                 disabled={macroBusy}
-                onClick={() => hostBridge.macroInspectSources()}
+                onClick={() => hostBridge.macroInspectSources(scanPath.trim())}
               >
-                Scan Project Sources
+                Scan Workspace Sources
               </button>
             </div>
             <p className="rt-macro-help">
-              Inspect <code>package.xml</code>, C++, Python, and launch files attached to this Studio project.
+              Inspect <code>package.xml</code>, C++, Python, interfaces, and launch files in your active IDE workspace or a custom path.
             </p>
+            <div className="rt-form-group" style={{ marginBottom: 12 }}>
+              <label className="rt-form-label">Source Workspace Directory</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="rt-input"
+                  placeholder={macroWorkspaceRoot || '/path/to/ros2_ws'}
+                  value={scanPath}
+                  onChange={(e) => setScanPath(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="rt-btn"
+                  title="Browse local folder"
+                  onClick={() => hostBridge.macroBrowseWorkspaceFolder()}
+                >
+                  Browse...
+                </button>
+                {macroWorkspaceRoot && scanPath !== macroWorkspaceRoot && (
+                  <button
+                    type="button"
+                    className="rt-btn subtle"
+                    title="Reset to currently open IDE workspace"
+                    onClick={() => setScanPath(macroWorkspaceRoot)}
+                  >
+                    Use Open Workspace
+                  </button>
+                )}
+              </div>
+            </div>
             {macroSources ? (
-              <pre className="rt-macro-pre">
-                {JSON.stringify(macroSources.summary || macroSources, null, 2)}
-              </pre>
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
+                    Scanned root: <code>{macroSources.root}</code> ({macroSources.files?.length || 0} files)
+                  </span>
+                  <span className="rt-badge" style={{ background: 'rgba(59, 130, 246, 0.16)', color: 'var(--rt-accent, #3b82f6)' }}>
+                    {macroSources.packages?.length || 0} packages found
+                  </span>
+                </div>
+                {Array.isArray(macroSources.packages) && macroSources.packages.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {macroSources.packages.map((pkg) => (
+                      <span key={pkg.name} className="rt-badge" style={{ background: 'var(--rt-surface-accent, #2d3748)', color: 'var(--rt-text)' }}>
+                        <strong>{pkg.name}</strong> ({pkg.buildType})
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {Array.isArray(macroSources.launchFiles) && macroSources.launchFiles.length > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--rt-muted)', marginBottom: 8 }}>
+                    <strong>Launch files ({macroSources.launchFiles.length}):</strong> {macroSources.launchFiles.slice(0, 5).join(', ')}
+                    {macroSources.launchFiles.length > 5 ? ` +${macroSources.launchFiles.length - 5} more` : ''}
+                  </div>
+                )}
+                <pre className="rt-macro-pre" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {JSON.stringify(macroSources.summary || macroSources, null, 2)}
+                </pre>
+              </div>
             ) : (
               <div className="rt-empty-state" style={{ padding: 18 }}>
-                Click &ldquo;Scan Project Sources&rdquo; to inspect repositories in this project.
+                Click &ldquo;Scan Workspace Sources&rdquo; to discover ROS packages and launch files in the workspace.
               </div>
             )}
           </div>

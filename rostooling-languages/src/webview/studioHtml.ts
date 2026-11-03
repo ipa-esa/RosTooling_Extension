@@ -57,6 +57,7 @@ export interface MacroStudioHtmlOptions {
   initialStage?: 'intent' | 'packages' | 'architecture' | 'checks' | 'deployment';
   pinnedStage?: boolean;
   initialProjectId?: string;
+  workspaceRoot?: string;
   nodeIndex?: unknown;
   typeIndex?: unknown;
 }
@@ -99,6 +100,7 @@ export function getMacroStudioHtml(options: MacroStudioHtmlOptions): string {
     macroStage: options.initialStage || 'intent',
     macroPinnedStage: Boolean(options.pinnedStage),
     macroInitialProjectId: options.initialProjectId || '',
+    macroWorkspaceRoot: options.workspaceRoot || '',
     isReadOnly: false,
     docFileName: '',
     nodeIndex: options.nodeIndex || {},

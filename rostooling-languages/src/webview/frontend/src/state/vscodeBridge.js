@@ -47,6 +47,7 @@ export function getInitialData() {
     macroStage: raw.macroStage || 'intent',
     macroPinnedStage: Boolean(raw.macroPinnedStage),
     macroInitialProjectId: raw.macroInitialProjectId || '',
+    macroWorkspaceRoot: raw.macroWorkspaceRoot || '',
     isReadOnly: Boolean(raw.isReadOnly),
     docFileName: raw.docFileName || '',
     nodeIndex: raw.nodeIndex || {},
@@ -95,6 +96,11 @@ export function registerHostMessageListener(handlers) {
       case 'macroSourcesResult':
         if (handlers.onMacroSourcesResult) {
           handlers.onMacroSourcesResult(msg);
+        }
+        break;
+      case 'macroWorkspaceFolderPicked':
+        if (handlers.onMacroWorkspaceFolderPicked) {
+          handlers.onMacroWorkspaceFolderPicked(msg.path || '');
         }
         break;
       case 'macroToast':
@@ -179,7 +185,10 @@ export const hostBridge = {
   macroFetchRepository(url, branch) {
     getVsCodeApi().postMessage({ type: 'macroFetchRepository', url, branch });
   },
-  macroInspectSources() {
-    getVsCodeApi().postMessage({ type: 'macroInspectSources' });
+  macroInspectSources(customPath) {
+    getVsCodeApi().postMessage({ type: 'macroInspectSources', path: customPath });
+  },
+  macroBrowseWorkspaceFolder() {
+    getVsCodeApi().postMessage({ type: 'macroBrowseWorkspaceFolder' });
   },
 };
