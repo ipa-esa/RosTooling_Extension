@@ -652,17 +652,7 @@ export function RosStudioApp() {
                 style={{ height: 26, padding: '0 6px', color: 'var(--rt-danger, #ef4444)' }}
                 title="Delete active RosTooling Studio project"
                 onClick={() => {
-                  const current = macroProjects.find(
-                    (p) => (p.id || p.projectId) === macroActiveProjectId
-                  );
-                  const name = current?.name || current?.systemName || macroActiveProjectId;
-                  if (
-                    window.confirm(
-                      `Are you sure you want to delete project "${name}"? This action cannot be undone.`
-                    )
-                  ) {
-                    hostBridge.macroDeleteProject(macroActiveProjectId);
-                  }
+                  hostBridge.macroDeleteProject(macroActiveProjectId);
                 }}
               >
                 <Trash2 size={12} />

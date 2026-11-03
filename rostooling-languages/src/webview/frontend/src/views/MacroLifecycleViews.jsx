@@ -138,14 +138,7 @@ export function MacroIntentView() {
                       style={{ height: 26, padding: '0 8px', color: 'var(--rt-danger, #ef4444)' }}
                       title="Delete active RosTooling Studio project"
                       onClick={() => {
-                        const projName = p.system?.name || activeProjMeta?.name || macroActiveProjectId;
-                        if (
-                          window.confirm(
-                            `Are you sure you want to delete project "${projName}"? This action cannot be undone.`
-                          )
-                        ) {
-                          hostBridge.macroDeleteProject(macroActiveProjectId);
-                        }
+                        hostBridge.macroDeleteProject(macroActiveProjectId);
                       }}
                     >
                       <Trash2 size={12} /> Delete

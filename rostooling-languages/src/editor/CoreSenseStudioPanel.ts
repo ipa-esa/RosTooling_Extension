@@ -401,6 +401,16 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         case 'macroDeleteProject': {
           const targetId = String(msg.projectId || this.activeProjectId || '').trim();
           if (!targetId) return;
+          const targetProject = this.latestProjects.find((p) => p.id === targetId);
+          const name = targetProject?.name || targetId;
+          const choice = await vscode.window.showWarningMessage(
+            `Are you sure you want to delete RosTooling Studio project "${name}"? This action cannot be undone.`,
+            { modal: true },
+            'Delete Project'
+          );
+          if (choice !== 'Delete Project') {
+            return;
+          }
           this.setBusy(true);
           await this.daemonManager.request(
             'DELETE',
@@ -435,7 +445,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
           }
           this.setBusy(false);
           this.broadcastMacroState();
-          this.broadcastToast('Deleted Studio project');
+          this.broadcastToast(`Deleted Studio project "${name}"`);
           break;
         }
         case 'macroSaveProject': {
