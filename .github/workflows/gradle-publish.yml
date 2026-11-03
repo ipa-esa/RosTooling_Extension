@@ -27,6 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout Studio Backend
+        uses: actions/checkout@v4
+        with:
+          repository: 'ipa-esa/ipa-rostooling-studio'
+          path: 'ipa-rostooling-studio'
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

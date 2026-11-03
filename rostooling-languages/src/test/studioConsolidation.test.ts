@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { CORESENSE_ROLES, RosProject } from '../model/RosModelTypes';
+import { PIPELINE_ROLES, CORESENSE_ROLES, RosProject } from '../model/RosModelTypes';
 import { RosLayoutManager } from '../model/RosLayoutManager';
 import { DraftContentProvider, StudioApiClient } from '../orchestration/DraftContentProvider';
 import { MaterializationGate } from '../orchestration/MaterializationGate';
@@ -15,8 +15,8 @@ import { getMacroStudioHtml } from '../webview/studioHtml';
 suite('Unified RosTooling Studio Consolidation Suite', () => {
   const extRoot = path.resolve(__dirname, '..', '..');
 
-  test('CORESENSE_ROLES defines the 8 canonical pipeline roles', () => {
-    assert.deepStrictEqual(Array.from(CORESENSE_ROLES), [
+  test('PIPELINE_ROLES defines the 8 canonical pipeline roles', () => {
+    assert.deepStrictEqual(Array.from(PIPELINE_ROLES), [
       'Sensing',
       'Perception',
       'World Modeling',
@@ -26,9 +26,10 @@ suite('Unified RosTooling Studio Consolidation Suite', () => {
       'Communication',
       'Unassigned',
     ]);
+    assert.strictEqual(CORESENSE_ROLES, PIPELINE_ROLES);
   });
 
-  test('RosLayoutManager persists and restores CoreSense roles in .layout.json sidecar', async () => {
+  test('RosLayoutManager persists and restores pipeline roles in .layout.json sidecar', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-layout-role-'));
     try {
       const sysPath = path.join(tmpDir, 'nav_system.rossystem');
@@ -137,6 +138,15 @@ suite('Unified RosTooling Studio Consolidation Suite', () => {
     assert.ok(html.includes('"mode":"macro"'));
     assert.ok(html.includes('"macroStage":"architecture"'));
     assert.ok(html.includes('"macroPinnedStage":true'));
+  });
+
+  test('PythonEnvResolver resolves bundled backend scripts within extension package', async () => {
+    const resolver = new PythonEnvResolver(extRoot);
+    const backend = await resolver.resolveStudioBackend();
+    assert.ok(backend, 'Expected PythonEnvResolver to resolve backend');
+    assert.ok(fs.existsSync(backend.serverScriptPath), `Server script must exist: ${backend.serverScriptPath}`);
+    assert.strictEqual(path.basename(backend.serverScriptPath), 'studio_server.py');
+    assert.ok(fs.existsSync(backend.rosStudioScriptPath), `ros_studio.py must exist: ${backend.rosStudioScriptPath}`);
   });
 
   test('End-to-end Daemon + MaterializationGate + ReconciliationWatcher round-trip', async function () {

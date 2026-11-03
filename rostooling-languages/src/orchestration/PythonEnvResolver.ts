@@ -107,6 +107,11 @@ export class PythonEnvResolver {
       scriptCandidates.push(path.join(envStudioRoot, 'studio_server.py'));
     }
 
+    // Bundled directly inside extension package (e.g. out-of-the-box VSIX install)
+    scriptCandidates.push(path.join(this.extensionPath, 'scripts', 'studio_server.py'));
+    scriptCandidates.push(path.join(this.extensionPath, 'studio', 'scripts', 'studio_server.py'));
+    scriptCandidates.push(path.join(this.extensionPath, 'backend', 'scripts', 'studio_server.py'));
+
     const modulePath = await this.probeInstalledStudioModule(python.pythonBin);
     if (modulePath) {
       scriptCandidates.push(modulePath);
@@ -158,7 +163,7 @@ export class PythonEnvResolver {
       return;
     }
     const selection = await vscode.window.showWarningMessage(
-      'CoreSense Studio backend not found (requires Python >= 3.9 and ipa-rostooling-studio).',
+      'RosTooling Studio backend not found (requires Python >= 3.9 and rostooling-studio).',
       'Install via pip',
       'Configure Path',
       'Ignore'
@@ -171,7 +176,7 @@ export class PythonEnvResolver {
       term.sendText(`${py} -m pip install rostooling-studio`);
     } else if (selection === 'Configure Path') {
       const picked = await vscode.window.showOpenDialog({
-        title: 'Select ipa-rostooling-studio folder or scripts/studio_server.py',
+        title: 'Select RosTooling Studio folder or scripts/studio_server.py',
         canSelectFiles: true,
         canSelectFolders: true,
         canSelectMany: false,
