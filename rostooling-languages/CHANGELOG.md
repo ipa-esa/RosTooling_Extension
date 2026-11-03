@@ -5,6 +5,44 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-11-03
+
+### Added
+- **React Flow Visual Studio Overhaul**:
+  - Replaced legacy SVG/canvas webview implementation with a modular React 19 + `@xyflow/react` (React Flow) architecture bundled via an optimized esbuild pipeline.
+  - Implemented specialized interactive views:
+    - **`RosSystemView` (.rossystem)**: Interactive multi-node system composition, expandable/collapsible subsystem container cards, process group container nodes, orthogonal jump wire routing (`JumpOrthogonalEdge`), dynamic drag-and-drop wire creation, and canvas navigation controls (zoom, pan, fit view, minimap, search filtering).
+    - **`RosComponentView` (.ros2 / .ros1)**: Interactive component modeling for nodes, interfaces, and parameters; full support for publisher/subscriber QoS profile dropdown selectors (reliability, durability, history, depth, liveliness, deadline, lifespan, lease duration), LifecycleNode state configurations, and live syntax validation.
+    - **`RosCommObjectsView` (.ros)**: Interactive UML type schema cards for ROS communication objects (messages, services, and actions) with dynamic nested type dependency tracking and links.
+    - **`CatalogueDrawer`**: Integrated sliding drawer to search, browse, and drag-and-drop off-the-shelf nodes from `RosModelsCatalog` and message/service/action communication types from `RosCommonObjects`.
+- **Scoped Remapped Interface Resolution (`<node>::<interface>`)**:
+  - Added support in parser and emitter for double-colon scoped interfaces in `.rossystem` connection definitions (`<node>::<interface>` and `<subsystem>::<node>::<interface>`).
+  - Implemented duplicate interface collision detection: automatically qualifies connection endpoints when multiple nodes or subsystems share identically named interfaces, while preserving clean unqualified names when interfaces are unique.
+  - Subsystem member node scoping: accurately scopes remapped interfaces across loaded subsystem graphs during connection emission.
+
+### Changed
+- **Frontend Architecture & Build Pipeline**:
+  - Integrated standalone frontend build tooling inside `src/webview/frontend` with React 19, Lucide React icons, and `@xyflow/react`.
+  - Added `npm run build:webview` and integrated it directly into root `npm run compile` and CI build scripts.
+  - Replaced monolithic `studioHtml.ts` with lightweight `getStudioHtml` shell injecting the compiled React Flow bundle (`dist/studio.js` and `dist/studio.css`).
+- **Synchronized Version Declarations**:
+  - Bumped version to `2.3.0` across `package.json`, `package-lock.json`, `gradle.properties`, MCP server, and changelog.
+
+### Fixed
+- **Direction / Role-Aware Connection Endpoint Resolution**:
+  - Enforced directional port roles during unqualified interface resolution in `RosModelParser`: connection `from` endpoints strictly match output ports (`pub`, `ss`, `as`), and `to` endpoints strictly match input ports (`sub`, `sc`, `ac`).
+  - Prevents top-level subscriber ports from erroneously binding as the source of a connection during initial AST parsing prior to subsystem expansion.
+- **Connection Deletion Synchronization & Layout Cache Resurrection**:
+  - Removed connection resurrection loop in `RosCustomEditorProvider.restoreCachedLayout`: deleting a connection line in the `.rossystem` text editor immediately updates the visual studio without being resurrected from cached layout state.
+  - Scoped layout cache restoration strictly to visual layout attributes (`midX`, `midY`, `connectorMode`, `waypoints`) for existing connections.
+- **Invalid Self-Loop Connection Filtering**:
+  - Filtered out invalid self-connections where a node connects an interface to itself across `RosModelParser`, `RosCustomEditorProvider`, `RosModelEmitter`, and React Flow edge generation.
+- **Connection Deduplication**:
+  - Added automatic deduplication of identical connection pairs in `RosModelEmitter.emitRosSystem`.
+- **CI Build & Headless Testing**:
+  - Resolved `esbuild` path resolution and dependency availability in GitHub Actions workflows.
+  - Updated CI test workflow to run VS Code extension tests headlessly using `xvfb-run`.
+
 ## [2.2.1] - 2026-10-28
 
 ### Added
