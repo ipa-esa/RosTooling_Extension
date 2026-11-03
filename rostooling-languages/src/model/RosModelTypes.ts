@@ -2,15 +2,18 @@ export type RosInteractionKind = 'pub' | 'sub' | 'ss' | 'sc' | 'as' | 'ac' | 'pa
 
 export type RosLifecycleState = 'Unconfigured' | 'Inactive' | 'Active' | 'Finalized';
 
-export type CoreSenseRole =
-  | 'Sensing'
-  | 'Perception'
-  | 'World Modeling'
-  | 'Planning'
-  | 'Control'
-  | 'Actuation'
-  | 'Communication'
-  | 'Unassigned';
+export const CORESENSE_ROLES = [
+  'Sensing',
+  'Perception',
+  'World Modeling',
+  'Planning',
+  'Control',
+  'Actuation',
+  'Communication',
+  'Unassigned',
+] as const;
+
+export type CoreSenseRole = (typeof CORESENSE_ROLES)[number];
 
 export interface RosInterface {
   id: string;
