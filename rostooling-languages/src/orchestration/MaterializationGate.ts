@@ -178,6 +178,22 @@ export class MaterializationGate {
       layoutFile = await this.writeSystemLayoutSidecar(primarySystemFile, workspaceDir, nodeLayouts);
     }
 
+    try {
+      if (this.apiClient) {
+        const envelope = await this.apiClient.request<{ project?: unknown }>(
+          'GET',
+          `/api/projects/${encodeURIComponent(projectId)}`
+        );
+        if (envelope?.project) {
+          const specPath = path.join(workspaceDir, '.rostooling', 'project.json');
+          await fs.promises.mkdir(path.dirname(specPath), { recursive: true });
+          await fs.promises.writeFile(specPath, JSON.stringify(envelope.project, null, 2), 'utf8');
+        }
+      }
+    } catch {
+      // Non-fatal if project.json sync to workspace fails
+    }
+
     if (options.openInEditor !== false && primarySystemFile && fs.existsSync(primarySystemFile)) {
       await vscode.commands.executeCommand(
         'vscode.openWith',
