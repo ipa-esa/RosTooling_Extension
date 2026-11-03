@@ -669,6 +669,12 @@ registerHostMessageListener({
     state.macroCustomScanPath = folderPath;
     emitChange();
   },
+  onMacroNavigateStage(stage) {
+    if (stage) {
+      state.macroStage = stage;
+      emitChange();
+    }
+  },
   onMacroToast(text, isError) {
     state.macroBusy = false;
     if (text) {

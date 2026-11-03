@@ -103,6 +103,11 @@ export function registerHostMessageListener(handlers) {
           handlers.onMacroWorkspaceFolderPicked(msg.path || '');
         }
         break;
+      case 'macroNavigateStage':
+        if (handlers.onMacroNavigateStage) {
+          handlers.onMacroNavigateStage(msg.stage || 'architecture');
+        }
+        break;
       case 'macroToast':
         if (handlers.onMacroToast) {
           handlers.onMacroToast(msg.text || '', Boolean(msg.isError));
@@ -190,5 +195,8 @@ export const hostBridge = {
   },
   macroBrowseWorkspaceFolder() {
     getVsCodeApi().postMessage({ type: 'macroBrowseWorkspaceFolder' });
+  },
+  macroExtractSelectedPackages(packages) {
+    getVsCodeApi().postMessage({ type: 'macroExtractSelectedPackages', packages });
   },
 };

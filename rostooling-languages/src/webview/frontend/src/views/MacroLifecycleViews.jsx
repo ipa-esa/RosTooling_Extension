@@ -729,24 +729,38 @@ export function MacroPackagesView() {
                         <Sparkles size={14} />
                         <span>Ready for Agentic Modeling ({selectedPackages.length} package{selectedPackages.length > 1 ? 's' : ''} selected)</span>
                       </div>
-                      <button
-                        type="button"
-                        className="rt-btn subtle"
-                        style={{ height: 22, fontSize: 11, padding: '0 8px' }}
-                        onClick={() => {
-                          const names = selectedPackages.map((s) => s.name).join(', ');
-                          const promptText = `Please use the ros-model skill to extract and generate .ros2 models for the selected packages (${names}) in .rostooling/active_project.json in preparation for the architecture step.`;
-                          if (navigator.clipboard) {
-                            navigator.clipboard.writeText(promptText);
-                          }
-                          showToast('Copied agent prompt to clipboard');
-                        }}
-                      >
-                        Copy Agent Prompt
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button
+                          type="button"
+                          className="rt-btn subtle"
+                          style={{ height: 24, fontSize: 11, padding: '0 8px' }}
+                          title="Copy a prompt for the agent to model these packages"
+                          onClick={() => {
+                            const names = selectedPackages.map((s) => s.name).join(', ');
+                            const promptText = `Please use the ros-model skill to extract and generate .ros2 models for the selected packages (${names}) in .rostooling/active_project.json in preparation for the architecture step.`;
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(promptText);
+                            }
+                            showToast('Copied agent prompt to clipboard');
+                          }}
+                        >
+                          Copy Agent Prompt
+                        </button>
+                        <button
+                          type="button"
+                          className="rt-btn primary"
+                          disabled={macroBusy || selectedPackages.length === 0}
+                          style={{ height: 24, fontSize: 11, padding: '0 10px', gap: 5 }}
+                          title="Extract AST models (.ros2 and .ros) for selected packages and load into Stage 3 Architecture"
+                          onClick={() => hostBridge.macroExtractSelectedPackages(selectedPackages)}
+                        >
+                          <Sparkles size={12} />
+                          {macroBusy ? 'Extracting Models...' : 'Extract Models for Architecture'}
+                        </button>
+                      </div>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--rt-muted)', marginBottom: 6 }}>
-                      Saved to <code>.rostooling/active_project.json</code>. The agent will read these selected packages and their paths to extract <code>.ros2</code> models so they appear in Stage 3 Architecture.
+                      Click <strong>Extract Models for Architecture</strong> to automatically extract AST component models (<code>.ros2</code>) and message specs (<code>.ros</code>) and populate Stage 3 Architecture, or copy the prompt to have the agent customize them.
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {selectedPackages.map((sp) => (

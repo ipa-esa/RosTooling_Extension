@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   Activity,
   Cable,
+  Sparkles,
   X,
 } from 'lucide-react';
 import {
@@ -145,9 +146,12 @@ function SystemCanvasInner() {
   const studio = useStudio();
   const rfInstance = useReactFlow();
   const [canvasSearch, setCanvasSearch] = useState('');
+  const [dismissFlags, setDismissFlags] = useState(false);
+  const [showFlagsDetail, setShowFlagsDetail] = useState(false);
 
   const {
     project,
+    mode,
     isReadOnly,
     interfaceFilter,
     selectedNodeId,
@@ -156,6 +160,9 @@ function SystemCanvasInner() {
     selectedProcessName,
     fitTrigger,
   } = studio;
+
+  const isMacro = mode === 'macro';
+  const flags = Array.isArray(project?.studio?.flags) ? project.studio.flags : [];
 
   const handleMoveMidX = useCallback((connId, newMidX) => {
     mutateLayout((proj) => {
@@ -1033,6 +1040,90 @@ function SystemCanvasInner() {
           ))}
         </div>
       </div>
+
+      {/* Flagged Dynamic Items Resolution Banner */}
+      {isMacro && !dismissFlags && flags.length > 0 && (
+        <div
+          style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            borderBottom: '1px solid rgba(245, 158, 11, 0.3)',
+            padding: '8px 14px',
+            fontSize: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+            zIndex: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color="#f59e0b" style={{ flexShrink: 0 }} />
+              <span>
+                <strong>{flags.length} dynamic items flagged during extraction</strong> (marked with <code># FLAG</code> in models). The AST extractor found non-literal topic/service names, parameters, or dynamic remappings that require review.
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                type="button"
+                className="rt-btn subtle"
+                style={{ height: 22, fontSize: 11, padding: '0 8px' }}
+                onClick={() => setShowFlagsDetail((v) => !v)}
+              >
+                {showFlagsDetail ? 'Hide Details' : 'View Flags'}
+              </button>
+              <button
+                type="button"
+                className="rt-btn primary"
+                style={{ height: 22, fontSize: 11, padding: '0 8px', gap: 4 }}
+                onClick={() => {
+                  const flagSummary = flags
+                    .map((f, i) => `${i + 1}. [${f.package || 'pkg'}] ${f.reason} (at ${f.at || f.file || 'source'})`)
+                    .join('\n');
+                  const promptText = `Please help resolve the following ${flags.length} dynamic item(s) flagged during model extraction in .rostooling/active_project.json:\n\n${flagSummary}\n\nUsing the ros-model and ros-modeler skills, inspect the source files, determine the actual topic/service/action names or parameter values, and update the corresponding .ros2 component models.`;
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(promptText);
+                  }
+                  showToast('Copied flag resolution prompt to clipboard');
+                }}
+              >
+                <Sparkles size={12} /> Copy Agent Prompt
+              </button>
+              <button
+                type="button"
+                className="rt-btn subtle"
+                style={{ height: 22, width: 22, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Dismiss banner"
+                onClick={() => setDismissFlags(true)}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+          {showFlagsDetail && (
+            <div
+              style={{
+                maxHeight: 140,
+                overflowY: 'auto',
+                background: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: 4,
+                padding: '6px 10px',
+                marginTop: 4,
+                fontFamily: 'var(--rt-mono)',
+                fontSize: 11,
+              }}
+            >
+              {flags.map((f, idx) => (
+                <div key={idx} style={{ marginBottom: 4, display: 'flex', gap: 6 }}>
+                  <span style={{ color: '#f59e0b', fontWeight: 600 }}>#{idx + 1}</span>
+                  <span style={{ color: 'var(--rt-accent, #3b82f6)' }}>[{f.package || 'package'}]</span>
+                  <span>{f.reason}</span>
+                  <span style={{ color: 'var(--rt-muted)', marginLeft: 'auto' }}>{f.at}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div
         className="rt-flow-wrapper"

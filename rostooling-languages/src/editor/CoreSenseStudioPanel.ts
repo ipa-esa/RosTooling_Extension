@@ -674,6 +674,55 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
           }
           break;
         }
+        case 'macroExtractSelectedPackages': {
+          const pid = await this.ensureActiveProjectId();
+          this.setBusy(true);
+          const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const packages = Array.isArray(msg.packages)
+            ? msg.packages
+            : (this.latestEnvelope?.project as { studio?: { selectedPackages?: unknown[] } })?.studio?.selectedPackages || [];
+
+          try {
+            const res = await this.daemonManager.request<{
+              ok: boolean;
+              envelope: ProjectEnvelope;
+              extractedFiles: string[];
+              flagsCount: number;
+              flags: unknown[];
+            }>('POST', `/api/projects/${encodeURIComponent(pid)}/source/extract`, {
+              packages,
+              workspaceRoot: wsFolder,
+            });
+
+            if (res.envelope) {
+              this.latestEnvelope = res.envelope;
+            }
+            this.setBusy(false);
+            this.broadcastMacroState();
+
+            for (const inst of this.panels) {
+              void inst.panel.webview.postMessage({
+                type: 'macroNavigateStage',
+                stage: 'architecture',
+              });
+            }
+
+            if (res.flagsCount > 0) {
+              this.broadcastToast(
+                `Extracted ${res.extractedFiles.length} model(s) into Architecture (${res.flagsCount} #FLAG item(s) flagged for review)`
+              );
+            } else {
+              this.broadcastToast(
+                `Extracted ${res.extractedFiles.length} model(s) into Stage 3 Architecture!`
+              );
+            }
+          } catch (err) {
+            this.setBusy(false);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            this.broadcastToast(`Extraction failed: ${errMsg}`, true);
+          }
+          break;
+        }
         case 'pullCatalogue': {
           const mgr = RosCatalogueManager.getInstance();
           const res = await mgr.syncRepositories();
