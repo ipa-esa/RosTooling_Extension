@@ -264,6 +264,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "postinstall": "npm --prefix src/webview/frontend install",
     "build:webview": "npm --prefix src/webview/frontend run build",
     "compile": "npm run build:webview && tsc -p ./",
     "watch": "tsc -watch -p ./",
