@@ -1,6 +1,7 @@
 // ============================================================================
 // VS Code Webview Bidirectional Bridge
 // Speaks the exact protocol implemented in RosCustomEditorProvider.ts
+// and CoreSenseStudioPanel.ts (Macro Lifecycle Workbench)
 // ============================================================================
 
 let vscodeApiInstance = null;
@@ -43,6 +44,9 @@ export function getInitialData() {
   return {
     project,
     mode,
+    macroStage: raw.macroStage || 'intent',
+    macroPinnedStage: Boolean(raw.macroPinnedStage),
+    macroInitialProjectId: raw.macroInitialProjectId || '',
     isReadOnly: Boolean(raw.isReadOnly),
     docFileName: raw.docFileName || '',
     nodeIndex: raw.nodeIndex || {},
@@ -71,6 +75,31 @@ export function registerHostMessageListener(handlers) {
       case 'updateCatalogue':
         if (handlers.onUpdateCatalogue) {
           handlers.onUpdateCatalogue(msg.nodeCatalog || {}, msg.typeCatalog || {});
+        }
+        break;
+      case 'macroState':
+        if (handlers.onMacroState) {
+          handlers.onMacroState(msg);
+        }
+        break;
+      case 'macroChecksResult':
+        if (handlers.onMacroChecksResult) {
+          handlers.onMacroChecksResult(msg);
+        }
+        break;
+      case 'macroMcpResult':
+        if (handlers.onMacroMcpResult) {
+          handlers.onMacroMcpResult(msg);
+        }
+        break;
+      case 'macroSourcesResult':
+        if (handlers.onMacroSourcesResult) {
+          handlers.onMacroSourcesResult(msg);
+        }
+        break;
+      case 'macroToast':
+        if (handlers.onMacroToast) {
+          handlers.onMacroToast(msg.text || '', Boolean(msg.isError));
         }
         break;
       default:
@@ -111,5 +140,43 @@ export const hostBridge = {
   },
   removeCatalogueFolder(folderId) {
     getVsCodeApi().postMessage({ type: 'removeCatalogueFolder', folderId });
+  },
+
+  // Macro Lifecycle Workbench Messages
+  macroReady() {
+    getVsCodeApi().postMessage({ type: 'macroReady' });
+  },
+  macroSelectProject(projectId) {
+    getVsCodeApi().postMessage({ type: 'macroSelectProject', projectId });
+  },
+  macroCreateProject(name, goal) {
+    getVsCodeApi().postMessage({ type: 'macroCreateProject', name, goal });
+  },
+  macroSaveProject(project) {
+    getVsCodeApi().postMessage({ type: 'macroSaveProject', project });
+  },
+  macroPromoteToModels(targetSubdir = 'models') {
+    getVsCodeApi().postMessage({ type: 'macroPromoteToModels', targetSubdir });
+  },
+  macroPreviewDraftDsl() {
+    getVsCodeApi().postMessage({ type: 'macroPreviewDraftDsl' });
+  },
+  macroRunChecks() {
+    getVsCodeApi().postMessage({ type: 'macroRunChecks' });
+  },
+  macroRunMcpStep(step, payload = {}) {
+    getVsCodeApi().postMessage({ type: 'macroRunMcpStep', step, payload });
+  },
+  macroPopOutStage(stage) {
+    getVsCodeApi().postMessage({ type: 'macroPopOutStage', stage });
+  },
+  macroOpenExternalBrowser(stage) {
+    getVsCodeApi().postMessage({ type: 'macroOpenExternalBrowser', stage });
+  },
+  macroFetchRepository(url, branch) {
+    getVsCodeApi().postMessage({ type: 'macroFetchRepository', url, branch });
+  },
+  macroInspectSources() {
+    getVsCodeApi().postMessage({ type: 'macroInspectSources' });
   },
 };

@@ -8,8 +8,13 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandl
 import { spawn } from 'node:child_process';
 import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
+import { CoreSenseStudioController, MacroStageId } from './editor/CoreSenseStudioPanel';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 import { RosModelParser } from './model/RosModelParser';
+import { DraftContentProvider } from './orchestration/DraftContentProvider';
+import { MaterializationGate } from './orchestration/MaterializationGate';
+import { ReconciliationWatcher } from './orchestration/ReconciliationWatcher';
+import { StudioDaemonManager } from './orchestration/StudioDaemonManager';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -1057,6 +1062,126 @@ export async function activate(context: ExtensionContext) {
             outputChannel.appendLine(`[ROSSDL error] ${message}`);
             outputChannel.show(true)
             window.showErrorMessage(message)
+        }
+    });
+
+    // =========================================================================
+    // Unified RosTooling Studio Workbench (Macro Orchestration + Handover Engine)
+    // =========================================================================
+    const daemonManager = new StudioDaemonManager({
+        extensionPath: context.extensionPath,
+        outputChannel,
+    });
+    const materializationGate = new MaterializationGate(daemonManager);
+    const draftContentProvider = new DraftContentProvider(daemonManager);
+    const reconciliationWatcher = new ReconciliationWatcher(daemonManager, materializationGate);
+    const studioController = new CoreSenseStudioController(
+        context,
+        daemonManager,
+        materializationGate,
+        draftContentProvider,
+        reconciliationWatcher
+    );
+
+    const studioStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Left, 95);
+    studioStatusBarItem.text = '$(hubot) RosTooling Studio';
+    studioStatusBarItem.tooltip = 'Open Unified RosTooling Studio Workbench (Intent → Architecture → ROS 2 Build)';
+    studioStatusBarItem.command = 'rostooling.openStudio';
+    studioStatusBarItem.show();
+
+    context.subscriptions.push(
+        daemonManager,
+        draftContentProvider,
+        reconciliationWatcher,
+        studioController,
+        studioStatusBarItem,
+        workspace.registerTextDocumentContentProvider(DraftContentProvider.scheme, draftContentProvider)
+    );
+
+    safeRegisterCommand('rostooling.openStudio', (stage?: MacroStageId, projectId?: string) => {
+        studioController.openOrShow(stage || 'intent', projectId);
+    });
+
+    safeRegisterCommand('rostooling.openStudioStage', async (stage?: MacroStageId) => {
+        let chosenStage = stage;
+        if (!chosenStage) {
+            const picked = await window.showQuickPick(
+                [
+                    { label: '🎯 1. Intent', description: 'System goals, operating context, acceptance criteria', stage: 'intent' as MacroStageId },
+                    { label: '📦 2. Packages', description: 'Shared catalogue & ROS 2 Git source repositories', stage: 'packages' as MacroStageId },
+                    { label: '📐 3. Architecture', description: 'Interactive React Flow system topology & auto-wiring', stage: 'architecture' as MacroStageId },
+                    { label: '🛡️ 4. Checks', description: 'Model gate, rosmodel_lint & Xtext Language Server oracle', stage: 'checks' as MacroStageId },
+                    { label: '🚀 5. Deployment', description: 'ROS 2 wrapper codegen, launch synthesis & colcon build via MCP', stage: 'deployment' as MacroStageId },
+                ],
+                { placeHolder: 'Select a Studio Lifecycle Stage to pop out into a new window (multi-monitor)' }
+            );
+            chosenStage = picked?.stage;
+        }
+        if (chosenStage) {
+            await studioController.openStageInNewWindow(chosenStage);
+        }
+    });
+
+    safeRegisterCommand('rostooling.openStudioExternal', async (stage?: MacroStageId) => {
+        try {
+            await studioController.openExternalBrowser(stage);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            window.showErrorMessage(`Failed to open Studio in external browser: ${message}`);
+        }
+    });
+
+    safeRegisterCommand('rostooling.promoteToModels', async (projectIdArg?: string) => {
+        try {
+            const wsFolder = workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!wsFolder) {
+                window.showErrorMessage('Open a workspace folder before promoting Studio models.');
+                return;
+            }
+            const pid = projectIdArg || (await studioController.ensureActiveProjectId());
+            if (!pid) {
+                window.showErrorMessage('No active CoreSense Studio project found to promote.');
+                return;
+            }
+            const result = await materializationGate.promoteProjectToWorkspace(pid, wsFolder, {
+                targetSubdir: 'models',
+                openInEditor: true,
+            });
+            window.showInformationMessage(
+                `Promoted ${result.writtenFiles.length} ROS model file(s) to ${path.relative(wsFolder, result.targetDir) || 'models/'}.`
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            window.showErrorMessage(`Model promotion failed: ${message}`);
+        }
+    });
+
+    safeRegisterCommand('rostooling.reconcileModels', async (uri?: Uri) => {
+        try {
+            const targetUri =
+                uri ||
+                RosCustomEditorProvider.activeCustomDocument?.uri ||
+                window.activeTextEditor?.document.uri;
+            if (!targetUri || targetUri.scheme !== 'file') {
+                window.showErrorMessage('Open or select a .rossystem, .ros2, or .ros file to reconcile with Studio.');
+                return;
+            }
+            await daemonManager.ensureRunning();
+            const pid = await studioController.ensureActiveProjectId();
+            const evt = await reconciliationWatcher.reconcileFile(
+                targetUri.fsPath,
+                materializationGate.lookupLocalProjectId(targetUri.fsPath) || pid || undefined
+            );
+            if (evt) {
+                window.showInformationMessage(
+                    `Reconciled ${path.basename(evt.filePath)} with Studio project ${evt.projectId}.`
+                );
+            } else {
+                window.showWarningMessage('No matching Studio project could be reconciled for the selected file.');
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            window.showErrorMessage(`Model reconciliation failed: ${message}`);
         }
     });
 

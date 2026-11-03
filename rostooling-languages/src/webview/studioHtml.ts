@@ -51,6 +51,77 @@ export function getStudioHtml(
 </html>`;
 }
 
+export interface MacroStudioHtmlOptions {
+  extensionUri: vscode.Uri;
+  webview: vscode.Webview;
+  initialStage?: 'intent' | 'packages' | 'architecture' | 'checks' | 'deployment';
+  pinnedStage?: boolean;
+  initialProjectId?: string;
+  nodeIndex?: unknown;
+  typeIndex?: unknown;
+}
+
+export function getMacroStudioHtml(options: MacroStudioHtmlOptions): string {
+  const nonce = getNonce();
+  const scriptUri = resolveAssetUri(options.extensionUri, options.webview, [
+    'src',
+    'webview',
+    'frontend',
+    'dist',
+    'studio.js',
+  ]);
+  const styleUri = resolveAssetUri(options.extensionUri, options.webview, [
+    'src',
+    'webview',
+    'frontend',
+    'dist',
+    'studio.css',
+  ]);
+  const cspSource = options.webview?.cspSource || 'vscode-webview-resource:';
+  const emptyProject: RosProject = {
+    formatVersion: 5,
+    isRosSystem: true,
+    isRos: false,
+    system: { name: 'ros_system' },
+    subSystems: [],
+    processes: [],
+    nodes: [],
+    connections: [],
+    packages: {},
+    types: {},
+    diagnostics: [],
+    view: { tx: 40, ty: 40, k: 1, connectorMode: 'orthogonal', subStates: {}, subPos: {} },
+  };
+
+  const initialData = JSON.stringify({
+    project: emptyProject,
+    mode: 'macro',
+    macroStage: options.initialStage || 'intent',
+    macroPinnedStage: Boolean(options.pinnedStage),
+    macroInitialProjectId: options.initialProjectId || '',
+    isReadOnly: false,
+    docFileName: '',
+    nodeIndex: options.nodeIndex || {},
+    typeIndex: options.typeIndex || {},
+  }).replace(/</g, '\\u003c');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource}; font-src ${cspSource} data:; img-src ${cspSource} data:;">
+  <title>RosTooling Studio Workbench</title>
+  <link rel="stylesheet" href="${styleUri}">
+</head>
+<body>
+  <div id="root"></div>
+  <script nonce="${nonce}">window.INITIAL_DATA = ${initialData};</script>
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
+}
+
 function getNonce(): string {
   const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let text = '';

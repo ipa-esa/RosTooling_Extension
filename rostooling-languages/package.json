@@ -148,6 +148,26 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to a custom RosTooling Language Server fat JAR (e.g., from local Gradle shadowJar builds). If left empty, uses the bundled extension JAR."
+        },
+        "rostooling-languages.studio.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to Python >= 3.9 interpreter used to launch the CoreSense Studio daemon. Leave empty for automatic discovery."
+        },
+        "rostooling-languages.studio.serverScriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to ipa-rostooling-studio or scripts/studio_server.py. Leave empty for automatic workspace/pip discovery."
+        },
+        "rostooling-languages.studio.port": {
+          "type": "number",
+          "default": 8765,
+          "description": "Preferred localhost port for the CoreSense Studio HTTP daemon."
+        },
+        "rostooling-languages.studio.storageRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Directory where CoreSense Studio stores projects, evidence, and session state. Defaults to ~/.rostooling/studio-data."
         }
       }
     },
@@ -173,6 +193,36 @@
       }
     ],
     "commands": [
+      {
+        "command": "rostooling.openStudio",
+        "title": "Open Studio Workbench",
+        "category": "RosTooling",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "rostooling.openStudioStage",
+        "title": "Open Studio Stage in New Window...",
+        "category": "RosTooling",
+        "icon": "$(multiple-windows)"
+      },
+      {
+        "command": "rostooling.openStudioExternal",
+        "title": "Open Studio in External Browser",
+        "category": "RosTooling",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "rostooling.promoteToModels",
+        "title": "Promote Studio Architecture to Workspace Models",
+        "category": "RosTooling",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "rostooling.reconcileModels",
+        "title": "Reconcile Workspace Models with Studio",
+        "category": "RosTooling",
+        "icon": "$(sync)"
+      },
       {
         "command": "rostooling.openVisualStudio",
         "title": "Open in RosTooling Visual Studio",
@@ -245,10 +295,16 @@
     }
   },
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:ros",
     "onLanguage:ros1",
     "onLanguage:ros2",
     "onLanguage:rossystem",
+    "onCommand:rostooling.openStudio",
+    "onCommand:rostooling.openStudioStage",
+    "onCommand:rostooling.openStudioExternal",
+    "onCommand:rostooling.promoteToModels",
+    "onCommand:rostooling.reconcileModels",
     "onCommand:rostooling.openVisualStudio",
     "onCommand:rostooling.selectServerJar",
     "onCommand:ros2.generateWrappers",

@@ -1303,3 +1303,205 @@ details.qos-details > summary {
     min-width: 250px;
   }
 }
+
+/* ============================================================================
+   Macro Lifecycle Workbench (5-Stage Ribbon, Intent, Packages, Checks, MCP)
+   ============================================================================ */
+
+.rt-mode-badge.mode-macro {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.38);
+}
+
+.rt-macro-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  background: var(--rt-surface);
+  border-bottom: 1px solid var(--rt-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rt-macro-proj-switcher {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rt-macro-rev-pill {
+  font-size: 11px;
+  font-family: var(--rt-mono);
+  color: var(--rt-muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--rt-surface-2);
+  border: 1px solid var(--rt-border);
+}
+
+.rt-macro-stage-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rt-macro-stage-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--rt-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.rt-macro-stage-tab:hover {
+  background: var(--rt-hover);
+  color: var(--rt-ink);
+}
+
+.rt-macro-stage-tab.active {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: var(--rt-border-strong);
+  color: var(--rt-ink);
+}
+
+.rt-macro-multimonitor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rt-macro-stage-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 26px 48px;
+}
+
+.rt-macro-container {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.rt-macro-section-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.rt-macro-help {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--rt-muted);
+}
+
+.rt-macro-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.rt-textarea {
+  height: auto !important;
+  padding: 8px 10px !important;
+  resize: vertical;
+  font-family: var(--rt-font);
+}
+
+.rt-macro-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--rt-border);
+}
+
+.rt-macro-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.rt-macro-role-tile {
+  padding: 10px 12px;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border);
+  background: var(--rt-surface-2);
+}
+
+.rt-macro-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.rt-macro-stat-box {
+  padding: 12px 14px;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border);
+  background: var(--rt-surface-2);
+}
+
+.rt-macro-stat-box strong {
+  display: block;
+  font-size: 20px;
+  color: var(--rt-ink);
+}
+
+.rt-macro-stat-box span {
+  font-size: 11.5px;
+  color: var(--rt-muted);
+}
+
+.rt-macro-check-row {
+  padding: 10px 12px;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border);
+  background: var(--rt-surface-2);
+}
+
+.rt-macro-pre {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--rt-radius-sm);
+  background: #121418;
+  border: 1px solid var(--rt-border);
+  font-family: var(--rt-mono);
+  font-size: 11px;
+  color: var(--rt-ink);
+  white-space: pre-wrap;
+}
+
+.rt-macro-shield-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-ok-bg);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--rt-ok);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .rt-macro-grid-2,
+  .rt-macro-stats-row {
+    grid-template-columns: 1fr;
+  }
+}

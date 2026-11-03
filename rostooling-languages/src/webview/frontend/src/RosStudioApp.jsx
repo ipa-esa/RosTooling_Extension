@@ -14,6 +14,9 @@ import {
   Play,
   FileCode2,
   BookOpen,
+  ExternalLink,
+  Globe,
+  ArrowRightCircle,
 } from 'lucide-react';
 import {
   useStudio,
@@ -35,14 +38,29 @@ import { CatalogueDrawer } from './components/CatalogueDrawer';
 import { RosSystemView } from './views/RosSystemView';
 import { RosComponentView, createNewComponentNode } from './views/RosComponentView';
 import { RosCommObjectsView, addNewCommObjectSpec } from './views/RosCommObjectsView';
+import {
+  MACRO_STAGES,
+  MacroIntentView,
+  MacroPackagesView,
+  MacroChecksView,
+  MacroDeploymentView,
+} from './views/MacroLifecycleViews';
 
 export function RosStudioApp() {
   const studio = useStudio();
   const [diagOpen, setDiagOpen] = useState(false);
+  const [newProjOpen, setNewProjOpen] = useState(false);
+  const [newProjName, setNewProjName] = useState('');
 
   const {
     project,
     mode,
+    macroStage,
+    macroProjects,
+    macroActiveProjectId,
+    macroRevision,
+    macroModelState,
+    macroBusy,
     isReadOnly,
     docFileName,
     interfaceFilter,
@@ -69,13 +87,18 @@ export function RosStudioApp() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isReadOnly]);
 
+  const isMacro = mode === 'macro';
+  const showSystemCanvasControls = mode === 'system' || (isMacro && macroStage === 'architecture');
+
   const displayModelName = getDisplayModelName(project, mode, docFileName);
   const diags = project.diagnostics || [];
   const errCount = diags.filter((d) => d.severity === 'error').length;
   const warnCount = diags.filter((d) => d.severity === 'warning').length;
 
   const modeBadgeLabel =
-    mode === 'ros'
+    mode === 'macro'
+      ? 'Macro Lifecycle Workbench'
+      : mode === 'ros'
       ? 'Communication Objects (.ros)'
       : mode === 'component'
       ? 'Component (.ros2)'
@@ -95,12 +118,14 @@ export function RosStudioApp() {
 
         {/* Editable System / Package Name */}
         <div className="rt-name-group">
-          <label htmlFor="sysNameInput">{mode === 'system' ? 'System:' : 'Package:'}</label>
+          <label htmlFor="sysNameInput">
+            {mode === 'system' || isMacro ? 'System:' : 'Package:'}
+          </label>
           <input
             id="sysNameInput"
             className="rt-sysname-input"
             disabled={isReadOnly}
-            placeholder={mode === 'system' ? 'ros_system' : 'Enter package name...'}
+            placeholder={mode === 'system' || isMacro ? 'ros_system' : 'Enter package name...'}
             value={displayModelName}
             onChange={(e) => updateModelName(e.target.value)}
           />
@@ -110,7 +135,7 @@ export function RosStudioApp() {
 
         {/* Mode-Specific Primary Toolbar Controls */}
         <div className="rt-toolbar-actions">
-          {mode === 'system' && (
+          {showSystemCanvasControls && (
             <>
               {!isReadOnly && (
                 <>
@@ -201,14 +226,16 @@ export function RosStudioApp() {
                 </select>
               </span>
 
-              <button
-                type="button"
-                className="rt-btn"
-                title="Generate ROS 2 launch & package files"
-                onClick={() => hostBridge.generateCode()}
-              >
-                <Play size={13} /> Generate ROS 2 Package
-              </button>
+              {mode === 'system' && (
+                <button
+                  type="button"
+                  className="rt-btn"
+                  title="Generate ROS 2 launch & package files"
+                  onClick={() => hostBridge.generateCode()}
+                >
+                  <Play size={13} /> Generate ROS 2 Package
+                </button>
+              )}
             </>
           )}
 
@@ -316,7 +343,7 @@ export function RosStudioApp() {
           )}
         </div>
 
-        {/* Right-Side Shared Controls: Undo/Redo, Diagnostics, Catalogue, Open Code */}
+        {/* Right-Side Shared Controls */}
         <div className="rt-toolbar-right">
           {!isReadOnly && (
             <>
@@ -466,19 +493,158 @@ export function RosStudioApp() {
             <RefreshCw size={13} /> Sync Catalogue
           </button>
 
-          <button
-            type="button"
-            className="rt-btn"
-            title="Open raw Xtext DSL source file in VS Code editor"
-            onClick={() => hostBridge.openCodeView()}
-          >
-            <Code2 size={13} /> Open Code
-          </button>
+          {isMacro ? (
+            <>
+              <button
+                type="button"
+                className="rt-btn"
+                title="Preview virtual uncommitted .rossystem / .ros2 drafts (rostooling-draft://)"
+                onClick={() => hostBridge.macroPreviewDraftDsl()}
+              >
+                <FileCode2 size={13} /> Draft DSL
+              </button>
+              <button
+                type="button"
+                className="rt-btn primary"
+                disabled={macroBusy}
+                title="Materialize Studio architecture into workspace models/*.rossystem & *.ros2 and open Micro Visual Editor"
+                onClick={() => hostBridge.macroPromoteToModels('models')}
+              >
+                <ArrowRightCircle size={13} /> Promote to Models
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="rt-btn"
+              title="Open raw Xtext DSL source file in VS Code editor"
+              onClick={() => hostBridge.openCodeView()}
+            >
+              <Code2 size={13} /> Open Code
+            </button>
+          )}
         </div>
       </header>
 
+      {/* Macro 5-Stage Lifecycle & Multi-Monitor Ribbon */}
+      {isMacro && (
+        <nav className="rt-macro-bar" aria-label="CoreSense Studio Lifecycle Stages">
+          <div className="rt-macro-proj-switcher">
+            <select
+              className="rt-select"
+              title="Active CoreSense Studio Project"
+              value={macroActiveProjectId || ''}
+              onChange={(e) => {
+                if (e.target.value) {
+                  hostBridge.macroSelectProject(e.target.value);
+                }
+              }}
+            >
+              {macroProjects.length === 0 && <option value="">Loading projects...</option>}
+              {macroProjects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name || p.systemName || p.id}
+                </option>
+              ))}
+            </select>
+            {newProjOpen ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input
+                  className="rt-input"
+                  style={{ width: 135, height: 26 }}
+                  placeholder="project_name"
+                  value={newProjName}
+                  onChange={(e) => setNewProjName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newProjName.trim()) {
+                      hostBridge.macroCreateProject(newProjName.trim(), '');
+                      setNewProjName('');
+                      setNewProjOpen(false);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="rt-btn primary"
+                  style={{ height: 26, padding: '0 8px' }}
+                  onClick={() => {
+                    if (newProjName.trim()) {
+                      hostBridge.macroCreateProject(newProjName.trim(), '');
+                      setNewProjName('');
+                      setNewProjOpen(false);
+                    }
+                  }}
+                >
+                  Create
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="rt-btn subtle"
+                style={{ height: 26, padding: '0 8px' }}
+                title="Create new CoreSense Studio project"
+                onClick={() => setNewProjOpen(true)}
+              >
+                <Plus size={12} /> New
+              </button>
+            )}
+            <span className="rt-macro-rev-pill">
+              rev #{macroRevision || 1} · {macroModelState || 'clean'}
+            </span>
+          </div>
+
+          <div className="rt-macro-stage-tabs">
+            {MACRO_STAGES.map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                className={`rt-macro-stage-tab ${macroStage === st.id ? 'active' : ''}`}
+                onClick={() => setUIState({ macroStage: st.id })}
+              >
+                <span>{st.emoji}</span>
+                <span>{st.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="rt-macro-multimonitor">
+            <button
+              type="button"
+              className="rt-btn subtle"
+              style={{ height: 26, padding: '0 9px' }}
+              title="Pop out this lifecycle stage into a floating VS Code window for a secondary monitor"
+              onClick={() => hostBridge.macroPopOutStage(macroStage)}
+            >
+              <ExternalLink size={12} /> Pop Out Window
+            </button>
+            <button
+              type="button"
+              className="rt-btn subtle"
+              style={{ height: 26, padding: '0 9px' }}
+              title="Open this project and stage in an external system browser window (multi-monitor)"
+              onClick={() => hostBridge.macroOpenExternalBrowser(macroStage)}
+            >
+              <Globe size={12} /> Open in Browser
+            </button>
+          </div>
+        </nav>
+      )}
+
       {/* Mode View Router */}
-      {mode === 'ros' ? (
+      {isMacro ? (
+        macroStage === 'intent' ? (
+          <MacroIntentView />
+        ) : macroStage === 'packages' ? (
+          <MacroPackagesView />
+        ) : macroStage === 'architecture' ? (
+          <RosSystemView />
+        ) : macroStage === 'checks' ? (
+          <MacroChecksView />
+        ) : (
+          <MacroDeploymentView />
+        )
+      ) : mode === 'ros' ? (
         <RosCommObjectsView />
       ) : mode === 'component' ? (
         <RosComponentView />

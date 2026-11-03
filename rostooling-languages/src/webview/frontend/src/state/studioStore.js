@@ -386,9 +386,90 @@ export function syncRosTypesAndNodes(project, specsList, explicitPkgName) {
 
 const init = getInitialData();
 
+export function hydrateMacroProjectForCanvas(rawProj) {
+  const proj = cloneDeep(rawProj || {});
+  proj.formatVersion = 5;
+  proj.isRosSystem = true;
+  proj.isRos = false;
+  if (!proj.system) proj.system = { name: 'ros_system' };
+  if (!proj.nodes) proj.nodes = [];
+  if (!proj.subSystems) proj.subSystems = [];
+  if (!proj.processes) proj.processes = [];
+  if (!proj.connections) proj.connections = [];
+  if (!proj.packages) proj.packages = {};
+  if (!proj.types) proj.types = {};
+  if (!proj.view) {
+    proj.view = { tx: 40, ty: 40, k: 1, connectorMode: 'orthogonal', subStates: {}, subPos: {} };
+  }
+  if (!proj.studio) {
+    proj.studio = { brief: {}, behavior: [], criteria: [], modules: {}, deployment: { units: [] } };
+  }
+  if (!proj.studio.modules) proj.studio.modules = {};
+
+  for (const node of proj.nodes) {
+    const modRole = proj.studio.modules[node.id]?.role;
+    node.role = CORESENSE_ROLES[node.role]
+      ? node.role
+      : CORESENSE_ROLES[modRole]
+      ? modRole
+      : 'Unassigned';
+    if (!proj.studio.modules[node.id]) {
+      proj.studio.modules[node.id] = { role: node.role, unit: 'unassigned', sourcePaths: [] };
+    } else {
+      proj.studio.modules[node.id].role = node.role;
+    }
+    if (!node.from && node.pkg && (node.artifact || node.node)) {
+      node.from = `${node.pkg}.${node.artifact || node.node}`;
+    }
+    for (const iface of node.ifaces || []) {
+      if (iface.exposed === undefined) iface.exposed = true;
+      if (!iface.label) iface.label = iface.name || iface.id;
+      if (!iface.name) iface.name = iface.label || iface.id;
+    }
+  }
+  return proj;
+}
+
+export function prepareMacroProjectForDaemon(rawProj) {
+  const proj = cloneDeep(rawProj || {});
+  proj.formatVersion = 5;
+  if (!proj.studio) {
+    proj.studio = { brief: {}, behavior: [], criteria: [], modules: {}, deployment: { units: [] } };
+  }
+  if (!proj.studio.modules) proj.studio.modules = {};
+  for (const node of proj.nodes || []) {
+    const role = getNodeRole(node, proj);
+    node.role = role;
+    node.node = node.node || node.artifact || node.label;
+    node.artifact = node.artifact || node.node || node.label;
+    if (!node.pkg && node.from && node.from.includes('.')) {
+      node.pkg = node.from.split('.')[0];
+    }
+    if (!proj.studio.modules[node.id]) {
+      proj.studio.modules[node.id] = { role, unit: 'unassigned', sourcePaths: [] };
+    } else {
+      proj.studio.modules[node.id].role = role;
+    }
+  }
+  return proj;
+}
+
 const state = {
-  project: init.project,
+  project: init.mode === 'macro' ? hydrateMacroProjectForCanvas(init.project) : init.project,
   mode: init.mode,
+  macroStage: init.macroStage || 'intent',
+  macroPinnedStage: Boolean(init.macroPinnedStage),
+  macroProjects: [],
+  macroActiveProjectId: init.macroInitialProjectId || '',
+  macroRevision: 0,
+  macroModelState: 'clean',
+  macroChecks: [],
+  macroEvidence: [],
+  macroMcpStatus: null,
+  macroMcpResult: null,
+  macroSources: null,
+  macroBusy: false,
+
   isReadOnly: init.isReadOnly,
   docFileName: init.docFileName,
   nodeIndex: init.nodeIndex,
@@ -416,6 +497,23 @@ const state = {
 let version = 0;
 const listeners = new Set();
 let toastTimer = null;
+let macroSaveTimer = null;
+
+function dispatchProjectPersist(proj, isLayoutOnly = false) {
+  if (state.mode === 'macro') {
+    if (macroSaveTimer) clearTimeout(macroSaveTimer);
+    const prepared = prepareMacroProjectForDaemon(proj);
+    macroSaveTimer = setTimeout(() => {
+      hostBridge.macroSaveProject(prepared);
+    }, isLayoutOnly ? 220 : 120);
+    return;
+  }
+  if (isLayoutOnly) {
+    hostBridge.saveLayout(proj);
+  } else {
+    hostBridge.applyEdit(proj);
+  }
+}
 
 function emitChange() {
   version += 1;
@@ -447,7 +545,66 @@ registerHostMessageListener({
     state.typeIndex = typeCatalog || {};
     emitChange();
   },
+  onMacroState(msg) {
+    if (Array.isArray(msg.projects)) {
+      state.macroProjects = msg.projects;
+    }
+    if (msg.activeProjectId !== undefined) {
+      state.macroActiveProjectId = msg.activeProjectId || '';
+    }
+    if (msg.envelope) {
+      const env = msg.envelope;
+      state.macroRevision = env.revision ?? state.macroRevision;
+      state.macroModelState = env.modelState || 'clean';
+      if (env.project) {
+        state.project = hydrateMacroProjectForCanvas(env.project);
+      }
+      if (Array.isArray(env.evidence)) {
+        state.macroEvidence = env.evidence;
+      }
+    }
+    if (msg.mcpStatus !== undefined) {
+      state.macroMcpStatus = msg.mcpStatus;
+    }
+    if (msg.busy !== undefined) {
+      state.macroBusy = Boolean(msg.busy);
+    }
+    if (msg.stage && !state.macroPinnedStage) {
+      state.macroStage = msg.stage;
+    }
+    emitChange();
+  },
+  onMacroChecksResult(msg) {
+    state.macroBusy = false;
+    state.macroChecks = msg.checks || [];
+    if (Array.isArray(msg.evidence)) {
+      state.macroEvidence = msg.evidence;
+    }
+    emitChange();
+  },
+  onMacroMcpResult(msg) {
+    state.macroBusy = false;
+    state.macroMcpResult = msg.result || null;
+    emitChange();
+  },
+  onMacroSourcesResult(msg) {
+    state.macroBusy = false;
+    state.macroSources = msg.sources || null;
+    emitChange();
+  },
+  onMacroToast(text, isError) {
+    state.macroBusy = false;
+    if (text) {
+      showToast(text, isError);
+    } else {
+      emitChange();
+    }
+  },
 });
+
+if (state.mode === 'macro') {
+  setTimeout(() => hostBridge.macroReady(), 0);
+}
 
 export function useStudio() {
   useSyncExternalStore(
@@ -492,7 +649,7 @@ export function mutateProject(recipe) {
   const next = cloneDeep(state.project);
   recipe(next);
   state.project = next;
-  hostBridge.applyEdit(next);
+  dispatchProjectPersist(next, false);
   emitChange();
 }
 
@@ -502,7 +659,7 @@ export function mutateLayout(recipe) {
   if (!next.view) next.view = {};
   recipe(next);
   state.project = next;
-  hostBridge.saveLayout(next);
+  dispatchProjectPersist(next, true);
   emitChange();
 }
 
@@ -511,7 +668,7 @@ export function undoEdit() {
   state.future.push(cloneDeep(state.project));
   const prev = state.past.pop();
   state.project = prev;
-  hostBridge.applyEdit(prev);
+  dispatchProjectPersist(prev, false);
   emitChange();
 }
 
@@ -520,7 +677,7 @@ export function redoEdit() {
   state.past.push(cloneDeep(state.project));
   const next = state.future.pop();
   state.project = next;
-  hostBridge.applyEdit(next);
+  dispatchProjectPersist(next, false);
   emitChange();
 }
 
@@ -553,7 +710,7 @@ export function getDisplayModelName(project, mode, docFileName = '') {
 export function updateModelName(newName) {
   const trimmed = String(newName || '').trim();
   mutateProject((proj) => {
-    if (state.mode === 'system') {
+    if (state.mode === 'system' || state.mode === 'macro') {
       proj.system = { ...(proj.system || {}), name: trimmed || 'ros_system' };
     } else if (state.mode === 'component') {
       syncPackagesFromNodes(proj, trimmed || 'ros_package');
@@ -572,7 +729,7 @@ export function updateNodeLabel(nodeId, rawNewLabel) {
   const newLabel = String(rawNewLabel || '').trim();
   if (!newLabel) return;
   mutateProject((proj) => {
-    const isRosSystem = state.mode === 'system' || Boolean(proj.isRosSystem);
+    const isRosSystem = state.mode === 'system' || state.mode === 'macro' || Boolean(proj.isRosSystem);
     const isRos = state.mode === 'ros' || Boolean(proj.isRos);
     const node = (proj.nodes || []).find((n) => n.id === nodeId);
     if (!node) return;
@@ -592,7 +749,7 @@ export function updateNodeLabel(nodeId, rawNewLabel) {
 }
 
 export function updateNodePackageAndArtifact(node, pkgVal, artVal) {
-  const isRosSystem = state.mode === 'system' || Boolean(state.project?.isRosSystem);
+  const isRosSystem = state.mode === 'system' || state.mode === 'macro' || Boolean(state.project?.isRosSystem);
   if (isRosSystem) return;
   mutateProject((proj) => {
     const target = (proj.nodes || []).find((n) => n.id === node.id);
