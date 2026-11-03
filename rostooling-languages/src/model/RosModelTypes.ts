@@ -2,6 +2,16 @@ export type RosInteractionKind = 'pub' | 'sub' | 'ss' | 'sc' | 'as' | 'ac' | 'pa
 
 export type RosLifecycleState = 'Unconfigured' | 'Inactive' | 'Active' | 'Finalized';
 
+export type CoreSenseRole =
+  | 'Sensing'
+  | 'Perception'
+  | 'World Modeling'
+  | 'Planning'
+  | 'Control'
+  | 'Actuation'
+  | 'Communication'
+  | 'Unassigned';
+
 export interface RosInterface {
   id: string;
   name: string;
@@ -35,6 +45,7 @@ export interface RosNode {
   pkg?: string;
   artifact?: string;
   isLifecycle?: boolean;
+  role?: CoreSenseRole | string;
   namespace?: string;
   from?: string;
   backing?: 'local' | 'cat' | 'sub' | 'type';
@@ -166,10 +177,11 @@ export interface RosCatalogueIndex {
     artifact: string;
     from: string;
     pkg: string;
+    isLifecycle?: boolean;
     file?: string;
     source?: string;
     domain?: string;
-    interfaces: Record<string, string | { kind: string; type?: string }>;
+    interfaces: Record<string, string | { kind: string; type?: string; activeStates?: RosLifecycleState[] }>;
     parameters?: Record<string, { type?: string; value?: string | number | boolean }>;
   }>;
   systems: {
@@ -214,6 +226,7 @@ export interface RosProject {
     connMidY?: Record<string, number>;
     connWaypoints?: Record<string, { x: number; y: number }[]>;
   };
+  studio?: Record<string, unknown>;
   seededFrom?: string;
   seededFromAll?: string[];
 }
@@ -241,6 +254,7 @@ export interface RosLayoutSchematic {
     y: number;
     width?: number;
     height?: number;
+    role?: CoreSenseRole | string;
   }[];
   subsystems: {
     ref: string;

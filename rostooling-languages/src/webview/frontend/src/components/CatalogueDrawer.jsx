@@ -11,12 +11,14 @@ import {
   Copy,
   Trash2,
   ExternalLink,
+  Cable,
 } from 'lucide-react';
 import {
   useStudio,
   setUIState,
   importCatalogueNode,
   importCatalogueSubsystem,
+  addAndConnect,
   normalizeCatalogueInterfaces,
   KIND_META,
   showToast,
@@ -222,41 +224,89 @@ export function CatalogueDrawer() {
         <div className="rt-drawer-body">
           {activeCatTab === 'nodes' && (
             <>
+              {!isReadOnly && (mode === 'system' || mode === 'macro') && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '8px 10px',
+                    marginBottom: 10,
+                    borderRadius: 6,
+                    background: 'var(--rt-surface-2)',
+                    border: '1px solid var(--rt-border)',
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: 'var(--rt-muted)' }}>
+                    {Object.values(studio.selectedCatalogueKeys || {}).filter(Boolean).length} selected for batch auto-wire
+                  </span>
+                  <button
+                    id="btnCatalogueAddAndConnect"
+                    type="button"
+                    className="rt-btn primary"
+                    disabled={Object.values(studio.selectedCatalogueKeys || {}).filter(Boolean).length === 0}
+                    title="Place selected components and deterministically connect matching publisher/subscriber, service, and action ports"
+                    onClick={() => addAndConnect()}
+                  >
+                    <Cable size={13} /> Add Selected & Auto-wire
+                  </button>
+                </div>
+              )}
               {nodeEntries.length === 0 ? (
                 <div className="rt-empty-state">
                   No matching component nodes found. Try syncing GitHub repositories or adding a custom folder in Sources.
                 </div>
               ) : (
-                nodeEntries.map(({ key, entry, name, pkg, source, ifaces }) => (
-                  <div
-                    key={key}
-                    className="rt-cat-item"
-                    draggable={!isReadOnly && mode === 'system'}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData(
-                        'application/rostooling-node',
-                        JSON.stringify({ key, entry })
-                      );
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }}
-                  >
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: 12.5 }}>{name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
-                        {pkg} · {source} · {ifaces.length} interfaces
+                nodeEntries.map(({ key, entry, name, pkg, source, ifaces }) => {
+                  const isPicked = Boolean(studio.selectedCatalogueKeys?.[key]);
+                  return (
+                    <div
+                      key={key}
+                      className="rt-cat-item"
+                      draggable={!isReadOnly && (mode === 'system' || mode === 'macro')}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(
+                          'application/rostooling-node',
+                          JSON.stringify({ key, entry })
+                        );
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }}
+                    >
+                      {!isReadOnly && (mode === 'system' || mode === 'macro') && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${name} for auto-wire`}
+                          checked={isPicked}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setUIState({
+                              selectedCatalogueKeys: {
+                                ...(studio.selectedCatalogueKeys || {}),
+                                [key]: checked,
+                              },
+                            });
+                          }}
+                        />
+                      )}
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
+                          {pkg} · {source} · {ifaces.length} interfaces
+                        </div>
                       </div>
+                      {!isReadOnly && (mode === 'system' || mode === 'macro') && (
+                        <button
+                          type="button"
+                          className="rt-btn primary"
+                          onClick={() => importCatalogueNode(key, entry)}
+                        >
+                          <Plus size={13} /> Import
+                        </button>
+                      )}
                     </div>
-                    {!isReadOnly && mode === 'system' && (
-                      <button
-                        type="button"
-                        className="rt-btn primary"
-                        onClick={() => importCatalogueNode(key, entry)}
-                      >
-                        <Plus size={13} /> Import
-                      </button>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
             </>
           )}

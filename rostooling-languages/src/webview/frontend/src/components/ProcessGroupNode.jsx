@@ -7,6 +7,7 @@ export function ProcessGroupNode({ data, selected }) {
   const hasWarn = diags.length > 0;
   const threads = proc.threads != null ? proc.threads : 1;
   const memberCount = (proc.nodes || []).length;
+  const executorType = threads > 1 ? 'component_container_mt' : 'component_container';
 
   return (
     <div className={`rt-process-group ${selected ? 'selected' : ''}`}>
@@ -14,7 +15,9 @@ export function ProcessGroupNode({ data, selected }) {
         <div className="rt-process-title">
           <Cpu size={14} />
           <span>{proc.name}</span>
-          <small style={{ opacity: 0.78, fontWeight: 500 }}>ComposableNodeContainer</small>
+          <small style={{ opacity: 0.78, fontWeight: 500 }} title={`ROS 2 ComposableNodeContainer (${executorType})`}>
+            ComposableNodeContainer · {executorType}
+          </small>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="rt-process-pill" title="Assigned member nodes">

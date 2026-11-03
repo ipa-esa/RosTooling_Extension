@@ -1,12 +1,15 @@
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Box, Activity, Sliders, AlertCircle, AlertTriangle } from 'lucide-react';
-import { KIND_META, SRC_SIDE } from '../state/studioStore';
+import { KIND_META, SRC_SIDE, CORESENSE_ROLES, getNodeRole } from '../state/studioStore';
 
 export function RosNodeCard({ data, selected }) {
   const node = data.node;
   const diags = data.diagnostics || [];
   const interfaceFilter = data.interfaceFilter || 'all';
+  const isReadOnly = Boolean(data.isReadOnly);
+  const roleKey = getNodeRole(node, data.project);
+  const roleMeta = roleKey !== 'Unassigned' ? CORESENSE_ROLES[roleKey] : null;
 
   const errCount = diags.filter((d) => d.severity === 'error').length;
   const warnCount = diags.filter((d) => d.severity === 'warning').length;
@@ -39,8 +42,17 @@ export function RosNodeCard({ data, selected }) {
         </div>
       </div>
 
-      {(node.isLifecycle || node.namespace || totalParams > 0 || errCount > 0 || warnCount > 0 || node.subRef) && (
+      {(roleMeta || node.isLifecycle || node.namespace || totalParams > 0 || errCount > 0 || warnCount > 0 || node.subRef) && (
         <div className="rt-node-badges">
+          {roleMeta && (
+            <span
+              className="rt-badge role-pill"
+              style={{ color: roleMeta.color, background: roleMeta.bg, borderColor: `${roleMeta.color}55` }}
+              title={`CoreSense Role: ${roleMeta.label} — ${roleMeta.description}`}
+            >
+              {roleMeta.label}
+            </span>
+          )}
           {node.isLifecycle && (
             <span className="rt-badge lifecycle" title="ROS 2 Managed LifecycleNode">
               <Activity size={10} /> LifecycleNode
@@ -96,6 +108,7 @@ export function RosNodeCard({ data, selected }) {
                     type="target"
                     position={Position.Left}
                     id={iface.id}
+                    isConnectable={!isReadOnly}
                     className={`rt-handle ${iface.kind}`}
                   />
                   <span className={`rt-port-kind ${iface.kind}`}>{meta.short}</span>
@@ -141,6 +154,7 @@ export function RosNodeCard({ data, selected }) {
                     type="source"
                     position={Position.Right}
                     id={iface.id}
+                    isConnectable={!isReadOnly}
                     className={`rt-handle ${iface.kind}`}
                   />
                 </div>

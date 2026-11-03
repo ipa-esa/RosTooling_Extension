@@ -27,7 +27,13 @@ export const RosLayoutManager = {
    * 1. Object map format: { "odom_cart": "sub", "scan_cart": "sub" } or { "cmd_vel": { kind: "sub", type: "Twist" } }
    * 2. Array format: [{ name: "cmd_vel", kind: "sub", type: "Twist" }]
    */
-  normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
+  normalizeInterfaces(rawIfaces: unknown): {
+    name: string;
+    label: string;
+    kind: string;
+    type: string;
+    activeStates?: RosProject['nodes'][number]['ifaces'][number]['activeStates'];
+  }[] {
     if (!rawIfaces) return [];
     if (Array.isArray(rawIfaces)) {
       return rawIfaces.map((f) => ({
@@ -35,6 +41,7 @@ export const RosLayoutManager = {
         label: f.label || f.name || '',
         kind: f.kind || 'pub',
         type: f.type || '',
+        ...(Array.isArray(f.activeStates) ? { activeStates: f.activeStates } : {}),
       }));
     }
     if (typeof rawIfaces === 'object') {
@@ -48,6 +55,9 @@ export const RosLayoutManager = {
           label: (obj?.label as string) || (obj?.name as string) || k,
           kind: (obj?.kind as string) || 'pub',
           type: (obj?.type as string) || '',
+          ...(Array.isArray(obj?.activeStates)
+            ? { activeStates: obj.activeStates as RosProject['nodes'][number]['ifaces'][number]['activeStates'] }
+            : {}),
         };
       });
     }
@@ -178,6 +188,7 @@ export const RosLayoutManager = {
           if (sn.y != null) node.y = sn.y;
           if (sn.width != null) node.w = sn.width;
           if (sn.height != null) node.h = sn.height;
+          if (sn.role) node.role = sn.role;
           project.view.nodeSize[node.id] = { w: sn.width || node.w || 240, h: sn.height || node.h || 140 };
           if (!node.subRef && node.backing !== 'sub') {
             project.view.nodeSize[node.label] = { w: sn.width || node.w || 240, h: sn.height || node.h || 140 };
@@ -286,6 +297,7 @@ export const RosLayoutManager = {
             n.h ||
             project.view?.nodeSize?.[n.id]?.h ||
             (!n.subRef && n.backing !== 'sub' ? project.view?.nodeSize?.[n.label]?.h : undefined),
+          ...(n.role && n.role !== 'Unassigned' ? { role: n.role } : {}),
         })),
         subsystems: (project.subSystems || []).map((s) => ({
           ref: s.ref,

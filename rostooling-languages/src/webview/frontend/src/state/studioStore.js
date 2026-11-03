@@ -54,6 +54,65 @@ export const QOS_PROFILES = [
   'parameter_events',
 ];
 
+export const CORESENSE_ROLES = {
+  Sensing: {
+    label: 'Sensing',
+    description: 'Acquires raw measurements or sensor observations from the robot or environment.',
+    color: '#06b6d4',
+    bg: 'rgba(6, 182, 212, 0.16)',
+  },
+  Perception: {
+    label: 'Perception',
+    description: 'Transforms sensor data into detections, localization, or semantic estimates.',
+    color: '#3b82f6',
+    bg: 'rgba(59, 130, 246, 0.16)',
+  },
+  'World Modeling': {
+    label: 'World Modeling',
+    description: 'Maintains persistent spatial, map, or knowledge state of the robot and world.',
+    color: '#818cf8',
+    bg: 'rgba(129, 140, 248, 0.16)',
+  },
+  Planning: {
+    label: 'Planning',
+    description: 'Computes task, motion, or trajectory plans to achieve mission objectives.',
+    color: '#a855f7',
+    bg: 'rgba(168, 85, 247, 0.16)',
+  },
+  Control: {
+    label: 'Control',
+    description: 'Regulates closed-loop motion, tracking, or behavioral execution.',
+    color: '#f59e0b',
+    bg: 'rgba(245, 158, 11, 0.16)',
+  },
+  Actuation: {
+    label: 'Actuation',
+    description: 'Drives hardware actuators, motors, grippers, or external effectors.',
+    color: '#ef4444',
+    bg: 'rgba(239, 68, 68, 0.16)',
+  },
+  Communication: {
+    label: 'Communication',
+    description: 'Bridges networks, telemetry, fleet interfaces, or human-robot interaction.',
+    color: '#10b981',
+    bg: 'rgba(16, 185, 129, 0.16)',
+  },
+  Unassigned: {
+    label: 'Unassigned',
+    description: 'Engineering pipeline role has not yet been assigned.',
+    color: '#94a3b8',
+    bg: 'rgba(148, 163, 184, 0.14)',
+  },
+};
+
+export const CORESENSE_ROLE_KEYS = Object.keys(CORESENSE_ROLES);
+
+export function getNodeRole(node, project) {
+  if (!node) return 'Unassigned';
+  const raw = node.role || project?.studio?.modules?.[node.id]?.role || 'Unassigned';
+  return CORESENSE_ROLES[raw] ? raw : 'Unassigned';
+}
+
 export function cloneDeep(val) {
   return JSON.parse(JSON.stringify(val));
 }
@@ -66,6 +125,9 @@ export function normalizeCatalogueInterfaces(rawIfaces) {
       label: f.label || f.name || '',
       kind: f.kind || 'pub',
       type: f.type || '',
+      ...(Array.isArray(f.activeStates) && f.activeStates.length > 0
+        ? { activeStates: [...f.activeStates] }
+        : {}),
     }));
   }
   if (typeof rawIfaces === 'object') {
@@ -79,6 +141,9 @@ export function normalizeCatalogueInterfaces(rawIfaces) {
         label: obj.label || obj.name || k,
         kind: obj.kind || 'pub',
         type: obj.type || '',
+        ...(Array.isArray(obj.activeStates) && obj.activeStates.length > 0
+          ? { activeStates: [...obj.activeStates] }
+          : {}),
       };
     });
   }
@@ -339,6 +404,8 @@ const state = {
   typeCategoryFilter: 'all',
   catalogueOpen: false,
   catalogueTab: init.mode === 'ros' ? 'types' : 'nodes',
+  selectedCatalogueKeys: {},
+  autoWireResult: null,
 
   toast: null,
   fitTrigger: 1,
@@ -536,61 +603,95 @@ export function updateNodePackageAndArtifact(node, pkgVal, artVal) {
   });
 }
 
+export function updateNodeRole(nodeId, rawRole) {
+  if (state.isReadOnly) return;
+  const validRole = CORESENSE_ROLES[rawRole] ? rawRole : 'Unassigned';
+  mutateProject((proj) => {
+    const target = (proj.nodes || []).find((n) => n.id === nodeId);
+    if (!target) return;
+    target.role = validRole;
+    if (proj.studio && proj.studio.modules) {
+      if (!proj.studio.modules[nodeId]) {
+        proj.studio.modules[nodeId] = { role: validRole, unit: 'unassigned', sourcePaths: [] };
+      } else {
+        proj.studio.modules[nodeId].role = validRole;
+      }
+    }
+  });
+}
+
+function buildNodeFromCatalogueEntry(proj, catKey, catEntry, position) {
+  const baseName = catEntry.node || catEntry.artifact || catKey.split('.').pop() || 'node';
+  let label = baseName;
+  let suffix = 2;
+  while ((proj.nodes || []).some((n) => n.label === label)) {
+    label = `${baseName}_${suffix++}`;
+  }
+  const nodeId = `n_${label}`;
+  const pkg = catEntry.pkg || (catEntry.from ? catEntry.from.split('.')[0] : 'ros_pkg');
+  const artifact = catEntry.artifact || catEntry.node || baseName;
+  const fromRef = catEntry.from || `${pkg}.${artifact}`;
+
+  const normIfaces = normalizeCatalogueInterfaces(catEntry.interfaces).map((f) => ({
+    id: `i_${label}_${f.name}`,
+    name: f.name,
+    label: f.label || f.name,
+    kind: f.kind || 'pub',
+    type: f.type || '',
+    ...(Array.isArray(f.activeStates) && f.activeStates.length > 0
+      ? { activeStates: [...f.activeStates] }
+      : {}),
+    exposed: true,
+    artifact,
+  }));
+
+  const params = Object.entries(catEntry.parameters || {}).map(([pName, pDef]) => ({
+    id: `p_${label}_${pName}`,
+    name: pName,
+    label: pName,
+    ptype: (pDef && typeof pDef === 'object' ? pDef.type : 'String') || 'String',
+    value: pDef && typeof pDef === 'object' ? pDef.value : undefined,
+    sysValue: undefined,
+    exposed: false,
+    artifact,
+  }));
+
+  const idx = (proj.nodes || []).filter((n) => !n.subRef).length;
+  const pos = position || {
+    x: 80 + (idx % 3) * 340,
+    y: 80 + Math.floor(idx / 3) * 240,
+  };
+
+  return {
+    id: nodeId,
+    label,
+    pkg,
+    artifact,
+    from: fromRef,
+    isLifecycle: Boolean(catEntry.isLifecycle),
+    role: catEntry.role && CORESENSE_ROLES[catEntry.role] ? catEntry.role : 'Unassigned',
+    backing: 'cat',
+    ifaces: normIfaces,
+    params,
+    x: pos.x,
+    y: pos.y,
+  };
+}
+
 export function importCatalogueNode(catKey, catEntry, position) {
   if (state.isReadOnly) return;
   let createdId = null;
   mutateProject((proj) => {
-    const baseName = catEntry.node || catEntry.artifact || catKey.split('.').pop() || 'node';
-    let label = baseName;
-    let suffix = 2;
-    while ((proj.nodes || []).some((n) => n.label === label)) {
-      label = `${baseName}_${suffix++}`;
+    const created = buildNodeFromCatalogueEntry(proj, catKey, catEntry, position);
+    createdId = created.id;
+    proj.nodes.push(created);
+    if (proj.studio && proj.studio.modules) {
+      proj.studio.modules[created.id] = {
+        role: created.role || 'Unassigned',
+        unit: 'unassigned',
+        sourcePaths: [],
+      };
     }
-    const nodeId = `n_${label}`;
-    createdId = nodeId;
-    const pkg = catEntry.pkg || (catEntry.from ? catEntry.from.split('.')[0] : 'ros_pkg');
-    const artifact = catEntry.artifact || catEntry.node || baseName;
-    const fromRef = catEntry.from || `${pkg}.${artifact}`;
-
-    const normIfaces = normalizeCatalogueInterfaces(catEntry.interfaces).map((f) => ({
-      id: `i_${label}_${f.name}`,
-      name: f.name,
-      label: f.label || f.name,
-      kind: f.kind || 'pub',
-      type: f.type || '',
-      exposed: true,
-      artifact,
-    }));
-
-    const params = Object.entries(catEntry.parameters || {}).map(([pName, pDef]) => ({
-      id: `p_${label}_${pName}`,
-      name: pName,
-      label: pName,
-      ptype: (pDef && typeof pDef === 'object' ? pDef.type : 'String') || 'String',
-      value: pDef && typeof pDef === 'object' ? pDef.value : undefined,
-      sysValue: undefined,
-      exposed: false,
-      artifact,
-    }));
-
-    const idx = (proj.nodes || []).filter((n) => !n.subRef).length;
-    const pos = position || {
-      x: 80 + (idx % 3) * 340,
-      y: 80 + Math.floor(idx / 3) * 240,
-    };
-
-    proj.nodes.push({
-      id: nodeId,
-      label,
-      pkg,
-      artifact,
-      from: fromRef,
-      backing: 'cat',
-      ifaces: normIfaces,
-      params,
-      x: pos.x,
-      y: pos.y,
-    });
   });
 
   if (createdId) {
@@ -734,4 +835,219 @@ export function runDagreAutoLayout() {
     }
   });
   requestFitView();
+}
+
+// ============================================================================
+// Deterministic Auto-Wiring Engine (100% Parity with ipa-rostooling-studio)
+// ============================================================================
+
+export function normalizeRosType(type) {
+  return String(type || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\/(msg|srv|action)\//, '/');
+}
+
+export function nameOf(node, iface, proj = state.project) {
+  const bound = proj?.studio?.modules?.[node?.id]?.portBindings?.[iface?.id];
+  const raw = bound || iface?.label || iface?.name || '';
+  return String(raw).trim().replace(/^\/+/, '');
+}
+
+function isContractLocked(node) {
+  return Boolean(node && ['cat', 'sub'].includes(node.backing));
+}
+
+export function connectionProblem(connSpec, proj = state.project) {
+  if (!connSpec || !proj) return 'Choose two interface ports.';
+  const a = (proj.nodes || []).find((n) => n.id === connSpec.source);
+  const b = (proj.nodes || []).find((n) => n.id === connSpec.target);
+  const from = (a?.ifaces || []).find(
+    (f) => f.id === connSpec.sourceHandle || f.label === connSpec.sourceHandle || f.name === connSpec.sourceHandle
+  );
+  const to = (b?.ifaces || []).find(
+    (f) => f.id === connSpec.targetHandle || f.label === connSpec.targetHandle || f.name === connSpec.targetHandle
+  );
+  if (!a || !b || !from || !to) return 'Choose two interface ports.';
+  if (a.id === b.id) return 'Cannot connect a component to itself.';
+  const expectedPartner = KIND_META[from.kind]?.partner;
+  if (!expectedPartner || expectedPartner !== to.kind) {
+    const srcName = KIND_META[from.kind]?.label || from.kind;
+    const expName = KIND_META[expectedPartner]?.label?.toLowerCase() || expectedPartner || 'partner port';
+    return `${srcName} connects only to ${expName}.`;
+  }
+  const fromType = normalizeRosType(from.type);
+  const toType = normalizeRosType(to.type);
+  if (fromType && toType && fromType !== toType) {
+    return `Types differ: ${from.type} and ${to.type}.`;
+  }
+  if ((!fromType && isContractLocked(a)) || (!toType && isContractLocked(b))) {
+    return 'This referenced contract has an unresolved type. Update its source model before connecting.';
+  }
+  if (!fromType && !toType) {
+    return 'Set a message, service or action type on one port first.';
+  }
+  if (
+    (proj.connections || []).some(
+      (c) => c.from.n === a.id && c.from.i === from.id && c.to.n === b.id && c.to.i === to.id
+    )
+  ) {
+    return 'These interfaces are already connected.';
+  }
+  return null;
+}
+
+export function connectMatchingOnProject(proj, skipped = [], connected = []) {
+  if (!proj.connections) proj.connections = [];
+  const nodes = proj.nodes || [];
+  for (const a of nodes) {
+    for (const f of a.ifaces || []) {
+      if (f.exposed === false) continue;
+      if (KIND_META[f.kind]?.side !== 'source') continue;
+      for (const b of nodes) {
+        if (b.id === a.id) continue;
+        // Never mutate internal wires inside the same imported subsystem
+        if (a.subRef && a.subRef === b.subRef) continue;
+        for (const t of b.ifaces || []) {
+          if (t.exposed === false) continue;
+          if (t.kind !== KIND_META[f.kind].partner) continue;
+
+          const srcResolvedName = nameOf(a, f, proj);
+          const tgtResolvedName = nameOf(b, t, proj);
+          if (!srcResolvedName || srcResolvedName !== tgtResolvedName) continue;
+
+          // Dynamic runtime token guard ({...})
+          if (
+            (f.name || '').includes('{') ||
+            (f.label || '').includes('{') ||
+            (t.name || '').includes('{') ||
+            (t.label || '').includes('{') ||
+            srcResolvedName.includes('{')
+          ) {
+            skipped.push(
+              `${a.label} ${f.label || f.name} → ${b.label}: name still has a runtime {…} part`
+            );
+            continue;
+          }
+
+          const why = connectionProblem(
+            { source: a.id, sourceHandle: f.id, target: b.id, targetHandle: t.id },
+            proj
+          );
+          const wireLabel = `${a.label} ${srcResolvedName} → ${b.label}`;
+          if (why) {
+            if (!/already connected/i.test(why)) {
+              skipped.push(`${wireLabel}: ${why}`);
+            }
+            continue;
+          }
+
+          if (!f.type) f.type = t.type;
+          if (!t.type) t.type = f.type;
+
+          const connId = `c_${f.id}_${t.id}_${proj.connections.length + 1}`;
+          proj.connections.push({
+            id: connId,
+            from: { n: a.id, i: f.id },
+            to: { n: b.id, i: t.id },
+          });
+          connected.push(`${wireLabel} (${normalizeRosType(f.type || t.type)})`);
+        }
+      }
+    }
+  }
+  return { connected, skipped };
+}
+
+export function connectPlaced() {
+  if (state.isReadOnly) {
+    showToast('Core catalogue models are read-only and cannot be modified.', true);
+    return { placed: [], connected: [], skipped: [] };
+  }
+  const skipped = [];
+  const connected = [];
+  mutateProject((proj) => {
+    connectMatchingOnProject(proj, skipped, connected);
+  });
+  const onCanvas = (state.project.nodes || []).length;
+  if (connected.length > 0) {
+    runDagreAutoLayout();
+  }
+  const result = {
+    mode: 'placed',
+    placed: [],
+    onCanvas,
+    connected,
+    skipped,
+  };
+  setUIState({ autoWireResult: result });
+  return result;
+}
+
+export function addAndConnect(explicitEntries) {
+  if (state.isReadOnly) {
+    showToast('Core catalogue models are read-only and cannot be modified.', true);
+    return { placed: [], connected: [], skipped: [] };
+  }
+  const rawMap = state.nodeIndex?.nodes || {};
+  let entriesToPlace = explicitEntries;
+  if (!Array.isArray(entriesToPlace)) {
+    const pickedKeys = Object.keys(state.selectedCatalogueKeys || {}).filter(
+      (k) => state.selectedCatalogueKeys[k]
+    );
+    entriesToPlace = pickedKeys
+      .filter((k) => rawMap[k])
+      .map((k) => ({ key: k, entry: rawMap[k] }));
+  }
+
+  const placed = [];
+  const skipped = [];
+  const connected = [];
+
+  mutateProject((proj) => {
+    if (!proj.nodes) proj.nodes = [];
+    for (const item of entriesToPlace || []) {
+      const catKey = item.key || item.from || item.name || 'node';
+      const catEntry = item.entry || item;
+      const pkg = catEntry.pkg || (catEntry.from ? catEntry.from.split('.')[0] : 'ros_pkg');
+      const artOrNode = catEntry.artifact || catEntry.node || catKey.split('.').pop();
+      const alreadyExists = proj.nodes.some(
+        (n) => n.pkg === pkg && (n.artifact === artOrNode || n.label === artOrNode)
+      );
+      if (alreadyExists) {
+        skipped.push(`${artOrNode}: already in the system`);
+        continue;
+      }
+      const created = buildNodeFromCatalogueEntry(proj, catKey, catEntry);
+      proj.nodes.push(created);
+      if (proj.studio && proj.studio.modules) {
+        proj.studio.modules[created.id] = {
+          role: created.role || 'Unassigned',
+          unit: 'unassigned',
+          sourcePaths: [],
+        };
+      }
+      placed.push(created.label);
+    }
+
+    connectMatchingOnProject(proj, skipped, connected);
+  });
+
+  if (placed.length > 0 || connected.length > 0) {
+    runDagreAutoLayout();
+  }
+
+  const result = {
+    mode: 'addAndConnect',
+    placed,
+    connected,
+    skipped,
+  };
+  setUIState({
+    catalogueOpen: false,
+    selectedCatalogueKeys: {},
+    autoWireResult: result,
+  });
+  return result;
 }

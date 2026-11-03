@@ -15,8 +15,18 @@ import { ReadOnlyBanner } from './components/ReadOnlyBanner';
 import {
   validatePortConnection,
   updateNodeLabel,
+  updateNodeRole,
+  getNodeRole,
   updateNodePackageAndArtifact,
   runDagreAutoLayout,
+  CORESENSE_ROLES,
+  CORESENSE_ROLE_KEYS,
+  normalizeRosType,
+  nameOf,
+  connectionProblem,
+  connectMatchingOnProject,
+  connectPlaced,
+  addAndConnect,
 } from './state/studioStore';
 
 if (typeof window !== 'undefined') {
@@ -36,8 +46,18 @@ if (typeof window !== 'undefined') {
     estimateCardWidth,
     validatePortConnection,
     updateNodeLabel,
+    updateNodeRole,
+    getNodeRole,
     updateNodePackageAndArtifact,
     runDagreAutoLayout,
+    CORESENSE_ROLES,
+    CORESENSE_ROLE_KEYS,
+    normalizeRosType,
+    nameOf,
+    connectionProblem,
+    connectMatchingOnProject,
+    connectPlaced,
+    addAndConnect,
   };
 }
 

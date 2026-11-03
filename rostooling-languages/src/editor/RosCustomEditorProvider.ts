@@ -15,6 +15,7 @@ interface DeclaredArtifact {
   pkg: string;
   name: string;
   node: string;
+  isLifecycle?: boolean;
   ifaces: RosInterface[];
   params: RosParameter[];
 }
@@ -83,9 +84,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
   private loadCatalogues(docFilePath?: string) {
     try {
-      const storageDir = this.context.globalStorageUri
-        ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
-        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+      const isTestMode =
+        this.context.extensionMode === vscode.ExtensionMode.Test ||
+        process.env.VSCODE_TEST_RUN === '1';
+      const storageDir =
+        isTestMode && this.context.globalStorageUri
+          ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
+          : process.env.ROSTOOLING_CATALOGUE_DIR ||
+            path.join(os.homedir(), '.rostooling', 'catalogue_repos');
       this.catalogueManager = RosCatalogueManager.getInstance(storageDir);
 
       const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
@@ -369,6 +375,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
                   pkg: pkg.name,
                   name: art.name,
                   node: art.node || art.name,
+                  isLifecycle: Boolean(art.isLifecycle),
                   ifaces: art.ifaces || [],
                   params: art.params || [],
                 };
@@ -391,11 +398,20 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   private enrichNodeWithDefinitions(
     node: RosNode,
     declaredArt?: DeclaredArtifact,
-    catEntry?: { artifact?: string; node?: string; interfaces?: unknown; parameters?: Record<string, unknown> }
+    catEntry?: {
+      artifact?: string;
+      node?: string;
+      isLifecycle?: boolean;
+      interfaces?: unknown;
+      parameters?: Record<string, unknown>;
+    }
   ): void {
     if (declaredArt) {
       if (declaredArt.name) {
         node.artifact = declaredArt.name;
+      }
+      if (declaredArt.isLifecycle) {
+        node.isLifecycle = true;
       }
       const declaredIfacesByName = new Map<string, RosInterface>();
       for (const iface of declaredArt.ifaces || []) {
@@ -410,6 +426,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           iface.kind = match.kind;
           iface.type = match.type || iface.type;
           iface.qos = match.qos || iface.qos;
+          if (match.activeStates && match.activeStates.length > 0) {
+            iface.activeStates = match.activeStates;
+          }
         }
         if (!iface.artifact && declaredArt.name) {
           iface.artifact = declaredArt.name;
@@ -479,8 +498,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       if (!node.artifact && catEntry.artifact) {
         node.artifact = catEntry.artifact;
       }
+      if (catEntry.isLifecycle) {
+        node.isLifecycle = true;
+      }
       const normalized = this.normalizeInterfaces(catEntry.interfaces);
-      const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
+      const catIfacesByName = new Map<
+        string,
+        { kind?: string; type?: string; activeStates?: RosInterface['activeStates'] }
+      >();
       for (const f of normalized) {
         const nm = f.name || f.label || '';
         if (nm) catIfacesByName.set(nm, f);
@@ -492,6 +517,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if (match && match.kind) {
           iface.kind = match.kind as RosInterface['kind'];
           iface.type = match.type || iface.type;
+          if (match.activeStates && match.activeStates.length > 0) {
+            iface.activeStates = match.activeStates;
+          }
         }
         if (!iface.artifact && (catEntry.artifact || node.artifact)) {
           iface.artifact = catEntry.artifact || node.artifact;
@@ -509,6 +537,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             label: f.label || nm,
             kind: (f.kind as RosInterface['kind']) || 'pub',
             type: f.type || '',
+            ...(f.activeStates && f.activeStates.length > 0 ? { activeStates: f.activeStates } : {}),
             exposed: true,
             artifact: catEntry.artifact || node.artifact,
           });
@@ -835,7 +864,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     );
   }
 
-  public normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
+  public normalizeInterfaces(rawIfaces: unknown): ReturnType<typeof RosLayoutManager.normalizeInterfaces> {
     return RosLayoutManager.normalizeInterfaces(rawIfaces);
   }
 
@@ -908,13 +937,13 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     }
 
-    // Preserve node coordinates & dimensions keyed strictly by unique ID, with direct node label fallback
-    const nodeDataById = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
-    const directNodeDataByLabel = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
+    // Preserve node coordinates, dimensions & CoreSense role keyed strictly by unique ID, with direct node label fallback
+    const nodeDataById = new Map<string, { x?: number; y?: number; w?: number; h?: number; role?: string }>();
+    const directNodeDataByLabel = new Map<string, { x?: number; y?: number; w?: number; h?: number; role?: string }>();
     for (const n of source.nodes) {
-      nodeDataById.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
+      nodeDataById.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h, role: n.role });
       if (!n.subRef && n.backing !== 'sub') {
-        directNodeDataByLabel.set(n.label, { x: n.x, y: n.y, w: n.w, h: n.h });
+        directNodeDataByLabel.set(n.label, { x: n.x, y: n.y, w: n.w, h: n.h, role: n.role });
       }
     }
 
@@ -929,6 +958,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
         if (data.w != null) n.w = data.w;
         if (data.h != null) n.h = data.h;
+        if (data.role) n.role = data.role;
       }
     }
 

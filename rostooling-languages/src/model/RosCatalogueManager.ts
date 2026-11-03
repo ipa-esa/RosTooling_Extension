@@ -358,11 +358,17 @@ export class RosCatalogueManager {
               const pkgName = n.pkg || (p.system ? p.system.name : 'ros_pkg');
               const nodeName = n.label || n.artifact;
               const nodeKey = `${pkgName}.${nodeName}`;
-              const ifaceMap: Record<string, string | { kind: string; type?: string }> = {};
+              const ifaceMap: Record<
+                string,
+                string | { kind: string; type?: string; activeStates?: typeof n.ifaces[number]['activeStates'] }
+              > = {};
               for (const iface of n.ifaces || []) {
                 ifaceMap[iface.name] = {
                   kind: iface.kind,
                   type: iface.type || '',
+                  ...(iface.activeStates && iface.activeStates.length > 0
+                    ? { activeStates: iface.activeStates }
+                    : {}),
                 };
               }
               const paramMap: Record<string, { type?: string; value?: string | number | boolean }> = {};
@@ -378,6 +384,7 @@ export class RosCatalogueManager {
                 artifact: n.artifact || n.label,
                 from: `${pkgName}.${nodeName}`,
                 pkg: pkgName,
+                isLifecycle: Boolean(n.isLifecycle),
                 file: relPath,
                 source: sourceName,
                 domain,

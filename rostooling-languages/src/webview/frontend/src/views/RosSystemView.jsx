@@ -21,7 +21,11 @@ import {
   ArrowRight,
   Search,
   AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
   Activity,
+  Cable,
+  X,
 } from 'lucide-react';
 import {
   useStudio,
@@ -29,8 +33,12 @@ import {
   mutateProject,
   mutateLayout,
   updateNodeLabel,
+  updateNodeRole,
+  getNodeRole,
   importCatalogueNode,
   validatePortConnection,
+  connectPlaced,
+  CORESENSE_ROLES,
   KIND_META,
   SRC_SIDE,
   showToast,
@@ -81,6 +89,7 @@ export function estimateCardHeight(node) {
   const totalParams = (node.params || []).length;
 
   let badgeCount = 0;
+  if (node.role && node.role !== 'Unassigned') badgeCount++;
   if (node.isLifecycle) badgeCount++;
   if (node.namespace) badgeCount++;
   if (totalParams > 0) badgeCount++;
@@ -390,6 +399,8 @@ function SystemCanvasInner() {
               node: m,
               diagnostics: mDiags,
               interfaceFilter,
+              isReadOnly,
+              project,
             },
           });
         }
@@ -412,6 +423,7 @@ function SystemCanvasInner() {
         node.label.toLowerCase().includes(q) ||
         (node.from || '').toLowerCase().includes(q) ||
         (node.pkg || '').toLowerCase().includes(q) ||
+        (node.role || '').toLowerCase().includes(q) ||
         (node.ifaces || []).some(
           (f) =>
             (f.label || f.name).toLowerCase().includes(q) ||
@@ -428,6 +440,8 @@ function SystemCanvasInner() {
           node,
           diagnostics: nodeDiags,
           interfaceFilter,
+          isReadOnly,
+          project,
         },
       });
     });
@@ -964,7 +978,7 @@ function SystemCanvasInner() {
 
   return (
     <div className="rt-canvas-stage">
-      {/* Canvas Sub-Toolbar: Search + Legend */}
+      {/* Canvas Sub-Toolbar: Search + Auto-Wire + Legend */}
       <div
         style={{
           display: 'flex',
@@ -977,13 +991,29 @@ function SystemCanvasInner() {
           fontSize: 11.5,
         }}
       >
-        <div className="rt-search-box" style={{ width: 240 }}>
-          <Search size={13} />
-          <input
-            placeholder="Filter canvas nodes or topics..."
-            value={canvasSearch}
-            onChange={(e) => setCanvasSearch(e.target.value)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="rt-search-box" style={{ width: 230 }}>
+            <Search size={13} />
+            <input
+              placeholder="Filter canvas nodes or topics..."
+              value={canvasSearch}
+              onChange={(e) => setCanvasSearch(e.target.value)}
+            />
+          </div>
+          <button
+            id="btnAutoWirePorts"
+            type="button"
+            className="rt-btn"
+            disabled={isReadOnly || (project.nodes || []).length < 2}
+            title={
+              isReadOnly
+                ? 'Core catalogue models are read-only'
+                : 'Deterministically connect matching publisher→subscriber, service, and action ports on the canvas'
+            }
+            onClick={() => connectPlaced()}
+          >
+            <Cable size={13} /> Auto-wire Matching Ports
+          </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--rt-muted)', flexWrap: 'wrap' }}>
           {Object.entries(KIND_META).map(([k, m]) => (
@@ -1546,6 +1576,24 @@ function SystemInspector() {
             />
           </div>
 
+          <div className="rt-field">
+            <label>CoreSense Engineering Role</label>
+            <select
+              id="selCoreSenseRole"
+              className="rt-select"
+              disabled={nodeReadOnly}
+              value={getNodeRole(selectedNode, project)}
+              onChange={(e) => updateNodeRole(selectedNode.id, e.target.value)}
+            >
+              {Object.entries(CORESENSE_ROLES).map(([roleKey, meta]) => (
+                <option key={roleKey} value={roleKey}>
+                  {meta.label}
+                </option>
+              ))}
+            </select>
+            <small>{CORESENSE_ROLES[getNodeRole(selectedNode, project)]?.description}</small>
+          </div>
+
           <button
             id="btnOpenComponentRos2"
             type="button"
@@ -1856,22 +1904,36 @@ function SystemInspector() {
               <Box size={14} style={{ color: '#60a5fa' }} /> System Nodes ({directNodes.length})
             </h3>
           </div>
-          {directNodes.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              className="rt-node-list-item"
-              onClick={() => setUIState({ selectedNodeId: n.id })}
-            >
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ display: 'block', fontSize: 12 }}>{n.label}</strong>
-                <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
-                  {n.from}
-                </small>
-              </div>
-              {n.isLifecycle && <span className="rt-badge lifecycle">LC</span>}
-            </button>
-          ))}
+          {directNodes.map((n) => {
+            const roleKey = getNodeRole(n, project);
+            const roleMeta = roleKey !== 'Unassigned' ? CORESENSE_ROLES[roleKey] : null;
+            return (
+              <button
+                key={n.id}
+                type="button"
+                className="rt-node-list-item"
+                onClick={() => setUIState({ selectedNodeId: n.id })}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block', fontSize: 12 }}>{n.label}</strong>
+                  <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
+                    {n.from}
+                  </small>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {roleMeta && (
+                    <span
+                      className="rt-badge role-pill"
+                      style={{ color: roleMeta.color, background: roleMeta.bg, borderColor: `${roleMeta.color}55` }}
+                    >
+                      {roleMeta.label}
+                    </span>
+                  )}
+                  {n.isLifecycle && <span className="rt-badge lifecycle">LC</span>}
+                </div>
+              </button>
+            );
+          })}
         </section>
 
         {diags.length > 0 && (
@@ -1899,6 +1961,100 @@ function SystemInspector() {
   );
 }
 
+function AutoWireSummaryModal() {
+  const studio = useStudio();
+  const res = studio.autoWireResult;
+  if (!res) return null;
+
+  const close = () => setUIState({ autoWireResult: null });
+  const isBatch = res.mode === 'addAndConnect';
+
+  return (
+    <div
+      className="rt-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Deterministic Auto-Wire Summary"
+      onClick={close}
+    >
+      <div className="rt-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="rt-modal-hdr">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Cable size={16} style={{ color: '#60a5fa' }} />
+            <strong style={{ fontSize: 13.5 }}>
+              {isBatch ? 'Add & Auto-wire Summary (Deterministic)' : 'Auto-wire Matching Ports (Deterministic)'}
+            </strong>
+          </div>
+          <button type="button" className="rt-btn icon-only subtle" onClick={close} title="Close">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="rt-modal-body">
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--rt-muted)' }}>
+            Matched publisher→subscriber, service server→client, and action server→client port pairs sharing exact ROS names and compatible types. Dynamic runtime tokens (<code>{'{…}'}</code>) were skipped safely.
+          </p>
+
+          {isBatch ? (
+            <>
+              <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                Placed ({res.placed.length})
+              </strong>
+              <p style={{ margin: '0 0 12px', fontSize: 11.5, fontFamily: 'var(--rt-mono)', color: 'var(--rt-ink)' }}>
+                {res.placed.length > 0 ? res.placed.join(', ') : 'None'}
+              </p>
+            </>
+          ) : (
+            <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--rt-muted)' }}>
+              Evaluated {res.onCanvas ?? 0} component(s) currently placed on the system canvas.
+            </p>
+          )}
+
+          <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            Connected ({res.connected.length})
+          </strong>
+          {res.connected.length === 0 ? (
+            <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--rt-muted)' }}>
+              No new matching port pairs were connected.
+            </p>
+          ) : (
+            <ul className="rt-autowire-list">
+              {res.connected.map((line, i) => (
+                <li key={i}>
+                  <CheckCircle2 size={13} style={{ color: 'var(--rt-ok)', flexShrink: 0, marginTop: 1 }} />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            Skipped ({res.skipped.length})
+          </strong>
+          {res.skipped.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--rt-muted)' }}>None</p>
+          ) : (
+            <ul className="rt-autowire-list">
+              {res.skipped.map((line, i) => (
+                <li key={i}>
+                  <AlertTriangle size={13} style={{ color: 'var(--rt-warn)', flexShrink: 0, marginTop: 1 }} />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rt-modal-ftr">
+          <button type="button" className="rt-btn primary" onClick={close}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function RosSystemView() {
   return (
     <div className="rt-workbench">
@@ -1906,6 +2062,7 @@ export function RosSystemView() {
         <SystemCanvasInner />
         <SystemInspector />
       </ReactFlowProvider>
+      <AutoWireSummaryModal />
     </div>
   );
 }
