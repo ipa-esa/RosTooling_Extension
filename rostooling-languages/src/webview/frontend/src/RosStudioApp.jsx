@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Globe,
   ArrowRightCircle,
+  Trash2,
 } from 'lucide-react';
 import {
   useStudio,
@@ -642,6 +643,29 @@ export function RosStudioApp() {
                 onClick={() => setNewProjOpen(true)}
               >
                 <Plus size={12} /> New
+              </button>
+            )}
+            {macroActiveProjectId && (
+              <button
+                type="button"
+                className="rt-btn subtle"
+                style={{ height: 26, padding: '0 6px', color: 'var(--rt-danger, #ef4444)' }}
+                title="Delete active RosTooling Studio project"
+                onClick={() => {
+                  const current = macroProjects.find(
+                    (p) => (p.id || p.projectId) === macroActiveProjectId
+                  );
+                  const name = current?.name || current?.systemName || macroActiveProjectId;
+                  if (
+                    window.confirm(
+                      `Are you sure you want to delete project "${name}"? This action cannot be undone.`
+                    )
+                  ) {
+                    hostBridge.macroDeleteProject(macroActiveProjectId);
+                  }
+                }}
+              >
+                <Trash2 size={12} />
               </button>
             )}
             <span className="rt-macro-rev-pill">

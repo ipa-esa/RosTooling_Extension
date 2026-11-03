@@ -397,6 +397,46 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
           this.broadcastToast(`Created Studio project "${name}"`);
           break;
         }
+        case 'macroDeleteProject': {
+          const targetId = String(msg.projectId || this.activeProjectId || '').trim();
+          if (!targetId) return;
+          this.setBusy(true);
+          await this.daemonManager.request(
+            'DELETE',
+            `/api/projects/${encodeURIComponent(targetId)}`,
+            { purge: true }
+          );
+          const refreshed = await this.daemonManager.request<BootstrapResponse>(
+            'GET',
+            '/api/bootstrap'
+          );
+          this.latestProjects = this.normalizeProjects(
+            (refreshed.projects ?? refreshed.recentProjects ?? []) as {
+              id?: string;
+              projectId?: string;
+              name?: string;
+              systemName?: string;
+              root?: string;
+            }[]
+          );
+          if (this.activeProjectId === targetId) {
+            const nextProject = this.latestProjects[0];
+            if (nextProject) {
+              this.activeProjectId = nextProject.id;
+              this.latestEnvelope = await this.daemonManager.request<ProjectEnvelope>(
+                'GET',
+                `/api/projects/${encodeURIComponent(nextProject.id)}`
+              );
+            } else {
+              this.activeProjectId = '';
+              this.latestEnvelope = null;
+            }
+          }
+          this.setBusy(false);
+          this.broadcastMacroState();
+          this.broadcastToast('Deleted Studio project');
+          break;
+        }
         case 'macroSaveProject': {
           if (!this.activeProjectId || !msg.project) return;
           const expectedRevision = this.latestEnvelope?.revision ?? 1;

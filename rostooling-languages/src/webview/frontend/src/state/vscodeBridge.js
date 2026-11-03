@@ -152,6 +152,9 @@ export const hostBridge = {
   macroCreateProject(name, goal) {
     getVsCodeApi().postMessage({ type: 'macroCreateProject', name, goal });
   },
+  macroDeleteProject(projectId) {
+    getVsCodeApi().postMessage({ type: 'macroDeleteProject', projectId });
+  },
   macroSaveProject(project) {
     getVsCodeApi().postMessage({ type: 'macroSaveProject', project });
   },

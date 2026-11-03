@@ -122,14 +122,36 @@ export function MacroIntentView() {
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className="rt-btn"
-                  style={{ height: 26, padding: '0 10px' }}
-                  onClick={() => setCreateOpen(true)}
-                >
-                  <Plus size={12} /> New Project
-                </button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="rt-btn"
+                    style={{ height: 26, padding: '0 10px' }}
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Plus size={12} /> New Project
+                  </button>
+                  {macroActiveProjectId && (
+                    <button
+                      type="button"
+                      className="rt-btn subtle"
+                      style={{ height: 26, padding: '0 8px', color: 'var(--rt-danger, #ef4444)' }}
+                      title="Delete active RosTooling Studio project"
+                      onClick={() => {
+                        const projName = p.system?.name || activeProjMeta?.name || macroActiveProjectId;
+                        if (
+                          window.confirm(
+                            `Are you sure you want to delete project "${projName}"? This action cannot be undone.`
+                          )
+                        ) {
+                          hostBridge.macroDeleteProject(macroActiveProjectId);
+                        }
+                      }}
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
