@@ -2898,10 +2898,10 @@ inspection_system:
       assert.strictEqual(conn3.from.n, 'n_nav2', 'from node must resolve to nav2');
       assert.strictEqual(conn3.to.n, 'n_slam', 'to node must resolve to slam');
 
-      // 2. Test emitting: unique interfaces remain short, duplicate remapped interfaces (map) emit qualified
+      // 2. Test emitting: unique interfaces remain short, duplicate remapped interfaces (map) emit qualified with colon format (::)
       const emitted = RosModelEmitter.emitRosSystem(parsed);
-      assert.ok(emitted.includes('- ["slam.map", "nav2.map"]'), 'Duplicate map interface must be qualified with slam and nav2');
-      assert.ok(emitted.includes('- ["slam.map", "rviz.map"]'), 'Duplicate map interface must be qualified with slam and rviz');
+      assert.ok(emitted.includes('- ["slam::map", "nav2::map"]'), 'Duplicate map interface must be qualified with slam and nav2');
+      assert.ok(emitted.includes('- ["slam::map", "rviz::map"]'), 'Duplicate map interface must be qualified with slam and rviz');
       assert.ok(emitted.includes('- ["cmd_vel", "scan_in"]'), 'Unique interfaces must remain short unqualified for 100% backward compatibility');
     });
 
