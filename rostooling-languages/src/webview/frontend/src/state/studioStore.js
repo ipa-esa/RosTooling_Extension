@@ -54,7 +54,7 @@ export const QOS_PROFILES = [
   'parameter_events',
 ];
 
-export const CORESENSE_ROLES = {
+export const PIPELINE_ROLES = {
   Sensing: {
     label: 'Sensing',
     description: 'Acquires raw measurements or sensor observations from the robot or environment.',
@@ -105,12 +105,17 @@ export const CORESENSE_ROLES = {
   },
 };
 
-export const CORESENSE_ROLE_KEYS = Object.keys(CORESENSE_ROLES);
+export const PIPELINE_ROLE_KEYS = Object.keys(PIPELINE_ROLES);
+
+/** @deprecated Use PIPELINE_ROLES */
+export const CORESENSE_ROLES = PIPELINE_ROLES;
+/** @deprecated Use PIPELINE_ROLE_KEYS */
+export const CORESENSE_ROLE_KEYS = PIPELINE_ROLE_KEYS;
 
 export function getNodeRole(node, project) {
   if (!node) return 'Unassigned';
   const raw = node.role || project?.studio?.modules?.[node.id]?.role || 'Unassigned';
-  return CORESENSE_ROLES[raw] ? raw : 'Unassigned';
+  return PIPELINE_ROLES[raw] ? raw : 'Unassigned';
 }
 
 export function cloneDeep(val) {
@@ -386,11 +391,52 @@ export function syncRosTypesAndNodes(project, specsList, explicitPkgName) {
 
 const init = getInitialData();
 
+export function normalizeDiagnostics(diag) {
+  if (!diag) return [];
+  if (Array.isArray(diag)) {
+    return diag.map((d) => {
+      if (typeof d === 'string') return { severity: 'warning', message: d };
+      if (typeof d === 'object' && d !== null) {
+        return { severity: d.severity || 'warning', message: d.message || '', ...d };
+      }
+      return { severity: 'warning', message: String(d) };
+    });
+  }
+  if (typeof diag === 'object' && diag !== null) {
+    const out = [];
+    if (Array.isArray(diag.global)) {
+      out.push(
+        ...diag.global.map((d) =>
+          typeof d === 'string'
+            ? { severity: 'warning', message: d }
+            : { severity: d.severity || 'warning', message: d.message || '', ...d }
+        )
+      );
+    }
+    if (diag.byNode && typeof diag.byNode === 'object') {
+      for (const [nodeId, list] of Object.entries(diag.byNode)) {
+        if (Array.isArray(list)) {
+          out.push(
+            ...list.map((d) =>
+              typeof d === 'string'
+                ? { severity: 'warning', message: d, targetName: nodeId }
+                : { severity: d.severity || 'warning', message: d.message || '', targetName: nodeId, ...d }
+            )
+          );
+        }
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
 export function hydrateMacroProjectForCanvas(rawProj) {
   const proj = cloneDeep(rawProj || {});
   proj.formatVersion = 5;
   proj.isRosSystem = true;
   proj.isRos = false;
+  proj.diagnostics = normalizeDiagnostics(proj.diagnostics);
   if (!proj.system) proj.system = { name: 'ros_system' };
   if (!proj.nodes) proj.nodes = [];
   if (!proj.subSystems) proj.subSystems = [];
@@ -454,8 +500,13 @@ export function prepareMacroProjectForDaemon(rawProj) {
   return proj;
 }
 
+const initialProject = init.mode === 'macro' ? hydrateMacroProjectForCanvas(init.project) : (init.project || {});
+if (initialProject) {
+  initialProject.diagnostics = normalizeDiagnostics(initialProject.diagnostics);
+}
+
 const state = {
-  project: init.mode === 'macro' ? hydrateMacroProjectForCanvas(init.project) : init.project,
+  project: initialProject,
   mode: init.mode,
   macroStage: init.macroStage || 'intent',
   macroPinnedStage: Boolean(init.macroPinnedStage),
@@ -524,11 +575,15 @@ function emitChange() {
 
 registerHostMessageListener({
   onUpdateModel(freshProject) {
-    state.project = freshProject;
-    if (state.selectedNodeId && !(freshProject.nodes || []).some((n) => n.id === state.selectedNodeId)) {
-      state.selectedNodeId = state.mode === 'component' ? freshProject.nodes?.[0]?.id || null : null;
+    const hydrated = state.mode === 'macro' ? hydrateMacroProjectForCanvas(freshProject) : (freshProject || {});
+    if (hydrated) {
+      hydrated.diagnostics = normalizeDiagnostics(hydrated.diagnostics);
     }
-    if (state.selectedEdgeId && !(freshProject.connections || []).some((c) => c.id === state.selectedEdgeId)) {
+    state.project = hydrated;
+    if (state.selectedNodeId && !(hydrated.nodes || []).some((n) => n.id === state.selectedNodeId)) {
+      state.selectedNodeId = state.mode === 'component' ? hydrated.nodes?.[0]?.id || null : null;
+    }
+    if (state.selectedEdgeId && !(hydrated.connections || []).some((c) => c.id === state.selectedEdgeId)) {
       state.selectedEdgeId = null;
     }
     emitChange();
@@ -536,7 +591,7 @@ registerHostMessageListener({
   onUpdateDiagnostics(diagnostics) {
     state.project = {
       ...state.project,
-      diagnostics: diagnostics || [],
+      diagnostics: normalizeDiagnostics(diagnostics),
     };
     emitChange();
   },
@@ -547,7 +602,20 @@ registerHostMessageListener({
   },
   onMacroState(msg) {
     if (Array.isArray(msg.projects)) {
-      state.macroProjects = msg.projects;
+      state.macroProjects = msg.projects
+        .map((p) => {
+          const id = String(p.id || p.projectId || '').trim();
+          const name = String(p.name || p.systemName || id || 'Untitled system').trim();
+          return {
+            id,
+            projectId: id,
+            name,
+            systemName: p.systemName || p.name || name,
+            root: p.root,
+            promotedTargetDir: p.promotedTargetDir,
+          };
+        })
+        .filter((p) => Boolean(p.id));
     }
     if (msg.activeProjectId !== undefined) {
       state.macroActiveProjectId = msg.activeProjectId || '';

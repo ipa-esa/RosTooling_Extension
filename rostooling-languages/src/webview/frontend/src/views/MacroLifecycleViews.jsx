@@ -16,13 +16,14 @@ import {
   BookOpen,
   RefreshCw,
   Cpu,
+  Layers,
 } from 'lucide-react';
 import {
   useStudio,
   mutateProject,
   setUIState,
-  CORESENSE_ROLES,
-  CORESENSE_ROLE_KEYS,
+  PIPELINE_ROLES,
+  PIPELINE_ROLE_KEYS,
   getNodeRole,
   showToast,
 } from '../state/studioStore';
@@ -37,11 +38,18 @@ export const MACRO_STAGES = [
 ];
 
 export function MacroIntentView() {
-  const { project } = useStudio();
-  const brief = project.studio?.brief || {};
-  const criteria = project.studio?.criteria || [];
-  const behaviors = project.studio?.behavior || [];
-  const nodes = project.nodes || [];
+  const { project, macroProjects, macroActiveProjectId } = useStudio();
+  const [newProjName, setNewProjName] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const p = project || {};
+  const studio = p.studio || {};
+  const brief = studio.brief || {};
+  const criteria = Array.isArray(studio.criteria) ? studio.criteria : [];
+  const behaviors = Array.isArray(studio.behavior) ? studio.behavior : [];
+  const nodes = Array.isArray(p.nodes) ? p.nodes : [];
+
+  const activeProjMeta = (macroProjects || []).find((pr) => pr.id === macroActiveProjectId);
 
   const updateBrief = (field, value) => {
     mutateProject((proj) => {
@@ -52,15 +60,84 @@ export function MacroIntentView() {
   };
 
   const roleCounts = {};
-  for (const r of CORESENSE_ROLE_KEYS) roleCounts[r] = 0;
+  for (const r of PIPELINE_ROLE_KEYS) roleCounts[r] = 0;
   for (const n of nodes) {
-    const r = getNodeRole(n, project);
+    const r = getNodeRole(n, p);
     roleCounts[r] = (roleCounts[r] || 0) + 1;
   }
 
   return (
     <div className="rt-macro-stage-scroll">
       <div className="rt-macro-container">
+        {/* Project Context & Persistence Card */}
+        <div className="rt-card" style={{ marginBottom: 12 }}>
+          <div className="rt-macro-section-hdr">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={16} color="var(--rt-border-strong)" />
+              <h3 style={{ margin: 0, fontSize: 14 }}>
+                Active System Project:{' '}
+                <span style={{ color: 'var(--rt-accent, #3b82f6)' }}>
+                  {p.system?.name || activeProjMeta?.name || 'Untitled system'}
+                </span>
+              </h3>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {createOpen ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    className="rt-input"
+                    style={{ width: 160, height: 26 }}
+                    placeholder="new_project_name"
+                    value={newProjName}
+                    onChange={(e) => setNewProjName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newProjName.trim()) {
+                        hostBridge.macroCreateProject(newProjName.trim(), '');
+                        setNewProjName('');
+                        setCreateOpen(false);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="rt-btn primary"
+                    style={{ height: 26, padding: '0 10px' }}
+                    onClick={() => {
+                      if (newProjName.trim()) {
+                        hostBridge.macroCreateProject(newProjName.trim(), '');
+                        setNewProjName('');
+                        setCreateOpen(false);
+                      }
+                    }}
+                  >
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    className="rt-btn subtle"
+                    style={{ height: 26, padding: '0 8px' }}
+                    onClick={() => setCreateOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="rt-btn"
+                  style={{ height: 26, padding: '0 10px' }}
+                  onClick={() => setCreateOpen(true)}
+                >
+                  <Plus size={12} /> New Project
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="rt-macro-help" style={{ margin: 0 }}>
+            Project state is persisted in <code>~/ros-studio/projects/{activeProjMeta?.id ? `${activeProjMeta.id.slice(0, 16)}…` : 'storage'}</code>. All edits auto-save to disk and persist across restarts.
+          </p>
+        </div>
+
         <div className="rt-card">
           <div className="rt-macro-section-hdr">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -257,14 +334,14 @@ export function MacroIntentView() {
           </div>
         </div>
 
-        {/* CoreSense Pipeline Coverage */}
+        {/* System Pipeline Architecture Coverage */}
         <div className="rt-card">
           <h4 style={{ margin: '0 0 10px', fontSize: 13.5 }}>
-            CoreSense Functional Pipeline Coverage ({nodes.length} placed nodes)
+            System Pipeline Architecture Coverage ({nodes.length} placed nodes)
           </h4>
           <div className="rt-macro-role-grid">
-            {CORESENSE_ROLE_KEYS.map((roleKey) => {
-              const meta = CORESENSE_ROLES[roleKey];
+            {PIPELINE_ROLE_KEYS.map((roleKey) => {
+              const meta = PIPELINE_ROLES[roleKey];
               const count = roleCounts[roleKey] || 0;
               return (
                 <div
@@ -338,7 +415,7 @@ export function MacroPackagesView() {
             </div>
           </div>
           <p className="rt-macro-help">
-            Single source of truth shared between the Micro Visual Editor and CoreSense Studio daemon.
+            Single source of truth shared between the Model Studio and RosTooling Studio daemon.
             Select multiple components in the Catalogue Drawer and click <strong>Add &amp; Connect</strong> to
             place and auto-wire them into Stage 3 Architecture.
           </p>

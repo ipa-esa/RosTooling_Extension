@@ -38,10 +38,11 @@ import {
   importCatalogueNode,
   validatePortConnection,
   connectPlaced,
-  CORESENSE_ROLES,
+  PIPELINE_ROLES,
   KIND_META,
   SRC_SIDE,
   showToast,
+  normalizeDiagnostics,
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
 import { RosNodeCard } from '../components/RosNodeCard';
@@ -83,7 +84,7 @@ export function estimateCardHeight(node) {
 
   // 2. Badges row (lifecycle, namespace, parameters, diagnostics, subsystem)
   // .rt-node-badges has 9px padding/border. Badges wrap when multiple are present (~2 per line).
-  const diags = node.diagnostics || [];
+  const diags = normalizeDiagnostics(node.diagnostics);
   const errCount = diags.filter((d) => d.severity === 'error').length;
   const warnCount = diags.filter((d) => d.severity === 'warning').length;
   const totalParams = (node.params || []).length;
@@ -235,7 +236,7 @@ function SystemCanvasInner() {
   const { computedNodes, parentOrigins, computedEdges } = useMemo(() => {
     const rfNodes = [];
     const origins = {};
-    const diags = project.diagnostics || [];
+    const diags = normalizeDiagnostics(project.diagnostics);
     const q = canvasSearch.trim().toLowerCase();
 
     const directNodes = (project.nodes || []).filter((n) => !n.subRef && n.backing !== 'sub');
@@ -1577,21 +1578,21 @@ function SystemInspector() {
           </div>
 
           <div className="rt-field">
-            <label>CoreSense Engineering Role</label>
+            <label>Pipeline Architecture Role</label>
             <select
-              id="selCoreSenseRole"
+              id="selPipelineRole"
               className="rt-select"
               disabled={nodeReadOnly}
               value={getNodeRole(selectedNode, project)}
               onChange={(e) => updateNodeRole(selectedNode.id, e.target.value)}
             >
-              {Object.entries(CORESENSE_ROLES).map(([roleKey, meta]) => (
+              {Object.entries(PIPELINE_ROLES).map(([roleKey, meta]) => (
                 <option key={roleKey} value={roleKey}>
                   {meta.label}
                 </option>
               ))}
             </select>
-            <small>{CORESENSE_ROLES[getNodeRole(selectedNode, project)]?.description}</small>
+            <small>{PIPELINE_ROLES[getNodeRole(selectedNode, project)]?.description}</small>
           </div>
 
           <button
@@ -1790,7 +1791,7 @@ function SystemInspector() {
   const directNodes = (project.nodes || []).filter((n) => !n.subRef && n.backing !== 'sub');
   const processes = project.processes || [];
   const subSystems = project.subSystems || [];
-  const diags = project.diagnostics || [];
+  const diags = normalizeDiagnostics(project.diagnostics);
 
   return (
     <aside className="rt-inspector-right">
@@ -1906,7 +1907,7 @@ function SystemInspector() {
           </div>
           {directNodes.map((n) => {
             const roleKey = getNodeRole(n, project);
-            const roleMeta = roleKey !== 'Unassigned' ? CORESENSE_ROLES[roleKey] : null;
+            const roleMeta = roleKey !== 'Unassigned' ? PIPELINE_ROLES[roleKey] : null;
             return (
               <button
                 key={n.id}

@@ -19,6 +19,8 @@ import {
   getNodeRole,
   updateNodePackageAndArtifact,
   runDagreAutoLayout,
+  PIPELINE_ROLES,
+  PIPELINE_ROLE_KEYS,
   CORESENSE_ROLES,
   CORESENSE_ROLE_KEYS,
   normalizeRosType,
@@ -29,7 +31,9 @@ import {
   connectMatchingOnProject,
   connectPlaced,
   addAndConnect,
+  normalizeDiagnostics,
 } from './state/studioStore';
+import { hostBridge } from './state/vscodeBridge';
 
 if (typeof window !== 'undefined') {
   window.__ROSTOOLING_STUDIO__ = {
@@ -52,6 +56,8 @@ if (typeof window !== 'undefined') {
     getNodeRole,
     updateNodePackageAndArtifact,
     runDagreAutoLayout,
+    PIPELINE_ROLES,
+    PIPELINE_ROLE_KEYS,
     CORESENSE_ROLES,
     CORESENSE_ROLE_KEYS,
     normalizeRosType,
@@ -62,7 +68,50 @@ if (typeof window !== 'undefined') {
     connectMatchingOnProject,
     connectPlaced,
     addAndConnect,
+    normalizeDiagnostics,
   };
+}
+
+class GlobalStudioErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[RosTooling Studio Global Error]:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 30, background: '#1e1e24', color: '#f3f4f6', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+          <h2 style={{ color: '#ef4444', margin: '0 0 12px' }}>RosTooling Studio Display Recovery</h2>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: '#9ca3af' }}>An unexpected render error occurred:</p>
+          <pre style={{ background: '#111827', color: '#f87171', padding: 12, borderRadius: 6, fontSize: 12, overflowX: 'auto' }}>
+            {this.state.error?.message || String(this.state.error)}
+          </pre>
+          <button
+            type="button"
+            style={{ marginTop: 14, background: '#3b82f6', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              try {
+                hostBridge.macroReady();
+              } catch (_) {}
+            }}
+          >
+            Reload Studio
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function mountStudio() {
@@ -70,7 +119,11 @@ function mountStudio() {
   const rootEl = document.getElementById('root');
   if (!rootEl) return;
   const root = createRoot(rootEl);
-  root.render(<RosStudioApp />);
+  root.render(
+    <GlobalStudioErrorBoundary>
+      <RosStudioApp />
+    </GlobalStudioErrorBoundary>
+  );
 }
 
 mountStudio();

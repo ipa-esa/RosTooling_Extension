@@ -1,7 +1,7 @@
 // ============================================================================
 // VS Code Webview Bidirectional Bridge
 // Speaks the exact protocol implemented in RosCustomEditorProvider.ts
-// and CoreSenseStudioPanel.ts (Macro Lifecycle Workbench)
+// and RosStudioWorkbenchPanel.ts (Macro Lifecycle Workbench)
 // ============================================================================
 
 let vscodeApiInstance = null;

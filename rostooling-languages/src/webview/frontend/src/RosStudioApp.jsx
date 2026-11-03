@@ -31,6 +31,7 @@ import {
   redoEdit,
   KIND_META,
   showToast,
+  normalizeDiagnostics,
 } from './state/studioStore';
 import { hostBridge } from './state/vscodeBridge';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner';
@@ -45,6 +46,57 @@ import {
   MacroChecksView,
   MacroDeploymentView,
 } from './views/MacroLifecycleViews';
+
+class StudioErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[RosTooling Studio View Error Caught by Boundary]:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rt-macro-stage-scroll">
+          <div className="rt-macro-container" style={{ paddingTop: 30 }}>
+            <div className="rt-card" style={{ borderColor: 'var(--rt-err-border, #ef4444)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--rt-err, #ef4444)' }}>
+                <AlertCircle size={20} />
+                <h3 style={{ margin: 0, fontSize: 16 }}>RosTooling Studio Display Recovery</h3>
+              </div>
+              <p style={{ margin: '12px 0 6px', fontSize: 13, color: 'var(--rt-text)' }}>
+                An unexpected view error occurred while rendering this stage:
+              </p>
+              <pre className="rt-macro-pre" style={{ color: 'var(--rt-err, #ef4444)', maxHeight: 160 }}>
+                {this.state.error?.message || String(this.state.error)}
+              </pre>
+              <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="rt-btn primary"
+                  onClick={() => {
+                    this.setState({ hasError: false, error: null });
+                    hostBridge.macroReady();
+                  }}
+                >
+                  Reload Active Project
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function RosStudioApp() {
   const studio = useStudio();
@@ -91,18 +143,18 @@ export function RosStudioApp() {
   const showSystemCanvasControls = mode === 'system' || (isMacro && macroStage === 'architecture');
 
   const displayModelName = getDisplayModelName(project, mode, docFileName);
-  const diags = project.diagnostics || [];
+  const diags = normalizeDiagnostics(project?.diagnostics);
   const errCount = diags.filter((d) => d.severity === 'error').length;
   const warnCount = diags.filter((d) => d.severity === 'warning').length;
 
   const modeBadgeLabel =
     mode === 'macro'
-      ? 'Macro Lifecycle Workbench'
+      ? 'System Studio (Macro Workbench)'
       : mode === 'ros'
       ? 'Communication Objects (.ros)'
       : mode === 'component'
-      ? 'Component (.ros2)'
-      : 'System (.rossystem)';
+      ? 'Model Studio (.ros2)'
+      : 'Model Studio (.rossystem)';
 
   const connectorMode = project.view?.connectorMode || 'orthogonal';
 
@@ -528,11 +580,11 @@ export function RosStudioApp() {
 
       {/* Macro 5-Stage Lifecycle & Multi-Monitor Ribbon */}
       {isMacro && (
-        <nav className="rt-macro-bar" aria-label="CoreSense Studio Lifecycle Stages">
+        <nav className="rt-macro-bar" aria-label="RosTooling Studio Lifecycle Stages">
           <div className="rt-macro-proj-switcher">
             <select
               className="rt-select"
-              title="Active CoreSense Studio Project"
+              title="Active RosTooling Studio Project"
               value={macroActiveProjectId || ''}
               onChange={(e) => {
                 if (e.target.value) {
@@ -541,11 +593,14 @@ export function RosStudioApp() {
               }}
             >
               {macroProjects.length === 0 && <option value="">Loading projects...</option>}
-              {macroProjects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || p.systemName || p.id}
-                </option>
-              ))}
+              {macroProjects.map((p) => {
+                const pid = p.id || p.projectId;
+                return (
+                  <option key={pid} value={pid}>
+                    {p.name || p.systemName || pid}
+                  </option>
+                );
+              })}
             </select>
             {newProjOpen ? (
               <div style={{ display: 'flex', gap: 4 }}>
@@ -583,7 +638,7 @@ export function RosStudioApp() {
                 type="button"
                 className="rt-btn subtle"
                 style={{ height: 26, padding: '0 8px' }}
-                title="Create new CoreSense Studio project"
+                title="Create new RosTooling Studio project"
                 onClick={() => setNewProjOpen(true)}
               >
                 <Plus size={12} /> New
@@ -631,26 +686,28 @@ export function RosStudioApp() {
         </nav>
       )}
 
-      {/* Mode View Router */}
-      {isMacro ? (
-        macroStage === 'intent' ? (
-          <MacroIntentView />
-        ) : macroStage === 'packages' ? (
-          <MacroPackagesView />
-        ) : macroStage === 'architecture' ? (
-          <RosSystemView />
-        ) : macroStage === 'checks' ? (
-          <MacroChecksView />
+      {/* Mode View Router Wrapped in Error Boundary */}
+      <StudioErrorBoundary>
+        {isMacro ? (
+          macroStage === 'intent' ? (
+            <MacroIntentView />
+          ) : macroStage === 'packages' ? (
+            <MacroPackagesView />
+          ) : macroStage === 'architecture' ? (
+            <RosSystemView />
+          ) : macroStage === 'checks' ? (
+            <MacroChecksView />
+          ) : (
+            <MacroDeploymentView />
+          )
+        ) : mode === 'ros' ? (
+          <RosCommObjectsView />
+        ) : mode === 'component' ? (
+          <RosComponentView />
         ) : (
-          <MacroDeploymentView />
-        )
-      ) : mode === 'ros' ? (
-        <RosCommObjectsView />
-      ) : mode === 'component' ? (
-        <RosComponentView />
-      ) : (
-        <RosSystemView />
-      )}
+          <RosSystemView />
+        )}
+      </StudioErrorBoundary>
 
       <CatalogueDrawer />
 

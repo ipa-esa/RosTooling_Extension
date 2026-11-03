@@ -3,7 +3,7 @@ import { Cpu, AlertTriangle } from 'lucide-react';
 
 export function ProcessGroupNode({ data, selected }) {
   const proc = data.process || { name: 'process', nodes: [], threads: 1 };
-  const diags = data.diagnostics || [];
+  const diags = Array.isArray(data.diagnostics) ? data.diagnostics : [];
   const hasWarn = diags.length > 0;
   const threads = proc.threads != null ? proc.threads : 1;
   const memberCount = (proc.nodes || []).length;

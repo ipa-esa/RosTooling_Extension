@@ -1,15 +1,15 @@
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Box, Activity, Sliders, AlertCircle, AlertTriangle } from 'lucide-react';
-import { KIND_META, SRC_SIDE, CORESENSE_ROLES, getNodeRole } from '../state/studioStore';
+import { KIND_META, SRC_SIDE, PIPELINE_ROLES, getNodeRole, normalizeDiagnostics } from '../state/studioStore';
 
 export function RosNodeCard({ data, selected }) {
   const node = data.node;
-  const diags = data.diagnostics || [];
+  const diags = normalizeDiagnostics(data.diagnostics);
   const interfaceFilter = data.interfaceFilter || 'all';
   const isReadOnly = Boolean(data.isReadOnly);
   const roleKey = getNodeRole(node, data.project);
-  const roleMeta = roleKey !== 'Unassigned' ? CORESENSE_ROLES[roleKey] : null;
+  const roleMeta = roleKey !== 'Unassigned' ? PIPELINE_ROLES[roleKey] : null;
 
   const errCount = diags.filter((d) => d.severity === 'error').length;
   const warnCount = diags.filter((d) => d.severity === 'warning').length;
@@ -48,7 +48,7 @@ export function RosNodeCard({ data, selected }) {
             <span
               className="rt-badge role-pill"
               style={{ color: roleMeta.color, background: roleMeta.bg, borderColor: `${roleMeta.color}55` }}
-              title={`CoreSense Role: ${roleMeta.label} — ${roleMeta.description}`}
+              title={`Pipeline Role: ${roleMeta.label} — ${roleMeta.description}`}
             >
               {roleMeta.label}
             </span>
