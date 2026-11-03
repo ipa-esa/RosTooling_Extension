@@ -6,6 +6,8 @@ import {
   Rocket,
   Plus,
   Trash2,
+  Sparkles,
+  Check,
   Play,
   FileCode2,
   CheckCircle2,
@@ -392,10 +394,74 @@ export function MacroIntentView() {
 }
 
 export function MacroPackagesView() {
-  const { nodeIndex, typeIndex, macroSources, macroBusy, macroWorkspaceRoot, macroCustomScanPath } = useStudio();
+  const { project, nodeIndex, typeIndex, macroSources, macroBusy, macroWorkspaceRoot, macroCustomScanPath } = useStudio();
   const [repoUrl, setRepoUrl] = useState('');
   const [repoBranch, setRepoBranch] = useState('main');
   const [scanPath, setScanPath] = useState(macroCustomScanPath || macroWorkspaceRoot || '');
+
+  const p = project || {};
+  const selectedPackages = Array.isArray(p.studio?.selectedPackages)
+    ? p.studio.selectedPackages
+    : Object.keys(p.packages || {}).map((name) => ({
+        name,
+        path: p.packages[name]?.path || '',
+        buildType: p.packages[name]?.buildType || 'unknown',
+      }));
+
+  const isSelected = (pkgName) =>
+    selectedPackages.some((sp) => sp.name === pkgName);
+
+  const togglePackageSelection = (pkg) => {
+    mutateProject((proj) => {
+      if (!proj.studio) proj.studio = {};
+      if (!Array.isArray(proj.studio.selectedPackages)) {
+        proj.studio.selectedPackages = [];
+      }
+      if (!proj.packages) proj.packages = {};
+
+      const existingIdx = proj.studio.selectedPackages.findIndex((sp) => sp.name === pkg.name);
+      if (existingIdx >= 0) {
+        proj.studio.selectedPackages.splice(existingIdx, 1);
+        delete proj.packages[pkg.name];
+      } else {
+        proj.studio.selectedPackages.push({
+          name: pkg.name,
+          path: pkg.path,
+          buildType: pkg.buildType,
+        });
+        proj.packages[pkg.name] = {
+          path: pkg.path,
+          buildType: pkg.buildType,
+        };
+      }
+    });
+  };
+
+  const selectAllPackages = (allPkgs) => {
+    mutateProject((proj) => {
+      if (!proj.studio) proj.studio = {};
+      if (!proj.packages) proj.packages = {};
+      proj.studio.selectedPackages = allPkgs.map((pkg) => ({
+        name: pkg.name,
+        path: pkg.path,
+        buildType: pkg.buildType,
+      }));
+      for (const pkg of allPkgs) {
+        proj.packages[pkg.name] = {
+          path: pkg.path,
+          buildType: pkg.buildType,
+        };
+      }
+    });
+  };
+
+  const deselectAllPackages = () => {
+    mutateProject((proj) => {
+      if (!proj.studio) proj.studio = {};
+      proj.studio.selectedPackages = [];
+      proj.packages = {};
+    });
+  };
 
   useEffect(() => {
     if (macroCustomScanPath) {
@@ -550,31 +616,166 @@ export function MacroPackagesView() {
               </div>
             </div>
             {macroSources ? (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
                     Scanned root: <code>{macroSources.root}</code> ({macroSources.files?.length || 0} files)
-                  </span>
-                  <span className="rt-badge" style={{ background: 'rgba(59, 130, 246, 0.16)', color: 'var(--rt-accent, #3b82f6)' }}>
-                    {macroSources.packages?.length || 0} packages found
-                  </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span className="rt-badge" style={{ background: 'rgba(59, 130, 246, 0.16)', color: 'var(--rt-accent, #3b82f6)' }}>
+                      {macroSources.packages?.length || 0} packages found
+                    </span>
+                    <span
+                      className="rt-badge"
+                      style={{
+                        background: selectedPackages.length > 0 ? 'rgba(34, 197, 94, 0.16)' : 'var(--rt-surface-accent)',
+                        color: selectedPackages.length > 0 ? '#22c55e' : 'var(--rt-muted)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {selectedPackages.length} selected for modeling
+                    </span>
+                  </div>
                 </div>
-                {Array.isArray(macroSources.packages) && macroSources.packages.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                    {macroSources.packages.map((pkg) => (
-                      <span key={pkg.name} className="rt-badge" style={{ background: 'var(--rt-surface-accent, #2d3748)', color: 'var(--rt-text)' }}>
-                        <strong>{pkg.name}</strong> ({pkg.buildType})
+
+                {Array.isArray(macroSources.packages) && macroSources.packages.length > 0 ? (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--rt-text)' }}>
+                        Select packages for the agent to model in Stage 3 Architecture:
                       </span>
-                    ))}
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          className="rt-btn subtle"
+                          style={{ height: 22, fontSize: 11, padding: '0 6px' }}
+                          onClick={() => selectAllPackages(macroSources.packages)}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          className="rt-btn subtle"
+                          style={{ height: 22, fontSize: 11, padding: '0 6px' }}
+                          onClick={deselectAllPackages}
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+                      {macroSources.packages.map((pkg) => {
+                        const checked = isSelected(pkg.name);
+                        return (
+                          <div
+                            key={pkg.name}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '7px 10px',
+                              borderRadius: 5,
+                              background: checked ? 'rgba(59, 130, 246, 0.08)' : 'var(--rt-surface-accent, #23272e)',
+                              border: `1px solid ${checked ? 'var(--rt-accent, #3b82f6)' : 'var(--rt-border, #333)'}`,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onClick={() => togglePackageSelection(pkg)}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {}} // handled by parent onClick
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <div>
+                                <span style={{ fontWeight: 600, fontSize: 13, color: checked ? 'var(--rt-accent, #3b82f6)' : 'var(--rt-text)' }}>
+                                  {pkg.name}
+                                </span>
+                                <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--rt-muted)' }}>
+                                  {pkg.path}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="rt-badge" style={{ fontSize: 11 }}>
+                              {pkg.buildType}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rt-empty-state" style={{ padding: 12, marginBottom: 12 }}>
+                    No packages with <code>package.xml</code> were found in the scanned path.
                   </div>
                 )}
+
+                {/* Selected Packages Agentic Context Banner */}
+                {selectedPackages.length > 0 && (
+                  <div
+                    style={{
+                      background: 'rgba(34, 197, 94, 0.08)',
+                      border: '1px solid rgba(34, 197, 94, 0.3)',
+                      borderRadius: 6,
+                      padding: '10px 14px',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 12.5, color: '#22c55e' }}>
+                        <Sparkles size={14} />
+                        <span>Ready for Agentic Modeling ({selectedPackages.length} package{selectedPackages.length > 1 ? 's' : ''} selected)</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="rt-btn subtle"
+                        style={{ height: 22, fontSize: 11, padding: '0 8px' }}
+                        onClick={() => {
+                          const names = selectedPackages.map((s) => s.name).join(', ');
+                          const promptText = `Please use the ros-model skill to extract and generate .ros2 models for the selected packages (${names}) in .rostooling/active_project.json in preparation for the architecture step.`;
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(promptText);
+                          }
+                          showToast('Copied agent prompt to clipboard');
+                        }}
+                      >
+                        Copy Agent Prompt
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--rt-muted)', marginBottom: 6 }}>
+                      Saved to <code>.rostooling/active_project.json</code>. The agent will read these selected packages and their paths to extract <code>.ros2</code> models so they appear in Stage 3 Architecture.
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedPackages.map((sp) => (
+                        <span
+                          key={sp.name}
+                          className="rt-badge"
+                          style={{
+                            background: 'rgba(34, 197, 94, 0.16)',
+                            color: '#22c55e',
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Check size={11} /> {sp.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {Array.isArray(macroSources.launchFiles) && macroSources.launchFiles.length > 0 && (
                   <div style={{ fontSize: 12, color: 'var(--rt-muted)', marginBottom: 8 }}>
                     <strong>Launch files ({macroSources.launchFiles.length}):</strong> {macroSources.launchFiles.slice(0, 5).join(', ')}
                     {macroSources.launchFiles.length > 5 ? ` +${macroSources.launchFiles.length - 5} more` : ''}
                   </div>
                 )}
-                <pre className="rt-macro-pre" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                <pre className="rt-macro-pre" style={{ maxHeight: 150, overflowY: 'auto' }}>
                   {JSON.stringify(macroSources.summary || macroSources, null, 2)}
                 </pre>
               </div>
