@@ -195,37 +195,37 @@
     "commands": [
       {
         "command": "rostooling.openStudio",
-        "title": "Open Studio Workbench",
+        "title": "Open System Studio (Macro Workbench)",
         "category": "RosTooling",
         "icon": "$(hubot)"
       },
       {
         "command": "rostooling.openStudioStage",
-        "title": "Open Studio Stage in New Window...",
+        "title": "Open System Studio Stage in New Window...",
         "category": "RosTooling",
         "icon": "$(multiple-windows)"
       },
       {
         "command": "rostooling.openStudioExternal",
-        "title": "Open Studio in External Browser",
+        "title": "Open System Studio in External Browser",
         "category": "RosTooling",
         "icon": "$(globe)"
       },
       {
         "command": "rostooling.promoteToModels",
-        "title": "Promote Studio Architecture to Workspace Models",
+        "title": "Promote System Architecture to Workspace Models",
         "category": "RosTooling",
         "icon": "$(repo-push)"
       },
       {
         "command": "rostooling.reconcileModels",
-        "title": "Reconcile Workspace Models with Studio",
+        "title": "Reconcile Workspace Models with System Studio",
         "category": "RosTooling",
         "icon": "$(sync)"
       },
       {
         "command": "rostooling.openVisualStudio",
-        "title": "Open in RosTooling Visual Studio",
+        "title": "Open in Model Studio (Visual Editor)",
         "category": "RosTooling",
         "icon": "$(graph)"
       },

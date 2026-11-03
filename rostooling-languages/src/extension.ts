@@ -8,7 +8,7 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandl
 import { spawn } from 'node:child_process';
 import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
-import { CoreSenseStudioController, MacroStageId } from './editor/CoreSenseStudioPanel';
+import { RosStudioWorkbenchController, MacroStageId } from './editor/CoreSenseStudioPanel';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 import { RosModelParser } from './model/RosModelParser';
 import { DraftContentProvider } from './orchestration/DraftContentProvider';
@@ -1075,7 +1075,7 @@ export async function activate(context: ExtensionContext) {
     const materializationGate = new MaterializationGate(daemonManager);
     const draftContentProvider = new DraftContentProvider(daemonManager);
     const reconciliationWatcher = new ReconciliationWatcher(daemonManager, materializationGate);
-    const studioController = new CoreSenseStudioController(
+    const studioController = new RosStudioWorkbenchController(
         context,
         daemonManager,
         materializationGate,
@@ -1140,7 +1140,7 @@ export async function activate(context: ExtensionContext) {
             }
             const pid = projectIdArg || (await studioController.ensureActiveProjectId());
             if (!pid) {
-                window.showErrorMessage('No active CoreSense Studio project found to promote.');
+                window.showErrorMessage('No active RosTooling Studio project found to promote.');
                 return;
             }
             const result = await materializationGate.promoteProjectToWorkspace(pid, wsFolder, {

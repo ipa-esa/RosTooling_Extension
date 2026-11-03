@@ -937,7 +937,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     }
 
-    // Preserve node coordinates, dimensions & CoreSense role keyed strictly by unique ID, with direct node label fallback
+    // Preserve node coordinates, dimensions & pipeline role keyed strictly by unique ID, with direct node label fallback
     const nodeDataById = new Map<string, { x?: number; y?: number; w?: number; h?: number; role?: string }>();
     const directNodeDataByLabel = new Map<string, { x?: number; y?: number; w?: number; h?: number; role?: string }>();
     for (const n of source.nodes) {

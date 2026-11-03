@@ -93,7 +93,7 @@ export class HeadlessLspClient {
       }
     }
 
-    // Check CoreSense Studio runtime settings for 'rosmodelJar'
+    // Check RosTooling Studio runtime settings for 'rosmodelJar'
     const studioSettings = [
       path.join(os.homedir(), '.rostooling', 'settings.json'),
       path.join(os.homedir(), 'ros-studio', 'runtime-settings.json')

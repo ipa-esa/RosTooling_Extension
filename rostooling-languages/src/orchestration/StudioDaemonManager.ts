@@ -41,7 +41,7 @@ export interface ExternalStageUrlOptions {
 }
 
 /**
- * Manages the lifecycle of the local CoreSense Studio Python HTTP daemon (`studio_server.py`),
+ * Manages the lifecycle of the local RosTooling Studio Python HTTP daemon (`studio_server.py`),
  * handles `X-Studio-Token` authentication, proxies JSON REST requests over `127.0.0.1`,
  * and constructs multi-monitor external browser URLs via `vscode.env.asExternalUri`.
  */
@@ -149,7 +149,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
         this.activePort = preferredPort;
         this.activeToken = existingToken;
         this.activeBackend = await this.envResolver.resolveStudioBackend();
-        this.log(`Attached to existing CoreSense Studio daemon on 127.0.0.1:${preferredPort}`);
+        this.log(`Attached to existing RosTooling Studio daemon on 127.0.0.1:${preferredPort}`);
         return;
       }
     }
@@ -162,7 +162,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
         void this.envResolver.promptMissingBackend(py?.pythonBin);
       }
       throw new StudioDaemonError(
-        'CoreSense Studio backend could not be resolved. Install ipa-rostooling-studio or configure rostooling-languages.studio.serverScriptPath.',
+        'RosTooling Studio backend could not be resolved. Ensure Python >= 3.9 is available, install rostooling-studio, or configure rostooling-languages.studio.serverScriptPath.',
         503,
         'backend_missing'
       );
@@ -187,7 +187,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
     };
 
     this.log(
-      `Spawning CoreSense Studio daemon: ${backend.python.pythonBin} ${backend.serverScriptPath} --port ${targetPort} --storage-root ${storageRoot}`
+      `Spawning RosTooling Studio daemon: ${backend.python.pythonBin} ${backend.serverScriptPath} --port ${targetPort} --storage-root ${storageRoot}`
     );
 
     let capturedToken: string | null = null;
@@ -219,7 +219,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
     });
 
     child.on('exit', (code, signal) => {
-      this.log(`CoreSense Studio daemon exited (code=${code}, signal=${signal})`);
+      this.log(`RosTooling Studio daemon exited (code=${code}, signal=${signal})`);
       if (this.daemonProcess === child) {
         this.daemonProcess = null;
         this.activePort = null;
@@ -232,7 +232,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
     while (Date.now() < deadline) {
       if (this.daemonProcess !== child) {
         throw new StudioDaemonError(
-          `CoreSense Studio daemon exited prematurely: ${stderrTail.trim()}`,
+          `RosTooling Studio daemon exited prematurely: ${stderrTail.trim()}`,
           500,
           'daemon_exit'
         );
@@ -249,7 +249,7 @@ export class StudioDaemonManager implements StudioApiClient, vscode.Disposable {
     }
 
     throw new StudioDaemonError(
-      `Timed out waiting for CoreSense Studio daemon on 127.0.0.1:${targetPort}. ${stderrTail.trim()}`,
+      `Timed out waiting for RosTooling Studio daemon on 127.0.0.1:${targetPort}. ${stderrTail.trim()}`,
       504,
       'daemon_timeout'
     );

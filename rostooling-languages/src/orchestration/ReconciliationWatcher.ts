@@ -32,9 +32,9 @@ export interface ReconciliationWatcherOptions {
 
 /**
  * Watches workspace `.ros`, `.ros2`, `.rossystem`, and `.layout.json` saves and
- * dispatches `POST /api/projects/:id/reconcile-file` to synchronize Micro Visual Editor
- * or raw Xtext DSL edits back into the CoreSense Studio Macro project without losing
- * high-level intent, behavior, CoreSense roles, or deployment units.
+ * dispatches `POST /api/projects/:id/reconcile-file` to synchronize Model Studio
+ * or raw Xtext DSL edits back into the RosTooling Studio Macro project without losing
+ * high-level intent, behavior, pipeline roles, or deployment units.
  */
 export class ReconciliationWatcher implements vscode.Disposable {
   private apiClient: StudioApiClient | null;

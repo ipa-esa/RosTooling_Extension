@@ -2,7 +2,7 @@ export type RosInteractionKind = 'pub' | 'sub' | 'ss' | 'sc' | 'as' | 'ac' | 'pa
 
 export type RosLifecycleState = 'Unconfigured' | 'Inactive' | 'Active' | 'Finalized';
 
-export const CORESENSE_ROLES = [
+export const PIPELINE_ROLES = [
   'Sensing',
   'Perception',
   'World Modeling',
@@ -13,7 +13,12 @@ export const CORESENSE_ROLES = [
   'Unassigned',
 ] as const;
 
-export type CoreSenseRole = (typeof CORESENSE_ROLES)[number];
+export type PipelineRole = (typeof PIPELINE_ROLES)[number];
+
+/** @deprecated Use PIPELINE_ROLES */
+export const CORESENSE_ROLES = PIPELINE_ROLES;
+/** @deprecated Use PipelineRole */
+export type CoreSenseRole = PipelineRole;
 
 export interface RosInterface {
   id: string;
@@ -48,7 +53,7 @@ export interface RosNode {
   pkg?: string;
   artifact?: string;
   isLifecycle?: boolean;
-  role?: CoreSenseRole | string;
+  role?: PipelineRole | string;
   namespace?: string;
   from?: string;
   backing?: 'local' | 'cat' | 'sub' | 'type';
@@ -260,7 +265,7 @@ export interface RosLayoutSchematic {
     y: number;
     width?: number;
     height?: number;
-    role?: CoreSenseRole | string;
+    role?: PipelineRole | string;
   }[];
   subsystems: {
     ref: string;

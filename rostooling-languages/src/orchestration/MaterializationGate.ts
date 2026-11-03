@@ -64,10 +64,10 @@ function normalizeRole(role?: string): CoreSenseRole | undefined {
 /**
  * Explicit Materialization Gate ("Promote to Models").
  *
- * Bridges CoreSense Studio's Macro architectural draft (`project.json`) into concrete,
+ * Bridges RosTooling Studio's Macro architectural draft (`project.json`) into concrete,
  * LSP-validated `.rossystem`, `.ros2`, and `.ros` files inside the active workspace,
  * writes `.rostooling/layout/<system>.rossystem.layout.json` preserving node coordinates
- * and CoreSense pipeline roles, and hands control to the Micro Visual Editor.
+ * and pipeline architecture roles, and hands control to the Model Studio visual editor.
  */
 export class MaterializationGate {
   private apiClient: StudioApiClient | null;
@@ -167,7 +167,7 @@ export class MaterializationGate {
       nodeLayouts = await this.extractNodeLayoutsFromProjectJson(projectJsonPath);
     } else {
       throw new Error(
-        'Cannot materialize Studio models: CoreSense Studio daemon is not connected and no CLI fallback was provided.'
+        'Cannot materialize Studio models: RosTooling Studio daemon is not connected and no CLI fallback was provided.'
       );
     }
 

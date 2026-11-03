@@ -43,7 +43,7 @@ interface PanelInstance {
  * - External system browser deep-links (`rostooling.openStudioExternal`) via `asExternalUri`
  * - Live round-trip updates whenever `ReconciliationWatcher` reconciles workspace model edits
  */
-export class CoreSenseStudioController implements vscode.Disposable {
+export class RosStudioWorkbenchController implements vscode.Disposable {
   public static readonly viewType = 'rostooling.studioWorkbench';
 
   private mainPanel: PanelInstance | null = null;
@@ -171,7 +171,7 @@ export class CoreSenseStudioController implements vscode.Disposable {
       vscode.Uri.joinPath(this.context.extensionUri, 'images'),
     ];
     const panel = vscode.window.createWebviewPanel(
-      CoreSenseStudioController.viewType,
+      RosStudioWorkbenchController.viewType,
       opts.title,
       opts.column,
       {
@@ -254,10 +254,33 @@ export class CoreSenseStudioController implements vscode.Disposable {
     }
   }
 
+  private normalizeProjects(
+    raw: { id?: string; projectId?: string; name?: string; systemName?: string; root?: string }[]
+  ): { id: string; name?: string; systemName?: string; root?: string }[] {
+    return (raw || [])
+      .map((p) => {
+        const id = String(p.id || p.projectId || '').trim();
+        const name = String(p.name || p.systemName || id || 'Untitled system').trim();
+        return {
+          id,
+          name,
+          systemName: p.systemName || p.name || name,
+          root: p.root,
+        };
+      })
+      .filter((p) => Boolean(p.id));
+  }
+
   private async bootstrapFromDaemon(): Promise<void> {
     const boot = await this.daemonManager.request<BootstrapResponse>('GET', '/api/bootstrap');
-    const projects = boot.projects ?? boot.recentProjects ?? [];
-    this.latestProjects = projects;
+    const rawProjects = (boot.projects ?? boot.recentProjects ?? []) as {
+      id?: string;
+      projectId?: string;
+      name?: string;
+      systemName?: string;
+      root?: string;
+    }[];
+    this.latestProjects = this.normalizeProjects(rawProjects);
 
     try {
       this.latestMcpStatus = await this.daemonManager.request('GET', '/api/mcp/status');
@@ -265,7 +288,7 @@ export class CoreSenseStudioController implements vscode.Disposable {
       this.latestMcpStatus = { available: false };
     }
 
-    if (projects.length === 0) {
+    if (this.latestProjects.length === 0) {
       const defaultName =
         vscode.workspace.workspaceFolders?.[0]?.name?.replace(/[^a-zA-Z0-9_]+/g, '_') ||
         'robot_system';
@@ -283,17 +306,32 @@ export class CoreSenseStudioController implements vscode.Disposable {
         'GET',
         '/api/bootstrap'
       );
-      this.latestProjects = refreshedBoot.projects ?? refreshedBoot.recentProjects ?? [];
+      this.latestProjects = this.normalizeProjects(
+        (refreshedBoot.projects ?? refreshedBoot.recentProjects ?? []) as {
+          id?: string;
+          projectId?: string;
+          name?: string;
+          systemName?: string;
+          root?: string;
+        }[]
+      );
+      if (createdId && !this.latestProjects.some((p) => p.id === createdId)) {
+        this.latestProjects.unshift({ id: createdId, name: defaultName });
+      }
       return;
     }
 
-    if (!this.activeProjectId || !projects.some((p) => p.id === this.activeProjectId)) {
-      this.activeProjectId = projects[0].id;
+    if (!this.activeProjectId || !this.latestProjects.some((p) => p.id === this.activeProjectId)) {
+      this.activeProjectId = this.latestProjects[0].id;
     }
-    this.latestEnvelope = await this.daemonManager.request<ProjectEnvelope>(
-      'GET',
-      `/api/projects/${encodeURIComponent(this.activeProjectId)}`
-    );
+    try {
+      this.latestEnvelope = await this.daemonManager.request<ProjectEnvelope>(
+        'GET',
+        `/api/projects/${encodeURIComponent(this.activeProjectId)}`
+      );
+    } catch {
+      this.latestEnvelope = null;
+    }
   }
 
   private async handleWebviewMessage(
@@ -342,7 +380,18 @@ export class CoreSenseStudioController implements vscode.Disposable {
             'GET',
             '/api/bootstrap'
           );
-          this.latestProjects = refreshed.projects ?? refreshed.recentProjects ?? [];
+          this.latestProjects = this.normalizeProjects(
+            (refreshed.projects ?? refreshed.recentProjects ?? []) as {
+              id?: string;
+              projectId?: string;
+              name?: string;
+              systemName?: string;
+              root?: string;
+            }[]
+          );
+          if (createdId && !this.latestProjects.some((p) => p.id === createdId)) {
+            this.latestProjects.unshift({ id: createdId, name });
+          }
           this.setBusy(false);
           this.broadcastMacroState();
           this.broadcastToast(`Created Studio project "${name}"`);
@@ -653,3 +702,8 @@ export class CoreSenseStudioController implements vscode.Disposable {
     this.disposables.length = 0;
   }
 }
+
+/** @deprecated Use RosStudioWorkbenchController */
+export const CoreSenseStudioController = RosStudioWorkbenchController;
+/** @deprecated Use RosStudioWorkbenchController */
+export type CoreSenseStudioController = RosStudioWorkbenchController;

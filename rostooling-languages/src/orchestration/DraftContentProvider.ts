@@ -22,7 +22,7 @@ interface PreviewResponseLike {
 }
 
 /**
- * Virtual read-only document provider for uncommitted CoreSense Studio drafts.
+ * Virtual read-only document provider for uncommitted RosTooling Studio drafts.
  *
  * URI format:
  *   rostooling-draft://<projectId>/<relativePath>
@@ -144,11 +144,11 @@ export class DraftContentProvider implements vscode.TextDocumentContentProvider,
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return `// Unable to render CoreSense Studio draft for ${projectId}/${relPath}\n// ${message}\n`;
+        return `// Unable to render RosTooling Studio draft for ${projectId}/${relPath}\n// ${message}\n`;
       }
     }
 
-    return `// CoreSense Studio draft "${relPath}" is not available in cache.\n`;
+    return `// RosTooling Studio draft "${relPath}" is not available in cache.\n`;
   }
 
   public dispose(): void {
