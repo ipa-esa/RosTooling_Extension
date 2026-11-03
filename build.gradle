@@ -71,9 +71,22 @@ shadowJar {
         attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher'
     }
     doLast {
+        def serverDir = file("${projectDir}/rostooling-languages/server")
+        def currentJarName = archiveFile.get().asFile.name
+
+        // Delete older rostooling-extension jars if creating a new version
+        project.delete(fileTree(serverDir) {
+            include 'rostooling_extension*.jar', 'rostooling-extension*.jar'
+            exclude currentJarName
+        })
+        project.delete(fileTree(archiveFile.get().asFile.parentFile) {
+            include 'rostooling_extension*.jar', 'rostooling-extension*.jar'
+            exclude currentJarName
+        })
+
         copy {
             from archiveFile
-            into "${projectDir}/rostooling-languages/server"
+            into serverDir
         }
     }
 }
