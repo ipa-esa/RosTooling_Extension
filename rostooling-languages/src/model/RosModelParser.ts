@@ -427,22 +427,63 @@ export const RosModelParser = {
         }
 
         if (fromLabel && toLabel) {
-          let fromNode: RosNode | undefined;
-          let fromIface: RosInterface | undefined;
-          let toNode: RosNode | undefined;
-          let toIface: RosInterface | undefined;
+          const resolveEndpoint = (raw: string, isFrom: boolean): { node?: RosNode; iface?: RosInterface } => {
+            if (!raw) return {};
+            const clean = raw.trim();
 
-          for (const n of proj.nodes) {
-            for (const f of n.ifaces) {
-              if (f.label === fromLabel || f.name === fromLabel) {
-                fromNode = n;
-                fromIface = f;
-              }
-              if (f.label === toLabel || f.name === toLabel) {
-                toNode = n;
-                toIface = f;
+            // 1. Qualified name: node.interface or node::interface or sub.node.interface
+            const sepIdx = clean.includes('::') ? clean.lastIndexOf('::') : clean.lastIndexOf('.');
+            if (sepIdx > 0) {
+              const nodePart = clean.slice(0, sepIdx).replace(/::/g, '.');
+              const ifacePart = clean.slice(sepIdx + (clean.includes('::') ? 2 : 1));
+              const node = proj.nodes.find(
+                (n) =>
+                  n.label === nodePart ||
+                  n.id === nodePart ||
+                  (n.subRef && `${n.subRef}.${n.label}` === nodePart) ||
+                  (n.subRef && n.label === nodePart)
+              );
+              if (node) {
+                const iface = node.ifaces.find(
+                  (f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart
+                );
+                if (iface) return { node, iface };
               }
             }
+
+            // 2. Unqualified search across all nodes
+            const matches: { node: RosNode; iface: RosInterface }[] = [];
+            const outputKinds = new Set(['pub', 'ss', 'as']);
+            const inputKinds = new Set(['sub', 'sc', 'ac']);
+            const allowedKinds = isFrom ? outputKinds : inputKinds;
+
+            for (const n of proj.nodes) {
+              for (const f of n.ifaces) {
+                if (f.label === clean || f.name === clean || f.id === clean) {
+                  matches.push({ node: n, iface: f });
+                }
+              }
+            }
+
+            const roleMatches = matches.filter((m) => allowedKinds.has(m.iface.kind));
+            if (roleMatches.length > 0) {
+              return roleMatches[0];
+            }
+
+            return {};
+          };
+
+          const fromMatch = resolveEndpoint(fromLabel, true);
+          const toMatch = resolveEndpoint(toLabel, false);
+          const fromNode = fromMatch.node;
+          const fromIface = fromMatch.iface;
+          const toNode = toMatch.node;
+          const toIface = toMatch.iface;
+
+          if (fromNode && toNode && fromNode.id === toNode.id && fromIface?.id === toIface?.id) {
+            // Disallow invalid self-loop connection on the same interface
+            leadComments = [];
+            continue;
           }
 
           proj.connections.push({
@@ -716,7 +757,8 @@ export const RosModelParser = {
   tokenizeRosLine(line: string): string[] {
     const clean = this.splitComment(line)[0].trim();
     if (!clean) return [];
-    const regex = /('[^']*'(?:\[\])?|"[^"]*"(?:\[\])?|\S+)/g;
+    // Match tokens including assignments with quoted/unquoted values (e.g. string FOO="hello world")
+    const regex = /((?:'[^']*'|"[^"]*"|[^\s=]+)=(?:'[^']*'|"[^"]*"|\S+)|'[^']*'(?:\[\])?|"[^"]*"(?:\[\])?|\S+)/g;
     const tokens: string[] = [];
     let m: RegExpExecArray | null;
     while ((m = regex.exec(clean)) !== null) {
@@ -851,19 +893,40 @@ export const RosModelParser = {
         if (!curTypeSpec.fields) curTypeSpec.fields = {};
         if (!curTypeSpec.fields[curCompartment]) curTypeSpec.fields[curCompartment] = [];
 
-        for (let j = 0; j < tokens.length; j += 2) {
+        let j = 0;
+        while (j < tokens.length) {
           const typeToken = tokens[j];
           const dataToken = tokens[j + 1];
           if (!typeToken || !dataToken) break;
 
-          const isConst = dataToken.includes('=');
+          let isConst = false;
           let fName = dataToken;
           let fVal: string | undefined = undefined;
-          if (isConst) {
+          let step = 2;
+
+          if (dataToken.includes('=')) {
+            isConst = true;
             const eqIdx = dataToken.indexOf('=');
             fName = dataToken.slice(0, eqIdx);
             fVal = dataToken.slice(eqIdx + 1);
+            step = 2;
+          } else if (tokens[j + 2] === '=' && tokens[j + 3] !== undefined) {
+            isConst = true;
+            fName = dataToken;
+            fVal = tokens[j + 3];
+            step = 4;
+          } else if (dataToken.endsWith('=') && tokens[j + 2] !== undefined) {
+            isConst = true;
+            fName = dataToken.slice(0, -1);
+            fVal = tokens[j + 2];
+            step = 3;
+          } else if (tokens[j + 2] && tokens[j + 2].startsWith('=')) {
+            isConst = true;
+            fName = dataToken;
+            fVal = tokens[j + 2].slice(1);
+            step = 3;
           }
+
           curTypeSpec.fields[curCompartment].push({
             type: typeToken,
             name: this.unquote(fName),
@@ -871,6 +934,7 @@ export const RosModelParser = {
             value: fVal !== undefined ? this.unquote(fVal) : undefined,
             array: typeToken.endsWith('[]'),
           });
+          j += step;
         }
       }
     }

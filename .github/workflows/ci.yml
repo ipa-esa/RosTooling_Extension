@@ -50,6 +50,7 @@ jobs:
         working-directory: rostooling-languages
         run: |
           npm ci
+          npm --prefix src/webview/frontend ci
           npm install --no-save @microsoft/eslint-formatter-sarif@3.1.0
 
       - name: Build Language Server JAR

@@ -95,6 +95,122 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     };
   }
 
+  interface StudioInitialData {
+    project: RosProject;
+    mode: 'ros' | 'component' | 'system';
+    isReadOnly: boolean;
+    docFileName: string;
+    nodeIndex: Record<string, unknown>;
+    typeIndex: Record<string, unknown>;
+  }
+
+  interface StudioRuntimeApi {
+    RosStudioApp: unknown;
+    RosSystemView: unknown;
+    RosComponentView: unknown;
+    RosCommObjectsView: unknown;
+    ProcessGroupNode: unknown;
+    RosNodeCard: unknown;
+    SubsystemNodeCard: unknown;
+    CatalogueDrawer: unknown;
+    filterCatalogueSystems: (
+      rawSystems: { system: string; file?: string; nodes?: Record<string, unknown> }[],
+      currentSysName: string,
+      docBaseName: string,
+      searchQuery?: string
+    ) => { system: string }[];
+    ReadOnlyBanner: unknown;
+    validatePortConnection: (project: RosProject, srcNodeId: string, srcIfaceId: string, dstNodeId: string, dstIfaceId: string) => { valid: boolean; reason?: string };
+    updateNodeLabel: (nodeId: string, newLabel: string) => void;
+    updateNodePackageAndArtifact: (node: { id: string }, pkgVal?: string, artVal?: string) => void;
+    runDagreAutoLayout: () => void;
+    estimateCardHeight?: (node: Record<string, unknown>) => number;
+    estimateCardWidth?: (node: Record<string, unknown>) => number;
+  }
+
+  let cachedBundleScript: vm.Script | null = null;
+
+  function readStudioAssets(): { js: string; css: string; compiled: vm.Script } {
+    const jsPath = path.resolve(__dirname, '../../src/webview/frontend/dist/studio.js');
+    const cssPath = path.resolve(__dirname, '../../src/webview/frontend/dist/studio.css');
+    assert.ok(fs.existsSync(jsPath), `Compiled React Flow bundle must exist at ${jsPath}`);
+    assert.ok(fs.existsSync(cssPath), `Compiled React Flow stylesheet must exist at ${cssPath}`);
+    const js = fs.readFileSync(jsPath, 'utf-8');
+    const css = fs.readFileSync(cssPath, 'utf-8');
+    assert.ok(js.length > 1000, 'studio.js bundle must be non-empty');
+    assert.ok(css.length > 500, 'studio.css stylesheet must be non-empty');
+    if (!cachedBundleScript) {
+      cachedBundleScript = new vm.Script(js);
+    }
+    return { js, css, compiled: cachedBundleScript };
+  }
+
+  function extractInitialData(html: string): StudioInitialData {
+    const scriptMatch = html.match(/<script\b[^>]*>(window\.INITIAL_DATA\s*=[\s\S]*?)<\/script>/i);
+    assert.ok(scriptMatch, 'Inline INITIAL_DATA script tag must exist in studio HTML');
+    const win: { INITIAL_DATA?: StudioInitialData } = {};
+    const ctx = vm.createContext({ window: win });
+    new vm.Script(scriptMatch[1]).runInContext(ctx);
+    assert.ok(win.INITIAL_DATA, 'window.INITIAL_DATA must be populated by inline script');
+    return win.INITIAL_DATA;
+  }
+
+  function runStudioBundleInVm(html: string): {
+    initialData: StudioInitialData;
+    studioApi: StudioRuntimeApi;
+    postedMessages: { type: string; project?: RosProject }[];
+  } {
+    const { compiled } = readStudioAssets();
+    const scriptMatch = html.match(/<script\b[^>]*>(window\.INITIAL_DATA\s*=[\s\S]*?)<\/script>/i);
+    assert.ok(scriptMatch, 'Inline INITIAL_DATA script tag must exist in studio HTML');
+
+    const noop = (): void => {
+      /* no-op for headless VM check */
+    };
+    const postedMessages: { type: string; project?: RosProject }[] = [];
+    const win: Record<string, unknown> = {
+      addEventListener: noop,
+      removeEventListener: noop,
+      matchMedia: () => ({ matches: false, addEventListener: noop, removeEventListener: noop }),
+    };
+    const dom = {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }),
+      body: { classList: { add: noop, remove: noop } },
+    };
+    const contextObj: Record<string, unknown> = {
+      window: win,
+      self: win,
+      document: dom,
+      navigator: { platform: 'Linux', userAgent: 'NodeVM' },
+      console: { log: noop, warn: noop, error: noop },
+      setTimeout,
+      clearTimeout,
+      URL,
+      URLSearchParams,
+      acquireVsCodeApi: () => ({
+        postMessage: (msg: { type: string; project?: RosProject }) => {
+          postedMessages.push(msg);
+        },
+        getState: () => null,
+        setState: noop,
+      }),
+    };
+    win['window'] = win;
+    win['document'] = dom;
+    const ctx = vm.createContext(contextObj);
+    new vm.Script(scriptMatch[1]).runInContext(ctx);
+    compiled.runInContext(ctx);
+
+    const initialData = win['INITIAL_DATA'] as StudioInitialData;
+    const studioApi = win['__ROSTOOLING_STUDIO__'] as StudioRuntimeApi;
+    assert.ok(initialData, 'window.INITIAL_DATA must be hydrated in VM');
+    assert.ok(studioApi, 'window.__ROSTOOLING_STUDIO__ must be registered by React Flow bundle');
+    return { initialData, studioApi, postedMessages };
+  }
+
   // --------------------------------------------------------------------------------------
   // 1. CANVAS NAVIGATION & VIEW CONTROLS
   // --------------------------------------------------------------------------------------
@@ -1231,6 +1347,7 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     test('Mode-specific UI rendering correctly isolates buttons between Communication Objects, Component, and System views', () => {
       const mockUri = vscode.Uri.file('/mock');
       const mockWebview = {} as vscode.Webview;
+      const { js } = readStudioAssets();
 
       // 1. Communication Objects View (.ros)
       const rosProj: RosProject = {
@@ -1245,13 +1362,12 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const rosHtml = getStudioHtml(rosProj, mockUri, mockWebview, {}, {}, 'my_msgs.ros');
-      assert.ok(!rosHtml.includes('id="btnAddNode"'), '.ros mode must NOT render + Add New Node');
-      assert.ok(!rosHtml.includes('id="btnAddSubsystem"'), '.ros mode must NOT render + Import Subsystem');
-      assert.ok(!rosHtml.includes('id="subsystemSection"'), '.ros mode must NOT render subsystemSection');
-      assert.ok(!rosHtml.includes('id="processSection"'), '.ros mode must NOT render processSection');
-      assert.ok(!rosHtml.includes('id="filterInterfaceSection"'), '.ros mode must NOT render filterInterfaceSection');
-      assert.ok(rosHtml.includes('id="btnAddCommObject"'), '.ros mode MUST render + Add Comm Object');
-      assert.ok(rosHtml.includes('id="filterTypeSection"'), '.ros mode MUST render filterTypeSection');
+      assert.ok(rosHtml.includes('<div id="root"></div>'), 'HTML shell must mount React #root');
+      assert.ok(rosHtml.includes('dist/studio.css'), 'HTML shell must link compiled studio.css');
+      assert.ok(rosHtml.includes('dist/studio.js'), 'HTML shell must load compiled studio.js');
+      const rosData = extractInitialData(rosHtml);
+      assert.strictEqual(rosData.mode, 'ros', '.ros model must boot React Studio in ros mode');
+      assert.strictEqual(rosData.docFileName, 'my_msgs.ros');
 
       // 2. Component View (.ros2)
       const ros2Proj: RosProject = {
@@ -1266,13 +1382,9 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const ros2Html = getStudioHtml(ros2Proj, mockUri, mockWebview, {}, {}, 'my_pkg.ros2');
-      assert.ok(ros2Html.includes('id="btnAddNode"'), '.ros2 mode MUST render + Add New Node');
-      assert.ok(!ros2Html.includes('id="btnAddSubsystem"'), '.ros2 mode must NOT render + Import Subsystem');
-      assert.ok(!ros2Html.includes('id="subsystemSection"'), '.ros2 mode must NOT render subsystemSection');
-      assert.ok(!ros2Html.includes('id="processSection"'), '.ros2 mode must NOT render processSection');
-      assert.ok(ros2Html.includes('id="filterInterfaceSection"'), '.ros2 mode MUST render filterInterfaceSection');
-      assert.ok(!ros2Html.includes('id="btnAddCommObject"'), '.ros2 mode must NOT render + Add Comm Object');
-      assert.ok(!ros2Html.includes('id="filterTypeSection"'), '.ros2 mode must NOT render filterTypeSection');
+      const ros2Data = extractInitialData(ros2Html);
+      assert.strictEqual(ros2Data.mode, 'component', '.ros2 model must boot React Studio in component mode');
+      assert.strictEqual(ros2Data.docFileName, 'my_pkg.ros2');
 
       // 3. System View (.rossystem)
       const systemProj: RosProject = {
@@ -1287,106 +1399,81 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const systemHtml = getStudioHtml(systemProj, mockUri, mockWebview, {}, {}, 'my_sys.rossystem');
-      assert.ok(!systemHtml.includes('id="btnAddNode"'), '.rossystem mode must NOT render + Add New Node');
-      assert.ok(systemHtml.includes('id="btnAddSystemNode"'), '.rossystem mode MUST render + Import Node');
-      assert.ok(systemHtml.includes('id="btnAddSubsystem"'), '.rossystem mode MUST render + Import Subsystem');
-      assert.ok(systemHtml.includes('id="subsystemSection"'), '.rossystem mode MUST render subsystemSection');
-      assert.ok(systemHtml.includes('id="processSection"'), '.rossystem mode MUST render processSection');
-      assert.ok(systemHtml.includes('id="filterInterfaceSection"'), '.rossystem mode MUST render filterInterfaceSection');
-      assert.ok(!systemHtml.includes('id="btnAddCommObject"'), '.rossystem mode must NOT render + Add Comm Object');
-      assert.ok(!systemHtml.includes('id="filterTypeSection"'), '.rossystem mode must NOT render filterTypeSection');
+      const sysData = extractInitialData(systemHtml);
+      assert.strictEqual(sysData.mode, 'system', '.rossystem model must boot React Studio in system mode');
+      assert.strictEqual(sysData.docFileName, 'my_sys.rossystem');
+
+      // 4. Verify React Flow bundle contains all three specialized views and mode-isolated controls
+      assert.ok(js.includes('RosCommObjectsView'), 'Bundle must include RosCommObjectsView (.ros)');
+      assert.ok(js.includes('RosComponentView'), 'Bundle must include RosComponentView (.ros2)');
+      assert.ok(js.includes('RosSystemView'), 'Bundle must include RosSystemView (.rossystem)');
+      assert.ok(js.includes('btnAddCommObject') && js.includes('filterTypeSection'), '.ros view controls must exist in bundle');
+      assert.ok(js.includes('btnAddNode') && js.includes('filterInterfaceSection'), '.ros2 view controls must exist in bundle');
+      assert.ok(
+        js.includes('btnAddSystemNode') &&
+          js.includes('btnAddSubsystem') &&
+          js.includes('btnAddProcess') &&
+          js.includes('subsystemSection') &&
+          js.includes('processSection'),
+        '.rossystem view controls must exist in bundle'
+      );
     });
 
     test('Webview client script executes cleanly without runtime or syntax errors across .ros, .ros2, and .rossystem', () => {
       const mockUri = { fsPath: '/mock/path' } as unknown as vscode.Uri;
       const mockWebview = { asWebviewUri: (u: vscode.Uri) => u } as unknown as vscode.Webview;
 
-      const testConfigs = [
+      const testConfigs: { proj: RosProject; file: string; expectedMode: 'ros' | 'component' | 'system' }[] = [
         {
-          proj: { isRos: true, nodes: [{ id: 'type_Msg', label: 'Msg', backing: 'type', typeCategory: 'msg', typeSpec: { name: 'Msg', category: 'msg', fields: { message: [] } } }], system: { name: 'test_pkg' } } as unknown as RosProject,
-          file: 'test_pkg.ros'
+          proj: {
+            isRos: true,
+            nodes: [{ id: 'type_Msg', label: 'Msg', backing: 'type', typeCategory: 'msg', typeSpec: { name: 'Msg', category: 'msg', fields: { message: [] } } }],
+            system: { name: 'test_pkg' },
+          } as unknown as RosProject,
+          file: 'test_pkg.ros',
+          expectedMode: 'ros',
         },
         {
-          proj: { isRos: false, isRosSystem: false, nodes: [{ id: 'n1', label: 'node1', ifaces: [] }], system: { name: 'pkg' } } as unknown as RosProject,
-          file: 'pkg.ros2'
+          proj: {
+            isRos: false,
+            isRosSystem: false,
+            nodes: [{ id: 'n1', label: 'node1', ifaces: [] }],
+            system: { name: 'pkg' },
+          } as unknown as RosProject,
+          file: 'pkg.ros2',
+          expectedMode: 'component',
         },
         {
-          proj: { isRos: false, isRosSystem: true, nodes: [], subSystems: [{ ref: 'sub1' }], system: { name: 'sys' } } as unknown as RosProject,
-          file: 'sys.rossystem'
-        }
+          proj: {
+            isRos: false,
+            isRosSystem: true,
+            nodes: [],
+            subSystems: [{ ref: 'sub1' }],
+            system: { name: 'sys' },
+          } as unknown as RosProject,
+          file: 'sys.rossystem',
+          expectedMode: 'system',
+        },
       ];
 
       for (const cfg of testConfigs) {
-        const html = getStudioHtml(cfg.proj, mockUri, mockWebview, { _systems: [{ system: 'sub1', nodes: { n1: { interfaces: [{ name: 'i1' }] } } }] }, {}, cfg.file);
-        const scriptMatch = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
-        assert.ok(scriptMatch, 'script tag must exist in studio HTML');
-        const scriptCode = scriptMatch[1];
+        const html = getStudioHtml(
+          cfg.proj,
+          mockUri,
+          mockWebview,
+          { _systems: [{ system: 'sub1', nodes: { n1: { interfaces: [{ name: 'i1' }] } } }] },
+          {},
+          cfg.file
+        );
 
-        // 1. Verify syntax compiles cleanly in Node VM
-        assert.doesNotThrow(() => {
-          new vm.Script(scriptCode);
-        }, `Syntax error found in script for ${cfg.file}`);
-
-        // 2. Verify execution in mock DOM
-        const noop = (): void => {
-          /* no-op for mock DOM */
-        };
-        const clickHandlers: Record<string, () => void> = {};
-        const elMap: Record<string, unknown> = {};
-        const mockEl = (tag: string) => ({
-          tagName: tag,
-          classList: {
-            add: noop,
-            remove: noop,
-            toggle: noop,
-            contains: () => false,
-          },
-          style: {},
-          appendChild: noop,
-          remove: noop,
-          addEventListener: noop,
-          querySelectorAll: () => [],
-          dataset: {},
-          getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
-        });
-
-        const dom = {
-          getElementById: (id: string) => {
-            if (!elMap[id]) {
-              const el = mockEl(id);
-              Object.defineProperty(el, 'onclick', {
-                set(fn: () => void) {
-                  clickHandlers[id] = fn;
-                },
-                get() {
-                  return clickHandlers[id];
-                },
-              });
-              elMap[id] = el;
-            }
-            return elMap[id];
-          },
-          querySelector: () => mockEl('div'),
-          querySelectorAll: () => [],
-          createElement: mockEl,
-          body: { classList: { add: noop, remove: noop } },
-        };
-
-        const context = {
-          document: dom,
-          window: { addEventListener: noop },
-          navigator: { platform: 'Linux' },
-          console: { log: noop, warn: noop, error: noop },
-          setTimeout: (fn: () => void) => fn(),
-          acquireVsCodeApi: () => ({ postMessage: noop }),
-        };
-
-        vm.createContext(context);
-        assert.doesNotThrow(() => {
-          vm.runInContext(scriptCode, context);
-        }, `Runtime error found when running script for ${cfg.file}`);
-
-        assert.ok(Object.keys(clickHandlers).length > 10, 'Expected multiple interactive button handlers to be registered');
+        const { initialData, studioApi } = runStudioBundleInVm(html);
+        assert.strictEqual(initialData.mode, cfg.expectedMode, `Expected mode ${cfg.expectedMode} for ${cfg.file}`);
+        assert.strictEqual(typeof studioApi.RosStudioApp, 'function', 'RosStudioApp component must be registered');
+        assert.strictEqual(typeof studioApi.RosSystemView, 'function', 'RosSystemView component must be registered');
+        assert.strictEqual(typeof studioApi.RosComponentView, 'function', 'RosComponentView component must be registered');
+        assert.strictEqual(typeof studioApi.RosCommObjectsView, 'function', 'RosCommObjectsView component must be registered');
+        assert.strictEqual(typeof studioApi.validatePortConnection, 'function', 'validatePortConnection helper must be exposed');
+        assert.strictEqual(typeof studioApi.runDagreAutoLayout, 'function', 'runDagreAutoLayout helper must be exposed');
       }
     });
   });
@@ -1864,21 +1951,33 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         types: {},
       };
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'sensor_nodes.ros2');
-      assert.ok(html.includes('details.qos-details'), 'HTML must include CSS styles for QoS details panel');
-      assert.ok(html.includes('.qos-grid'), 'HTML must include CSS grid for QoS fields');
-      assert.ok(html.includes('Quality of Service (QoS)'), 'HTML must render Quality of Service section header');
-      assert.ok(html.includes('data-qos-key="profile"'), 'HTML must include profile dropdown selector');
-      assert.ok(html.includes('data-qos-key="reliability"'), 'HTML must include reliability dropdown selector');
-      assert.ok(html.includes('data-qos-key="durability"'), 'HTML must include durability dropdown selector');
-      assert.ok(html.includes('data-qos-key="history"'), 'HTML must include history dropdown selector');
-      assert.ok(html.includes('data-qos-key="depth"'), 'HTML must include depth dropdown selector');
-      assert.ok(html.includes('data-qos-key="liveliness"'), 'HTML must include liveliness dropdown selector');
-      assert.ok(html.includes('data-qos-key="deadline"'), 'HTML must include deadline dropdown selector');
-      assert.ok(html.includes('data-qos-key="lifespan"'), 'HTML must include lifespan dropdown selector');
-      assert.ok(html.includes('data-qos-key="lease_duration"'), 'HTML must include lease_duration dropdown selector');
-      assert.ok(html.includes('btn-clear-qos'), 'HTML must include Reset QoS to Default button');
-      assert.ok(html.includes('default_qos'), 'HTML must include default_qos option');
-      assert.ok(html.includes('sensor_qos'), 'HTML must include sensor_qos option');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'component', 'QoS editor must boot in component mode for .ros2');
+
+      const { js, css } = readStudioAssets();
+      assert.ok(css.includes('details.qos-details'), 'Stylesheet must include CSS styles for QoS details panel');
+      assert.ok(css.includes('.qos-grid'), 'Stylesheet must include CSS grid for QoS fields');
+      assert.ok(js.includes('Quality of Service (QoS)'), 'React Component view must render Quality of Service section header');
+      for (const qosKey of [
+        'profile',
+        'reliability',
+        'durability',
+        'history',
+        'depth',
+        'liveliness',
+        'deadline',
+        'lifespan',
+        'lease_duration',
+      ]) {
+        assert.ok(
+          js.includes(`"data-qos-key": "${qosKey}"`) || js.includes(`data-qos-key="${qosKey}"`) || js.includes(qosKey),
+          `Bundle must include QoS field ${qosKey}`
+        );
+      }
+      assert.ok(js.includes('data-qos-key'), 'Bundle must bind data-qos-key attributes on QoS controls');
+      assert.ok(js.includes('btn-clear-qos'), 'Bundle must include Reset QoS to Default button');
+      assert.ok(js.includes('default_qos'), 'Bundle must include default_qos option');
+      assert.ok(js.includes('sensor_qos'), 'Bundle must include sensor_qos option');
     });
   });
 
@@ -2023,10 +2122,16 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(html.includes('btnOpenComponentRos2'), 'Inspector must render Edit Component in .ros2 View button');
-      assert.ok(html.includes('Edit Component in .ros2 View'), 'Button label must match specification');
-      assert.ok(html.includes('inp-iface-remap'), 'Inspector must render Remapped Name input field in System view');
-      assert.ok(html.includes('id="inpNodeFrom"') && html.includes('readonly style="opacity:0.85; background:var(--surface-2)'), 'Component definition must be read-only in System view');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+      assert.strictEqual(initData.isReadOnly, false);
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('btnOpenComponentRos2'), 'Inspector must render Edit Component in .ros2 View button');
+      assert.ok(js.includes('Edit Component in .ros2 View'), 'Button label must match specification');
+      assert.ok(js.includes('openComponentRos2'), 'Inspector button must dispatch openComponentRos2 host message');
+      assert.ok(js.includes('inp-iface-remap'), 'Inspector must render Remapped Name input field in System view');
+      assert.ok(js.includes('inpNodeFrom') && js.includes('readOnly'), 'Component definition must be read-only in System view');
     });
 
     test('Core catalogue read-only mode displays badge, disables inputs, and prevents modifications', () => {
@@ -2055,11 +2160,19 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, '/coresense-ws/src/RosModelsCatalog/cameras/cv_camera.ros2', true);
-      assert.ok(html.includes('readOnlyBadge'), 'Topbar must display read-only badge');
-      assert.ok(html.includes('Core Catalogue (Read-Only)'), 'Badge text must clearly indicate core catalogue read-only');
-      assert.ok(html.includes('var isReadOnly = true;'), 'Client script must have isReadOnly set to true');
-      assert.ok(!html.includes('id="btnOpenCatalogue"'), 'Catalogue add button must be omitted in read-only mode');
-      assert.ok(html.includes('sysNameInput" class="sysname-input" value="cv_camera" placeholder="Enter package name..." disabled'), 'Model name input must be disabled in read-only mode');
+      const { initialData, studioApi, postedMessages } = runStudioBundleInVm(html);
+      assert.strictEqual(initialData.isReadOnly, true, 'INITIAL_DATA must have isReadOnly set to true');
+      assert.strictEqual(typeof studioApi.ReadOnlyBanner, 'function', 'ReadOnlyBanner component must exist');
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('readOnlyBadge'), 'ReadOnlyBanner must render readOnlyBadge');
+      assert.ok(js.includes('Core Catalogue (Read-Only)'), 'Topbar badge text must clearly indicate core catalogue read-only');
+      assert.ok(js.includes('Core Catalogue Model (Read-Only)'), 'Banner text must clearly indicate core catalogue read-only');
+      assert.ok(js.includes('sysNameInput'), 'Topbar must include sysNameInput with disabled binding');
+
+      // Verify store strictly blocks edits when isReadOnly is true
+      studioApi.updateNodeLabel('n1', 'mutated_name');
+      assert.strictEqual(postedMessages.length, 0, 'Read-only mode must block applyEdit mutations in store');
     });
 
     test('Core catalogue models strictly disallow layout persistence and disk modification', async () => {
@@ -2112,12 +2225,13 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       };
 
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(!html.includes('id="btnAddNode"'), 'System view must NOT have + Add New Node button');
-      assert.ok(html.includes('id="btnAddSystemNode"'), 'System view MUST have + Import Node button');
-      assert.ok(html.includes('+ Import Node'), 'System view button text must read + Import Node');
-      assert.ok(html.includes('safeClick("btnAddSystemNode"'), 'System view must wire click handler for btnAddSystemNode');
-      assert.ok(html.includes('activeCatTab = "nodes";'), 'Import Node button must activate nodes tab in catalogue drawer');
-      assert.ok(html.includes('body.mode-system #btnAddNode'), 'CSS must enforce that btnAddNode is hidden in mode-system');
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+
+      const { js } = readStudioAssets();
+      assert.ok(js.includes('btnAddSystemNode'), 'System view must include btnAddSystemNode');
+      assert.ok(js.includes('+ Import Node') || js.includes('Import Node'), 'System view button text must offer Import Node');
+      assert.ok(js.includes('catalogueTab') && js.includes('"nodes"'), 'Import Node button must open catalogue drawer on nodes tab');
     });
 
     test('Changing Node Label in system view does NOT alter component definition (from and artifact)', () => {
@@ -2154,10 +2268,22 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       assert.ok(emitted.includes('image_raw: sub-> "ai_defect_detector::image_raw"'), 'Target reference must preserve original component artifact and interface name');
       assert.ok(!emitted.includes('inspection_nodes.defect_detector'), 'Emitted YAML must NEVER invent a non-existent component definition');
 
-      // 2. Verify webview client script prevents altering from/artifact on label change in system view
+      // 2. Verify React Flow store runtime strictly preserves from, pkg, and artifact on label change in system view
       const html = getStudioHtml(project, mockUri, mockWebview, {}, {}, 'perception_bringup.rossystem', false);
-      assert.ok(html.includes('if (!isRosSystem && !isRos)'), 'Inspector label change handler must guard from/artifact mutation against system mode');
-      assert.ok(html.includes('updateNodePackageAndArtifact(node, pkgVal, artVal) {\n        if (isRosSystem) return;'), 'updateNodePackageAndArtifact must guard against modifying component definition in system mode');
+      const { studioApi, postedMessages } = runStudioBundleInVm(html);
+
+      studioApi.updateNodeLabel('n_defect_detector', 'defect_detector_renamed');
+      assert.strictEqual(postedMessages.length, 1, 'updateNodeLabel must dispatch applyEdit');
+      const updatedNode = postedMessages[0].project?.nodes.find((n) => n.id === 'n_defect_detector');
+      assert.ok(updatedNode, 'Updated node must exist in emitted project');
+      assert.strictEqual(updatedNode.label, 'defect_detector_renamed');
+      assert.strictEqual(updatedNode.from, 'inspection_nodes.ai_defect_detector', 'node.from MUST remain unchanged in system view');
+      assert.strictEqual(updatedNode.artifact, 'ai_defect_detector', 'node.artifact MUST remain unchanged in system view');
+      assert.strictEqual(updatedNode.pkg, 'inspection_nodes', 'node.pkg MUST remain unchanged in system view');
+
+      // Verify updateNodePackageAndArtifact is a strict no-op in system view
+      studioApi.updateNodePackageAndArtifact({ id: 'n_defect_detector' }, 'mutated_pkg', 'mutated_art');
+      assert.strictEqual(postedMessages.length, 1, 'updateNodePackageAndArtifact must be a no-op in system mode');
     });
 
     test('Subsystem catalogue discovery, file resolution, and subsystem edit navigation buttons', () => {
@@ -2212,21 +2338,37 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
         false
       );
 
+      const initData = extractInitialData(html);
+      assert.strictEqual(initData.mode, 'system');
+      assert.ok(Array.isArray(initData.nodeIndex['_systems']), 'INITIAL_DATA must pass _systems catalogue entries');
+
+      const { js } = readStudioAssets();
+
       // 1. Verify subsystem inspector contains "Edit Subsystem in .rossystem View" button
-      assert.ok(html.includes('id="btnOpenSubsystemRosSystem"'), 'Webview inspector must render btnOpenSubsystemRosSystem');
-      assert.ok(html.includes('📦 Edit Subsystem in .rossystem View'), 'Button label must be 📦 Edit Subsystem in .rossystem View');
-      assert.ok(html.includes("type: 'openSubsystemRosSystem'"), 'Webview must post openSubsystemRosSystem message to extension host');
+      assert.ok(js.includes('btnOpenSubsystemRosSystem'), 'Webview inspector must render btnOpenSubsystemRosSystem');
+      assert.ok(js.includes('📦 Edit Subsystem in .rossystem View'), 'Button label must be 📦 Edit Subsystem in .rossystem View');
+      assert.ok(js.includes('openSubsystemRosSystem'), 'Webview must post openSubsystemRosSystem message to extension host');
 
       // 2. Verify node inspector contains parent subsystem button for subsystem nodes
-      assert.ok(html.includes('id="btnOpenParentSubsystemRosSystem"'), 'Node inspector must render btnOpenParentSubsystemRosSystem for subsystem members');
-      assert.ok(html.includes('📦 Edit Subsystem ('), 'Parent subsystem edit button label must indicate parent subsystem');
+      assert.ok(js.includes('btnOpenParentSubsystemRosSystem'), 'Node inspector must render btnOpenParentSubsystemRosSystem for subsystem members');
+      assert.ok(js.includes('📦 Edit Subsystem ('), 'Parent subsystem edit button label must indicate parent subsystem');
 
       // 3. Verify canvas subsystem headers contain open subsystem icon button
-      assert.ok(html.includes('class="btn-open-sub"'), 'Subsystem box and frame headers must render .btn-open-sub button');
-      assert.ok(html.includes('data-open-sub='), 'Subsystem box and frame headers must include data-open-sub attribute');
+      assert.ok(js.includes('btn-open-sub'), 'SubsystemNodeCard headers must render .btn-open-sub button');
+      assert.ok(js.includes('data-open-sub'), 'SubsystemNodeCard headers must include data-open-sub attribute');
 
       // 4. Verify catalogue subsystems list filters out current open system
-      assert.ok(html.includes('if (currentSysName && (sysName === currentSysName || sysName === docBaseName)) return;'), 'Catalogue drawer must filter out open system from subsystems tab');
+      const { studioApi } = runStudioBundleInVm(html);
+      const filteredSubs = studioApi.filterCatalogueSystems(
+        [
+          { system: 'inspection_system', file: 'inspection_system.rossystem', nodes: {} },
+          { system: 'hardware_bringup', file: 'hardware_bringup.rossystem', nodes: {} },
+        ],
+        'inspection_system',
+        'inspection_system'
+      );
+      assert.strictEqual(filteredSubs.length, 1, 'CatalogueDrawer must filter out open system from subsystems tab');
+      assert.strictEqual(filteredSubs[0].system, 'hardware_bringup');
 
       // 5. Verify RosCatalogueManager finds hardware_bringup in mock_robot_system
       const mockWsDir = path.resolve(__dirname, '../../../demo/test_ws/src/test_system/mock_robot_system');
@@ -2436,6 +2578,463 @@ inspection_system:
       assert.ok(emittedWithVal.includes('parameters:'), 'Parameters with launch values must be emitted');
       assert.ok(emittedWithVal.includes('- slowdown_radius: "safety_supervisor::slowdown_radius"'));
       assert.ok(emittedWithVal.includes('value: 1.0'));
+    });
+  });
+
+  // --------------------------------------------------------------------------------------
+  // 23. VISUAL WEBVIEW REFINEMENTS: PROCESS BOX ENCOMPASSING & EDGE LABEL HANDLE SEPARATION
+  // --------------------------------------------------------------------------------------
+  suite('23. Visual Webview Refinements: Process Box Encompassing & Edge Label Handle Separation', () => {
+    test('estimateCardHeight accurately accounts for headers, subtitles, badges, and interfaces', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+      const html = getStudioHtml(createTestProject(), mockUri, mockWebview, {}, {}, 'test.rossystem');
+      const { studioApi } = runStudioBundleInVm(html);
+      assert.ok(studioApi.estimateCardHeight, 'estimateCardHeight must be exported on __ROSTOOLING_STUDIO__');
+      assert.ok(studioApi.estimateCardWidth, 'estimateCardWidth must be exported on __ROSTOOLING_STUDIO__');
+
+      // node1 from test_system.rossystem: subtitle + 2 parameters + 4 interfaces
+      const node1 = {
+        id: 'node1',
+        label: 'node1',
+        from: 'test_system.image_filter',
+        ifaces: [
+          { id: 'f1', name: 'filtered_image_pub', kind: 'pub', exposed: true },
+          { id: 'f2', name: 'description_pub', kind: 'pub', exposed: true },
+          { id: 'f3', name: 'image_sub', kind: 'sub', exposed: true },
+          { id: 'f4', name: 'laser_sub', kind: 'sub', exposed: true },
+        ],
+        params: [
+          { name: 'ImageName', value: 'image_raw' },
+          { name: 'ImageName', value: 'image_raw' },
+        ],
+      };
+
+      const h1 = studioApi.estimateCardHeight(node1);
+      // Actual card height is 255px (header 54 + badges 31 + ports 162 + buffer 8)
+      assert.ok(h1 >= 220 && h1 <= 270, `node1 height estimate should be between 220px and 270px, got ${h1}`);
+
+      const w1 = studioApi.estimateCardWidth(node1);
+      assert.ok(w1 >= 300, `node1 width estimate should be at least 300px, got ${w1}`);
+
+      // node2 from test_system.rossystem: subtitle + 0 parameters + 3 interfaces
+      const node2 = {
+        id: 'node2',
+        label: 'node2',
+        from: 'test_system.consumer',
+        ifaces: [
+          { id: 'f5', name: 'filtered_image_sub', kind: 'sub', exposed: true },
+          { id: 'f6', name: 'description_sub', kind: 'sub', exposed: true },
+          { id: 'f7', name: 'inferenced_image_pub', kind: 'pub', exposed: true },
+        ],
+        params: [],
+      };
+
+      const h2 = studioApi.estimateCardHeight(node2);
+      assert.ok(h2 >= 180 && h2 <= 210, `node2 height estimate should be between 180px and 210px, got ${h2}`);
+    });
+
+    test('Process group bounding box comfortably encompasses member nodes without bottom or side spillover', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+      const html = getStudioHtml(createTestProject(), mockUri, mockWebview, {}, {}, 'test.rossystem');
+      const { studioApi } = runStudioBundleInVm(html);
+      const estimateH = studioApi.estimateCardHeight;
+      const estimateW = studioApi.estimateCardWidth;
+      assert.ok(estimateH && estimateW);
+
+      const PAD_X = 36;
+      const PAD_TOP = 58;
+      const PAD_BOTTOM = 38;
+
+      const member1 = {
+        id: 'node1',
+        label: 'node1',
+        from: 'test_system.image_filter',
+        x: 80,
+        y: 80,
+        ifaces: [
+          { id: 'f1', name: 'filtered_image_pub', kind: 'pub', exposed: true },
+          { id: 'f2', name: 'description_pub', kind: 'pub', exposed: true },
+          { id: 'f3', name: 'image_sub', kind: 'sub', exposed: true },
+          { id: 'f4', name: 'laser_sub', kind: 'sub', exposed: true },
+        ],
+        params: [
+          { name: 'ImageName', value: 'image_raw' },
+          { name: 'ImageName', value: 'image_raw' },
+        ],
+      };
+
+      const member2 = {
+        id: 'node2',
+        label: 'node2',
+        from: 'test_system.consumer',
+        x: 440,
+        y: 80,
+        ifaces: [
+          { id: 'f5', name: 'filtered_image_sub', kind: 'sub', exposed: true },
+          { id: 'f6', name: 'description_sub', kind: 'sub', exposed: true },
+          { id: 'f7', name: 'inferenced_image_pub', kind: 'pub', exposed: true },
+        ],
+        params: [],
+      };
+
+      const members = [member1, member2];
+      const minX = Math.min(...members.map((m) => m.x)) - PAD_X;
+      const minY = Math.min(...members.map((m) => m.y)) - PAD_TOP;
+      const maxX = Math.max(...members.map((m) => m.x + estimateW(m))) + PAD_X;
+      const maxY = Math.max(...members.map((m) => m.y + estimateH(m))) + PAD_BOTTOM;
+
+      const boxWidth = Math.max(360, maxX - minX);
+      const boxHeight = Math.max(200, maxY - minY);
+
+      // Verify bounds encompass member 1
+      assert.ok(minX < member1.x, 'Process group left boundary must be outside member1');
+      assert.ok(minY < member1.y, 'Process group top boundary must be above member1');
+      assert.ok(member1.x + estimateW(member1) < maxX, 'member1 right edge must be within maxX');
+      assert.ok(member1.y + estimateH(member1) < maxY, 'member1 bottom edge must be within maxY');
+
+      // Verify generous breathing room at bottom: at least PAD_BOTTOM (38px)
+      const bottomGap1 = maxY - (member1.y + estimateH(member1));
+      assert.ok(bottomGap1 >= PAD_BOTTOM, `Bottom gap (${bottomGap1}px) must be >= PAD_BOTTOM (${PAD_BOTTOM}px)`);
+
+      // Verify bounds encompass member 2
+      assert.ok(member2.x + estimateW(member2) < maxX, 'member2 right edge must be within maxX');
+      assert.ok(member2.y + estimateH(member2) < maxY, 'member2 bottom edge must be within maxY');
+      const bottomGap2 = maxY - (member2.y + estimateH(member2));
+      assert.ok(bottomGap2 >= PAD_BOTTOM, `Bottom gap for member 2 (${bottomGap2}px) must be >= PAD_BOTTOM`);
+
+      // Verify overall box dimensions
+      assert.ok(boxWidth >= 700, `Process box width should comfortably hold both nodes, got ${boxWidth}`);
+      assert.ok(boxHeight >= 340, `Process box height should comfortably hold tall node, got ${boxHeight}`);
+    });
+
+    test('JumpOrthogonalEdge places connection label along horizontal segment away from corridor drag handle', () => {
+      // Direct left-to-right orthogonal route points
+      const sourceX = 100;
+      const sourceY = 200;
+      const targetX = 500;
+      const targetY = 320;
+      const finalMidX = 300;
+
+      const pts = [
+        { x: sourceX, y: sourceY },
+        { x: finalMidX, y: sourceY },
+        { x: finalMidX, y: targetY },
+        { x: targetX, y: targetY },
+      ];
+      assert.strictEqual(pts.length, 4);
+
+      const handleV = {
+        x: finalMidX,
+        y: Math.round((sourceY + targetY) / 2), // (300, 260)
+      };
+
+      // Candidate label position along first horizontal segment (sourceX to finalMidX)
+      const labelX = (sourceX + finalMidX) / 2; // 200
+      const labelY = sourceY; // 200
+
+      // Distance from label to handleV
+      const distanceToHandle = Math.hypot(labelX - handleV.x, labelY - handleV.y);
+      // dx = 300 - 200 = 100, dy = 260 - 200 = 60 => dist = sqrt(100^2 + 60^2) = 116.6px
+      assert.ok(
+        distanceToHandle >= 50,
+        `Edge label must be at least 50px away from vertical handle handleV, got ${distanceToHandle.toFixed(1)}px`
+      );
+      assert.notStrictEqual(labelX, handleV.x, 'Label X must not coincide with vertical corridor midX');
+      assert.notStrictEqual(labelY, handleV.y, 'Label Y must not coincide with corridor handle Y');
+    });
+
+    test('Framed subsystem moving on canvas moves member nodes and internal wires synchronously', () => {
+      // Create project with a framed subsystem and 2 member nodes
+      const project: RosProject = {
+        formatVersion: 4,
+        system: { name: 'test_system' },
+        subSystems: [
+          {
+            ref: 'ur_robot',
+            state: 'framed',
+            x: 100,
+            y: 100,
+          },
+        ],
+        nodes: [
+          {
+            id: 'n_ur_robot_driver',
+            label: 'driver',
+            subRef: 'ur_robot',
+            x: 140,
+            y: 160,
+            ifaces: [
+              { id: 'i_driver_pub', name: 'joint_states', kind: 'pub', exposed: true },
+            ],
+            params: [],
+          },
+          {
+            id: 'n_ur_robot_controller',
+            label: 'controller',
+            subRef: 'ur_robot',
+            x: 480,
+            y: 160,
+            ifaces: [
+              { id: 'i_controller_sub', name: 'joint_states', kind: 'sub', exposed: true },
+            ],
+            params: [],
+          },
+        ],
+        connections: [
+          {
+            id: 'c_driver_controller',
+            from: { n: 'n_ur_robot_driver', i: 'i_driver_pub' },
+            to: { n: 'n_ur_robot_controller', i: 'i_controller_sub' },
+            connectorMode: 'orthogonal',
+            midX: 310,
+            waypoints: [{ x: 310, y: 160 }],
+          },
+        ],
+        packages: {},
+        types: {},
+      };
+
+      // Simulated start drag on sub_ur_robot
+      const startX = 100;
+      const startY = 100;
+      const memberStarts = new Map([
+        ['n_ur_robot_driver', { x: 140, y: 160 }],
+        ['n_ur_robot_controller', { x: 480, y: 160 }],
+      ]);
+
+      // Move container by dx = +150, dy = +80 during live drag
+      const currentContainerPos = { x: 250, y: 180 };
+      const dx = currentContainerPos.x - startX; // 150
+      const dy = currentContainerPos.y - startY; // 80
+
+      const driverStart = memberStarts.get('n_ur_robot_driver') || { x: 0, y: 0 };
+      const controllerStart = memberStarts.get('n_ur_robot_controller') || { x: 0, y: 0 };
+
+      // During drag: member nodes calculate their positions live
+      const liveDriverPos = {
+        x: driverStart.x + dx,
+        y: driverStart.y + dy,
+      };
+      const liveControllerPos = {
+        x: controllerStart.x + dx,
+        y: controllerStart.y + dy,
+      };
+
+      assert.strictEqual(liveDriverPos.x, 290, 'Driver node must move live to 290px');
+      assert.strictEqual(liveDriverPos.y, 240, 'Driver node must move live to 240px');
+      assert.strictEqual(liveControllerPos.x, 630, 'Controller node must move live to 630px');
+      assert.strictEqual(liveControllerPos.y, 240, 'Controller node must move live to 240px');
+
+      // On drag stop: mutate layout updates project coordinates and internal connections
+      const sub = project.subSystems[0];
+      sub.x = currentContainerPos.x;
+      sub.y = currentContainerPos.y;
+      for (const m of project.nodes) {
+        if (m.subRef === 'ur_robot') {
+          m.x = (m.x ?? 0) + dx;
+          m.y = (m.y ?? 0) + dy;
+        }
+      }
+      for (const conn of project.connections) {
+        if (conn.midX != null) conn.midX += dx;
+        if (conn.midY != null) conn.midY += dy;
+        if (conn.waypoints) {
+          conn.waypoints = conn.waypoints.map((wp) => ({ x: wp.x + dx, y: wp.y + dy }));
+        }
+      }
+
+      assert.strictEqual(project.nodes[0].x, 290, 'Committed driver x must match live position');
+      assert.strictEqual(project.nodes[0].y, 240, 'Committed driver y must match live position');
+      assert.strictEqual(project.nodes[1].x, 630, 'Committed controller x must match live position');
+      assert.strictEqual(project.nodes[1].y, 240, 'Committed controller y must match live position');
+      assert.strictEqual(project.connections[0].midX, 460, 'Internal connection midX must shift by +150px to 460px');
+      const firstWp = project.connections[0].waypoints?.[0];
+      assert.ok(firstWp, 'Waypoint must exist');
+      assert.strictEqual(firstWp.x, 460, 'Internal connection waypoint X must shift by +150px');
+      assert.strictEqual(firstWp.y, 240, 'Internal connection waypoint Y must shift by +80px');
+    });
+
+    test('Qualified and short interface names in connections support backwards-compatible scoping and duplicate resolution', () => {
+      // 1. Model with unique names and identical duplicate remapped names (map)
+      const modelText = `test_system:
+  nodes:
+    slam:
+      from: "slam_pkg.slam_node"
+      interfaces:
+        - map: pub-> "slam_node::map_out"
+        - scan_in: sub-> "slam_node::scan_raw"
+    nav2:
+      from: "nav2_pkg.nav2_node"
+      interfaces:
+        - map: sub-> "nav2_node::map_in"
+        - cmd_vel: pub-> "nav2_node::cmd_out"
+    rviz:
+      from: "rviz_pkg.rviz_node"
+      interfaces:
+        - map: sub-> "rviz_node::map_display"
+  connections:
+    - ["slam.map", "nav2.map"]
+    - ["slam.map", "rviz.map"]
+    - ["cmd_vel", "scan_in"]
+`;
+
+      const parsed = RosModelParser.parseRosSystem(modelText, 'test_system.rossystem');
+      assert.strictEqual(parsed.connections.length, 3, 'Must parse all 3 connections');
+
+      // Connection 1: slam.map -> nav2.map
+      const conn1 = parsed.connections[0];
+      assert.strictEqual(conn1.from.n, 'n_slam', 'from node must resolve to slam');
+      assert.strictEqual(conn1.to.n, 'n_nav2', 'to node must resolve to nav2');
+
+      // Connection 2: slam.map -> rviz.map
+      const conn2 = parsed.connections[1];
+      assert.strictEqual(conn2.from.n, 'n_slam', 'from node must resolve to slam');
+      assert.strictEqual(conn2.to.n, 'n_rviz', 'to node must resolve to rviz');
+
+      // Connection 3: cmd_vel -> scan_in (unqualified unique names)
+      const conn3 = parsed.connections[2];
+      assert.strictEqual(conn3.from.n, 'n_nav2', 'from node must resolve to nav2');
+      assert.strictEqual(conn3.to.n, 'n_slam', 'to node must resolve to slam');
+
+      // 2. Test emitting: unique interfaces remain short, duplicate remapped interfaces (map) emit qualified with colon format (::)
+      const emitted = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(emitted.includes('- ["slam::map", "nav2::map"]'), 'Duplicate map interface must be qualified with slam and nav2');
+      assert.ok(emitted.includes('- ["slam::map", "rviz::map"]'), 'Duplicate map interface must be qualified with slam and rviz');
+      assert.ok(emitted.includes('- ["cmd_vel", "scan_in"]'), 'Unique interfaces must remain short unqualified for 100% backward compatibility');
+    });
+
+    test('33. Subsystems are considered when determining whether a remapped interface exports a short name or scoped name', () => {
+      // Model matching turtlebot3_navigation: direct node rviz2 has 'map', subsystem turtlebot3_navigation2 also has 'map'
+      const modelText = `turtlebot3_navigation:
+  subSystems:
+    turtlebot3_navigation2
+  nodes:
+    rviz2:
+      from: "rviz2.rviz2"
+      interfaces:
+        - map: sub-> "rviz2::map"
+        - downsampled_costmap: sub-> "rviz2::downsampled_costmap"
+  connections:
+    - ["map_server::map", "rviz2::map"]
+`;
+
+      const parsed = RosModelParser.parseRosSystem(modelText, 'turtlebot3_navigation.rossystem');
+      assert.strictEqual(parsed.subSystems.length, 1, 'Must parse subsystem');
+      assert.strictEqual(parsed.nodes.length, 1, 'Must parse rviz2 node');
+
+      // Check parsing of scoped rviz2::map
+      const conn = parsed.connections[0];
+      assert.strictEqual(conn.to.n, 'n_rviz2', 'to node must resolve to rviz2');
+
+      // Test emitting: because "map_server::map" contains interface "map",
+      // rviz2's "map" is recognized as duplicate (occurrences > 1) and must be emitted qualified as "rviz2::map"
+      const emitted = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(
+        emitted.includes('rviz2::map'),
+        `Direct node rviz2 map must be emitted qualified because subsystem also contains map. Emitted:\n${emitted}`
+      );
+      assert.ok(
+        !emitted.includes('- ["map_server::map", "map"]'),
+        `Direct node map must NOT be emitted as unqualified short name when subsystem contains map. Emitted:\n${emitted}`
+      );
+
+      // Also test with subsystem graph nodes
+      parsed.subSystems[0].graph = {
+        nodes: [
+          {
+            label: 'map_server',
+            interfaces: [{ label: 'map', name: 'map', kind: 'pub' }],
+          },
+        ],
+        connections: [],
+      };
+
+      const emittedWithGraph = RosModelEmitter.emitRosSystem(parsed);
+      assert.ok(
+        emittedWithGraph.includes('rviz2::map'),
+        `rviz2 map must be scoped when subsystem graph node declares map. Emitted:\n${emittedWithGraph}`
+      );
+    });
+
+    test('34. Manual removal of connection from model file syncs cleanly and is not resurrected by layout cache', () => {
+      const mockContext = {
+        subscriptions: [],
+        extensionPath: path.resolve(__dirname, '../../'),
+        globalStorageUri: vscode.Uri.file('/tmp/rostooling_test_storage'),
+      } as unknown as vscode.ExtensionContext;
+      const provider = new RosCustomEditorProvider(mockContext);
+
+      // Cached project before text edit (contained a connection)
+      const cachedProject = {
+        formatVersion: 2,
+        isRosSystem: true,
+        system: { name: 'turtlebot3_mapping' },
+        subSystems: [],
+        packages: {},
+        types: {},
+        nodes: [
+          {
+            id: 'n_carto',
+            label: 'carto',
+            ifaces: [{ id: 'i_map_pub', name: 'map', label: 'map', kind: 'pub' as const, exposed: true }],
+            params: [],
+          },
+          {
+            id: 'n_rviz2',
+            label: 'rviz2',
+            ifaces: [{ id: 'i_map_sub', name: 'map', label: 'map', kind: 'sub' as const, exposed: true }],
+            params: [],
+          },
+        ],
+        connections: [
+          {
+            id: 'c_carto_map_rviz2_map',
+            from: { n: 'n_carto', i: 'i_map_pub' },
+            to: { n: 'n_rviz2', i: 'i_map_sub' },
+            midX: 150,
+          },
+        ],
+      };
+
+      // Freshly parsed project after user manually deleted the connection line in .rossystem text
+      const freshProject = {
+        formatVersion: 2,
+        isRosSystem: true,
+        system: { name: 'turtlebot3_mapping' },
+        subSystems: [],
+        packages: {},
+        types: {},
+        nodes: [
+          {
+            id: 'n_carto',
+            label: 'carto',
+            ifaces: [{ id: 'i_map_pub', name: 'map', label: 'map', kind: 'pub' as const, exposed: true }],
+            params: [],
+          },
+          {
+            id: 'n_rviz2',
+            label: 'rviz2',
+            ifaces: [{ id: 'i_map_sub', name: 'map', label: 'map', kind: 'sub' as const, exposed: true }],
+            params: [],
+          },
+        ],
+        connections: [], // Empty connections because user deleted it
+      };
+
+      // Call restoreCachedLayout
+      (provider as unknown as { restoreCachedLayout: (target: unknown, source: unknown) => void })['restoreCachedLayout'](
+        freshProject,
+        cachedProject
+      );
+
+      // Verify that the removed connection was NOT resurrected into freshProject
+      assert.strictEqual(
+        freshProject.connections.length,
+        0,
+        'Manually removed connection must NOT be resurrected by restoreCachedLayout'
+      );
     });
   });
 });

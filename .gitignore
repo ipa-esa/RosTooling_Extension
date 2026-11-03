@@ -148,7 +148,7 @@ rostooling-languages/.vscode/settings.json
 rostooling-languages/.vscode/c_cpp_properties.json
 rostooling-languages/.vscode/browse.**
 .vscode/settings.json
-!.vscode/tasks.json
+!rostooling-languages/.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/*.code-snippets
@@ -207,3 +207,8 @@ graphify-out/**
 
 **/install/
 **/log/
+
+# React Flow Webview frontend dependencies (keep compiled dist/ bundle tracked)
+rostooling-languages/src/webview/frontend/node_modules/
+!rostooling-languages/src/webview/frontend/dist/
+!rostooling-languages/src/webview/frontend/dist/**
