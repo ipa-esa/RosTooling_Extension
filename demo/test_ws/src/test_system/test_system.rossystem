@@ -1,13 +1,11 @@
 test_system:
-  subSystems:
-    ur_robot
   nodes:
     node1:
       from: "test_system.image_filter"
       interfaces:
-        - filtered_image_pub: pub-> "image_filter::image_out"
-        - description_pub: pub-> "image_filter::description_out"
-        - image_sub: sub-> "image_filter::image_in"
+        - filtered_image_pub: pub-> "image_filter::filtered_image"
+        - description_pub: pub-> "image_filter::description"
+        - image_sub: sub-> "image_filter::marked_image"
         - laser_sub: sub-> "image_filter::laser_in"
       parameters:
         - ImageName: "image_filter::image_name"
@@ -15,9 +13,9 @@ test_system:
     node2:
       from: "test_system.consumer"
       interfaces:
-        - filtered_image_sub: sub-> "consumer::image_in"
-        - description_sub: sub-> "consumer::description_in"
-        - inferenced_image_pub: pub-> "consumer::image_out"
+        - filtered_image_sub: sub-> "consumer::filtered_image"
+        - description_sub: sub-> "consumer::description"
+        - inferenced_image_pub: pub-> "consumer::marked_image"
   connections:
     - ["filtered_image_pub", "filtered_image_sub"]
     - ["description_pub", "description_sub"]
