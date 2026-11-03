@@ -745,6 +745,9 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
 
   private broadcastMacroState(): void {
     const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    if (wsRoot && this.latestEnvelope?.project) {
+      void this.syncActiveProjectToWorkspace(wsRoot, this.latestEnvelope.project);
+    }
     for (const inst of this.panels) {
       void inst.panel.webview.postMessage({
         type: 'macroState',
@@ -755,6 +758,18 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         workspaceRoot: wsRoot,
         busy: false,
       });
+    }
+  }
+
+  private async syncActiveProjectToWorkspace(workspaceRoot: string, project: unknown): Promise<void> {
+    try {
+      const rtDir = path.join(workspaceRoot, '.rostooling');
+      await fs.promises.mkdir(rtDir, { recursive: true });
+      const content = JSON.stringify(project, null, 2);
+      await fs.promises.writeFile(path.join(rtDir, 'active_project.json'), content, 'utf8');
+      await fs.promises.writeFile(path.join(rtDir, 'project.json'), content, 'utf8');
+    } catch {
+      // Non-critical background mirror failure
     }
   }
 
