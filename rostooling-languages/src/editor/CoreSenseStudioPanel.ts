@@ -921,6 +921,22 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         'GET',
         `/api/projects/${encodeURIComponent(pid)}`
       );
+
+      // Keep workspace project files updated with the reconciled daemon project
+      if (wsRoot && this.latestEnvelope?.project) {
+        try {
+          const wsProjectJson = path.join(wsRoot, '.rostooling', 'project.json');
+          const wsActiveJson = path.join(wsRoot, '.rostooling', 'active_project.json');
+          const updatedStr = JSON.stringify(this.latestEnvelope.project, null, 2);
+          this.lastSyncedProjectHash = crypto.createHash('sha256').update(updatedStr).digest('hex');
+          await fs.promises.mkdir(path.dirname(wsProjectJson), { recursive: true });
+          await fs.promises.writeFile(wsProjectJson, updatedStr, 'utf8');
+          await fs.promises.writeFile(wsActiveJson, updatedStr, 'utf8');
+        } catch (syncErr) {
+          console.warn('[CoreSenseStudioPanel] Error saving reconciled project to workspace:', syncErr);
+        }
+      }
+
       this.setBusy(false);
       this.broadcastMacroState();
       this.broadcastToast(
