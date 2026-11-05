@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -59,6 +60,9 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
   private nodeIndex: Record<string, unknown> = {};
   private typeIndex: Record<string, unknown> = {};
 
+  private lastSyncedProjectHash = '';
+  private lastInternalSaveTime = 0;
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly daemonManager: StudioDaemonManager,
@@ -74,11 +78,24 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
           this.activeProjectId = evt.projectId;
           this.latestEnvelope = evt.envelope as ProjectEnvelope;
           this.broadcastMacroState();
+          this.broadcastExternalChange(path.basename(evt.filePath));
           this.broadcastToast(
             `Reconciled ${path.basename(evt.filePath)} into Studio (rev #${evt.envelope.revision ?? '?'})`
           );
         }
       })
+    );
+
+    const projectWatcher = vscode.workspace.createFileSystemWatcher('**/{.rostooling/project.json,project.json}');
+    const onProjectFileChange = (uri: vscode.Uri) => {
+      if (uri.scheme === 'file') {
+        void this.handleExternalProjectChange(uri.fsPath);
+      }
+    };
+    this.disposables.push(
+      projectWatcher,
+      projectWatcher.onDidChange(onProjectFileChange),
+      projectWatcher.onDidCreate(onProjectFileChange)
     );
   }
 
@@ -361,6 +378,10 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
           );
           this.setBusy(false);
           this.broadcastMacroState();
+          break;
+        }
+        case 'macroReloadProject': {
+          await this.reloadActiveProject();
           break;
         }
         case 'macroCreateProject': {
@@ -825,10 +846,90 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
       const rtDir = path.join(workspaceRoot, '.rostooling');
       await fs.promises.mkdir(rtDir, { recursive: true });
       const content = JSON.stringify(project, null, 2);
+      this.lastSyncedProjectHash = crypto.createHash('sha256').update(content).digest('hex');
+      this.lastInternalSaveTime = Date.now();
       await fs.promises.writeFile(path.join(rtDir, 'active_project.json'), content, 'utf8');
       await fs.promises.writeFile(path.join(rtDir, 'project.json'), content, 'utf8');
     } catch {
       // Non-critical background mirror failure
+    }
+  }
+
+  private async handleExternalProjectChange(filePath: string): Promise<void> {
+    if (Date.now() - this.lastInternalSaveTime < 1500) {
+      return; // Ignore Studio's own write
+    }
+    try {
+      if (fs.existsSync(filePath)) {
+        const content = await fs.promises.readFile(filePath, 'utf8');
+        const hash = crypto.createHash('sha256').update(content).digest('hex');
+        if (hash === this.lastSyncedProjectHash) {
+          return; // Identical to what was last synced
+        }
+      }
+    } catch {
+      // Ignore read failure
+    }
+    const fileName = path.basename(filePath);
+    this.broadcastExternalChange(fileName);
+  }
+
+  public broadcastExternalChange(source: string): void {
+    for (const inst of this.panels) {
+      void inst.panel.webview.postMessage({
+        type: 'macroExternalChange',
+        source,
+      });
+    }
+  }
+
+  public async reloadActiveProject(): Promise<void> {
+    const pid = this.activeProjectId || (await this.ensureActiveProjectId());
+    if (!pid) return;
+    this.setBusy(true);
+    try {
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (wsRoot) {
+        const wsProjectJson = path.join(wsRoot, '.rostooling', 'project.json');
+        if (fs.existsSync(wsProjectJson)) {
+          try {
+            const wsContent = await fs.promises.readFile(wsProjectJson, 'utf8');
+            const wsHash = crypto.createHash('sha256').update(wsContent).digest('hex');
+            if (wsHash !== this.lastSyncedProjectHash) {
+              const wsProj = JSON.parse(wsContent);
+              const current = await this.daemonManager.request<ProjectEnvelope>(
+                'GET',
+                `/api/projects/${encodeURIComponent(pid)}`
+              );
+              await this.daemonManager.request<ProjectEnvelope>(
+                'PUT',
+                `/api/projects/${encodeURIComponent(pid)}`,
+                {
+                  expectedRevision: current.revision ?? 1,
+                  project: wsProj,
+                }
+              );
+              this.lastSyncedProjectHash = wsHash;
+            }
+          } catch (e) {
+            console.warn('[CoreSenseStudioPanel] Error syncing workspace project.json to daemon:', e);
+          }
+        }
+      }
+
+      this.latestEnvelope = await this.daemonManager.request<ProjectEnvelope>(
+        'GET',
+        `/api/projects/${encodeURIComponent(pid)}`
+      );
+      this.setBusy(false);
+      this.broadcastMacroState();
+      this.broadcastToast(
+        `Reloaded project "${this.activeProjectId}" from disk (rev #${this.latestEnvelope?.revision ?? '?'})`
+      );
+    } catch (err) {
+      this.setBusy(false);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.broadcastToast(`Reload failed: ${errMsg}`, true);
     }
   }
 

@@ -11,6 +11,7 @@ import { ReconciliationWatcher } from '../orchestration/ReconciliationWatcher';
 import { PythonEnvResolver } from '../orchestration/PythonEnvResolver';
 import { StudioDaemonManager } from '../orchestration/StudioDaemonManager';
 import { getMacroStudioHtml } from '../webview/studioHtml';
+import { RosStudioWorkbenchController } from '../editor/CoreSenseStudioPanel';
 
 suite('Unified RosTooling Studio Consolidation Suite', () => {
   const extRoot = path.resolve(__dirname, '..', '..');
@@ -276,6 +277,73 @@ suite('Unified RosTooling Studio Consolidation Suite', () => {
       assert.strictEqual(subNode.x, 640);
     } finally {
       watcher.dispose();
+      daemon.dispose();
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('RosStudioWorkbenchController: reloadActiveProject handles external project.json changes', async function () {
+    this.timeout(15000);
+    const resolver = new PythonEnvResolver(extRoot);
+    const backend = await resolver.resolveStudioBackend();
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-reload-test-'));
+    const daemon = new StudioDaemonManager({
+      extensionPath: extRoot,
+      storageRoot: path.join(tmpRoot, 'studio-storage'),
+      port: 0,
+      envResolver: resolver,
+      silentMissingBackend: true,
+    });
+
+    try {
+      await daemon.ensureRunning();
+      const created = await daemon.request<{ projectId?: string; project?: Record<string, unknown> }>(
+        'POST',
+        '/api/projects',
+        { name: 'reload_demo', mode: 'starter' }
+      );
+      const pid = String(created.projectId || '');
+      assert.ok(pid);
+
+      const gate = new MaterializationGate(daemon);
+      const draft = new DraftContentProvider(daemon);
+      const watcher = new ReconciliationWatcher(daemon, gate, { enableWatchers: false });
+
+      const mockCtx = {
+        extensionPath: extRoot,
+        extensionUri: vscode.Uri.file(extRoot),
+        asAbsolutePath: (rel: string) => path.join(extRoot, rel),
+        subscriptions: [],
+      } as unknown as vscode.ExtensionContext;
+
+      const controller = new RosStudioWorkbenchController(mockCtx, daemon, gate, draft, watcher);
+
+      // Select project in controller
+      controller.openOrShow('intent', pid);
+      assert.strictEqual(controller.getActiveProjectId(), pid);
+
+      // Simulate external project modification on daemon
+      const modProj = JSON.parse(JSON.stringify(created.project || {}));
+      if (!modProj.studio) modProj.studio = {};
+      if (!modProj.studio.brief) modProj.studio.brief = {};
+      modProj.studio.brief.purpose = 'Modified externally by agent';
+
+      await daemon.request('PUT', `/api/projects/${encodeURIComponent(pid)}`, {
+        expectedRevision: 1,
+        project: modProj,
+      });
+
+      // Reload project via controller
+      await controller.reloadActiveProject();
+
+      controller.dispose();
+      watcher.dispose();
+    } finally {
       daemon.dispose();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }

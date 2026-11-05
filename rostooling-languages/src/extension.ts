@@ -1190,6 +1190,10 @@ export async function activate(context: ExtensionContext) {
         await AgentSkillInstaller.promptInstallSkills(context);
     });
 
+    safeRegisterCommand('rostooling.reloadProject', async () => {
+        await studioController.reloadActiveProject();
+    });
+
     // Offer agent skill installation on workspace startup if not already installed
     void AgentSkillInstaller.checkAndPromptOnStartup(context);
 

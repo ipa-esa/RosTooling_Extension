@@ -520,6 +520,7 @@ const state = {
   macroMcpResult: null,
   macroSources: null,
   macroBusy: false,
+  macroExternalChange: null,
   macroWorkspaceRoot: init.macroWorkspaceRoot || '',
   macroCustomScanPath: '',
 
@@ -623,6 +624,7 @@ registerHostMessageListener({
       state.macroActiveProjectId = msg.activeProjectId || '';
     }
     if (msg.envelope) {
+      state.macroExternalChange = null;
       const env = msg.envelope;
       state.macroRevision = env.revision ?? state.macroRevision;
       state.macroModelState = env.modelState || 'clean';
@@ -682,6 +684,13 @@ registerHostMessageListener({
     } else {
       emitChange();
     }
+  },
+  onMacroExternalChange(msg) {
+    state.macroExternalChange = {
+      source: msg.source || 'disk',
+      timestamp: Date.now(),
+    };
+    emitChange();
   },
 });
 

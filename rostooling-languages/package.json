@@ -246,6 +246,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "rostooling.reloadProject",
+        "title": "Reload Active Project from Disk",
+        "category": "RosTooling",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "rossystem.triggerCodeGeneration",
         "title": "Generate ROS2 Package",
         "category": "ROSSYSTEM"
@@ -319,6 +325,7 @@
     "onCommand:rostooling.openVisualStudio",
     "onCommand:rostooling.selectServerJar",
     "onCommand:rostooling.installAgentSkills",
+    "onCommand:rostooling.reloadProject",
     "onCommand:ros2.generateWrappers",
     "onCommand:rossystem.triggerCodeGeneration",
     "onCommand:rossdl.buildPackage",

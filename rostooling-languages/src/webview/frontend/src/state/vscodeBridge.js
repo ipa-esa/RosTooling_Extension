@@ -113,6 +113,11 @@ export function registerHostMessageListener(handlers) {
           handlers.onMacroToast(msg.text || '', Boolean(msg.isError));
         }
         break;
+      case 'macroExternalChange':
+        if (handlers.onMacroExternalChange) {
+          handlers.onMacroExternalChange(msg);
+        }
+        break;
       default:
         break;
     }
@@ -201,5 +206,8 @@ export const hostBridge = {
   },
   macroInstallAgentSkills() {
     getVsCodeApi().postMessage({ type: 'macroInstallAgentSkills' });
+  },
+  macroReloadProject() {
+    getVsCodeApi().postMessage({ type: 'macroReloadProject' });
   },
 };

@@ -18,6 +18,7 @@ import {
   Globe,
   ArrowRightCircle,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   useStudio,
@@ -114,6 +115,7 @@ export function RosStudioApp() {
     macroRevision,
     macroModelState,
     macroBusy,
+    macroExternalChange,
     isReadOnly,
     docFileName,
     interfaceFilter,
@@ -658,6 +660,17 @@ export function RosStudioApp() {
                 <Trash2 size={12} />
               </button>
             )}
+            <button
+              type="button"
+              className="rt-btn subtle"
+              style={{ height: 26, padding: '0 8px', gap: 4 }}
+              title="Reload project models and configuration from disk"
+              disabled={macroBusy}
+              onClick={() => hostBridge.macroReloadProject()}
+            >
+              <RefreshCw size={12} className={macroBusy ? 'rt-spin' : ''} />
+              <span>Reload</span>
+            </button>
             <span className="rt-macro-rev-pill">
               rev #{macroRevision || 1} · {macroModelState || 'clean'}
             </span>
@@ -698,6 +711,51 @@ export function RosStudioApp() {
             </button>
           </div>
         </nav>
+      )}
+
+      {/* External Change Detected Notification Banner */}
+      {isMacro && macroExternalChange && (
+        <div
+          style={{
+            background: 'rgba(59, 130, 246, 0.12)',
+            borderBottom: '1px solid rgba(59, 130, 246, 0.35)',
+            padding: '8px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: 12.5,
+            zIndex: 100,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertCircle size={15} color="var(--rt-accent, #3b82f6)" style={{ flexShrink: 0 }} />
+            <span>
+              <strong>External changes detected on disk:</strong> {macroExternalChange.source ? `[${macroExternalChange.source}] ` : ''}Project models or <code>project.json</code> were modified outside this editor.
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              className="rt-btn primary"
+              style={{ height: 24, fontSize: 11.5, padding: '0 10px', gap: 5 }}
+              onClick={() => {
+                setUIState({ macroExternalChange: null });
+                hostBridge.macroReloadProject();
+              }}
+            >
+              <RefreshCw size={12} /> Reload Project
+            </button>
+            <button
+              type="button"
+              className="rt-btn subtle"
+              style={{ height: 22, width: 22, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Dismiss notification"
+              onClick={() => setUIState({ macroExternalChange: null })}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Mode View Router Wrapped in Error Boundary */}
