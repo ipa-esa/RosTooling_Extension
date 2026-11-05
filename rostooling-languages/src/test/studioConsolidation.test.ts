@@ -11,7 +11,7 @@ import { ReconciliationWatcher } from '../orchestration/ReconciliationWatcher';
 import { PythonEnvResolver } from '../orchestration/PythonEnvResolver';
 import { StudioDaemonManager } from '../orchestration/StudioDaemonManager';
 import { getMacroStudioHtml } from '../webview/studioHtml';
-import { RosStudioWorkbenchController } from '../editor/CoreSenseStudioPanel';
+import { RosStudioWorkbenchController, resolveWorkspaceRepoTarget } from '../editor/CoreSenseStudioPanel';
 
 suite('Unified RosTooling Studio Consolidation Suite', () => {
   const extRoot = path.resolve(__dirname, '..', '..');
@@ -395,6 +395,36 @@ suite('Unified RosTooling Studio Consolidation Suite', () => {
     } finally {
       daemon.dispose();
       fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('resolveWorkspaceRepoTarget pulls into src/ for ROS ws and root for open src/', () => {
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-ws-test-'));
+    try {
+      // 1. ROS workspace with a src/ folder -> pulls into src/
+      const rosWs = path.join(tmpWs, 'my_ros_ws');
+      const rosSrc = path.join(rosWs, 'src');
+      fs.mkdirSync(rosSrc, { recursive: true });
+      const target1 = resolveWorkspaceRepoTarget(rosWs, 'schunk_mechatronic_gripper');
+      assert.strictEqual(target1, path.join(rosSrc, 'schunk_mechatronic_gripper'));
+
+      // 2. Open src/ folder directly in workspace -> pulls into root of workspace
+      const target2 = resolveWorkspaceRepoTarget(rosSrc, 'schunk_mechatronic_gripper');
+      assert.strictEqual(target2, path.join(rosSrc, 'schunk_mechatronic_gripper'));
+
+      // 3. ROS workspace with .rostooling folder -> pulls into src/
+      const studioWs = path.join(tmpWs, 'studio_ws');
+      fs.mkdirSync(path.join(studioWs, '.rostooling'), { recursive: true });
+      const target3 = resolveWorkspaceRepoTarget(studioWs, 'schunk_mechatronic_gripper');
+      assert.strictEqual(target3, path.join(studioWs, 'src', 'schunk_mechatronic_gripper'));
+
+      // 4. Plain non-ROS workspace -> pulls into root
+      const plainWs = path.join(tmpWs, 'plain_ws');
+      fs.mkdirSync(plainWs, { recursive: true });
+      const target4 = resolveWorkspaceRepoTarget(plainWs, 'schunk_mechatronic_gripper');
+      assert.strictEqual(target4, path.join(plainWs, 'schunk_mechatronic_gripper'));
+    } finally {
+      fs.rmSync(tmpWs, { recursive: true, force: true });
     }
   });
 });

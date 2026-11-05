@@ -677,6 +677,21 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
             repoName = (derived || 'repo').slice(0, 48);
           }
           const revision = rawBranch || 'HEAD';
+
+          // Determine target directory in open workspace:
+          // 1. If the src folder is open in the workspace, pull into the root.
+          // 2. If it is a ros workspace (has src/ folder), pull into the src folder.
+          // 3. Otherwise, pull into the workspace root.
+          let wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const activeUri = vscode.window.activeTextEditor?.document.uri;
+          if (activeUri && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 1) {
+            const matching = vscode.workspace.getWorkspaceFolder(activeUri);
+            if (matching) {
+              wsRoot = matching.uri.fsPath;
+            }
+          }
+          const targetDir = wsRoot ? resolveWorkspaceRepoTarget(wsRoot, repoName) : undefined;
+
           try {
             await this.daemonManager.request(
               'POST',
@@ -686,14 +701,16 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
                 url: rawUrl,
                 revision,
                 branch: rawBranch || revision,
+                targetDir,
+                workspaceRoot: wsRoot,
               }
             );
-            this.broadcastToast(`Repository "${repoName}" fetched into Studio project.`);
+            this.broadcastToast(`Repository "${repoName}" fetched into ${targetDir || 'Studio project'}.`);
             await this.refreshRepositories(pid);
             this.broadcastMacroState();
 
             // Refresh sources inspection if path specified or active workspace exists
-            const defaultWs = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const defaultWs = wsRoot;
             const targetPath =
               typeof msg.scanPath === 'string' && msg.scanPath.trim()
                 ? msg.scanPath.trim()
@@ -1058,3 +1075,30 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
 export const CoreSenseStudioController = RosStudioWorkbenchController;
 /** @deprecated Use RosStudioWorkbenchController */
 export type CoreSenseStudioController = RosStudioWorkbenchController;
+
+/**
+ * Resolves the target destination directory for a repository in an open workspace:
+ * - If the 'src' folder itself is open in the workspace, the repository is pulled into the workspace root.
+ * - If it is a ROS workspace (or has a 'src' folder), the repository is pulled into the 'src' folder.
+ * - Otherwise, the repository is pulled into the workspace root.
+ */
+export function resolveWorkspaceRepoTarget(wsRoot: string, repoName: string): string {
+  const norm = path.normalize(wsRoot);
+  const base = path.basename(norm).toLowerCase();
+  if (base === 'src') {
+    return path.join(norm, repoName);
+  }
+  const srcCandidate = path.join(norm, 'src');
+  if (fs.existsSync(srcCandidate) && fs.statSync(srcCandidate).isDirectory()) {
+    return path.join(srcCandidate, repoName);
+  }
+  const isRosWs =
+    fs.existsSync(path.join(norm, '.catkin_workspace')) ||
+    fs.existsSync(path.join(norm, 'colcon.pkg')) ||
+    (fs.existsSync(path.join(norm, 'install')) && fs.existsSync(path.join(norm, 'build'))) ||
+    fs.existsSync(path.join(norm, '.rostooling'));
+  if (isRosWs) {
+    return path.join(srcCandidate, repoName);
+  }
+  return path.join(norm, repoName);
+}
