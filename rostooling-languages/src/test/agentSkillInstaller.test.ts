@@ -101,4 +101,25 @@ suite('AgentSkillInstaller Test Suite', () => {
     assert.ok(fs.existsSync(path.join(tempDir, '.cursor', 'rules', 'ros-model.mdc')));
     assert.ok(fs.existsSync(path.join(tempDir, '.mcp.json')));
   });
+
+  test('Safely overwrites pre-existing symlinks in destination without non-directory error', async () => {
+    // Pre-create .claude/skills and a symlink at .claude/skills/ros-model
+    const claudeSkills = path.join(tempDir, '.claude', 'skills');
+    fs.mkdirSync(claudeSkills, { recursive: true });
+    const dummyTarget = path.join(tempDir, 'dummy-target');
+    fs.mkdirSync(dummyTarget, { recursive: true });
+    fs.symlinkSync(dummyTarget, path.join(claudeSkills, 'ros-model'));
+
+    const res = await AgentSkillInstaller.installSkills(mockContext, {
+      platform: 'claude',
+      scope: 'workspace',
+      customTargetRoot: tempDir,
+    });
+
+    assert.strictEqual(res.success, true, `Expected success but got error: ${res.error}`);
+    const stat = fs.lstatSync(path.join(claudeSkills, 'ros-model'));
+    assert.ok(!stat.isSymbolicLink(), 'Expected symlink to be replaced by a real directory');
+    assert.ok(stat.isDirectory(), 'Expected real directory');
+    assert.ok(fs.existsSync(path.join(claudeSkills, 'ros-model', 'SKILL.md')));
+  });
 });

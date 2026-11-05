@@ -109,7 +109,7 @@ export class AgentSkillInstaller {
         for (const skillName of skillDirs) {
           const srcSkillPath = path.join(sourceDir, skillName);
           const destSkillPath = path.join(agentsDestDir, skillName);
-          fs.cpSync(srcSkillPath, destSkillPath, { recursive: true, force: true });
+          this.safeCopyDir(srcSkillPath, destSkillPath);
         }
         installedPlatforms.push('Antigravity / Universal (.agents/skills)');
       }
@@ -128,20 +128,20 @@ export class AgentSkillInstaller {
           if (fs.existsSync(skillMdPath)) {
             // Copy as Claude Code slash command (/ros-model, /ros-system-builder, etc.)
             const commandDestPath = path.join(claudeCommandsDir, `${skillName}.md`);
-            fs.copyFileSync(skillMdPath, commandDestPath);
+            this.safeCopyFile(skillMdPath, commandDestPath);
 
             // Also copy companion references if present
             const refsDir = path.join(srcSkillPath, 'references');
             if (fs.existsSync(refsDir) && fs.statSync(refsDir).isDirectory()) {
               const destRefsDir = path.join(claudeCommandsDir, 'references', skillName);
               fs.mkdirSync(destRefsDir, { recursive: true });
-              fs.cpSync(refsDir, destRefsDir, { recursive: true, force: true });
+              this.safeCopyDir(refsDir, destRefsDir);
             }
           }
 
           // Also copy complete skill folder into .claude/skills
           const destClaudeSkill = path.join(claudeSkillsDir, skillName);
-          fs.cpSync(srcSkillPath, destClaudeSkill, { recursive: true, force: true });
+          this.safeCopyDir(srcSkillPath, destClaudeSkill);
         }
 
         // Configure .mcp.json for Claude Code
@@ -158,7 +158,7 @@ export class AgentSkillInstaller {
           const srcSkillMd = path.join(sourceDir, skillName, 'SKILL.md');
           if (fs.existsSync(srcSkillMd)) {
             const destRule = path.join(cursorRulesDir, `${skillName}.mdc`);
-            fs.copyFileSync(srcSkillMd, destRule);
+            this.safeCopyFile(srcSkillMd, destRule);
           }
         }
         installedPlatforms.push('Cursor (.cursor/rules)');
@@ -221,6 +221,30 @@ export class AgentSkillInstaller {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Safely copy directory to destination, removing any existing symlink, file, or dir first.
+   */
+  private static safeCopyDir(src: string, dest: string): void {
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+    } catch {
+      // Ignore removal errors
+    }
+    fs.cpSync(src, dest, { recursive: true, force: true });
+  }
+
+  /**
+   * Safely copy single file to destination, removing any existing symlink or file first.
+   */
+  private static safeCopyFile(src: string, dest: string): void {
+    try {
+      fs.rmSync(dest, { force: true });
+    } catch {
+      // Ignore removal errors
+    }
+    fs.copyFileSync(src, dest);
   }
 
   /**
