@@ -192,8 +192,8 @@ export const hostBridge = {
   macroOpenExternalBrowser(stage) {
     getVsCodeApi().postMessage({ type: 'macroOpenExternalBrowser', stage });
   },
-  macroFetchRepository(url, branch) {
-    getVsCodeApi().postMessage({ type: 'macroFetchRepository', url, branch });
+  macroFetchRepository(url, branch, name) {
+    getVsCodeApi().postMessage({ type: 'macroFetchRepository', url, branch, name });
   },
   macroInspectSources(customPath) {
     getVsCodeApi().postMessage({ type: 'macroInspectSources', path: customPath });

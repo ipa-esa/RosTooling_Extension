@@ -20,6 +20,8 @@ import {
   Cpu,
   Layers,
   Bot,
+  FolderGit2,
+  Copy,
 } from 'lucide-react';
 import {
   useStudio,
@@ -435,10 +437,29 @@ export function MacroIntentView() {
 }
 
 export function MacroPackagesView() {
-  const { project, nodeIndex, typeIndex, macroSources, macroBusy, macroWorkspaceRoot, macroCustomScanPath } = useStudio();
+  const { project, nodeIndex, typeIndex, macroSources, macroBusy, macroWorkspaceRoot, macroCustomScanPath, macroRepositories } = useStudio();
   const [repoUrl, setRepoUrl] = useState('');
   const [repoBranch, setRepoBranch] = useState('main');
+  const [repoName, setRepoName] = useState('');
+  const [repoNameCustomized, setRepoNameCustomized] = useState(false);
   const [scanPath, setScanPath] = useState(macroCustomScanPath || macroWorkspaceRoot || '');
+
+  const deriveRepoName = (url) => {
+    if (!url || typeof url !== 'string') return '';
+    const raw = url.trim().replace(/\/+$/, '').split('/').pop()?.replace(/\.git$/, '') || '';
+    let derived = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+    if (derived && !/^[a-z]/.test(derived)) {
+      derived = 'repo_' + derived;
+    }
+    return (derived || 'repo').slice(0, 48);
+  };
+
+  const handleUrlChange = (val) => {
+    setRepoUrl(val);
+    if (!repoNameCustomized) {
+      setRepoName(deriveRepoName(val));
+    }
+  };
 
   const p = project || {};
   const studio = p.studio || {};
@@ -622,28 +643,112 @@ ${targetNames ? `## 📌 Currently Selected Packages\n${targetNames}\n` : ''}
                 className="rt-input"
                 placeholder="https://github.com/ros-navigation/navigation2.git"
                 value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
+                onChange={(e) => handleUrlChange(e.target.value)}
               />
             </div>
-            <div className="rt-form-group" style={{ marginTop: 8 }}>
-              <label className="rt-form-label">Branch / Tag</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+              <div className="rt-form-group">
+                <label className="rt-form-label">Repository Name</label>
+                <input
+                  className="rt-input"
+                  placeholder={deriveRepoName(repoUrl) || 'e.g. schunk_mechatronic_gripper'}
+                  value={repoName}
+                  onChange={(e) => {
+                    setRepoNameCustomized(true);
+                    setRepoName(e.target.value);
+                  }}
+                />
+              </div>
+              <div className="rt-form-group">
+                <label className="rt-form-label">Branch / Tag</label>
                 <input
                   className="rt-input"
                   placeholder="main"
                   value={repoBranch}
                   onChange={(e) => setRepoBranch(e.target.value)}
                 />
-                <button
-                  type="button"
-                  className="rt-btn primary"
-                  disabled={!repoUrl.trim() || macroBusy}
-                  onClick={() => hostBridge.macroFetchRepository(repoUrl.trim(), repoBranch.trim())}
-                >
-                  Fetch Repo
-                </button>
               </div>
             </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <button
+                type="button"
+                className="rt-btn primary"
+                disabled={!repoUrl.trim() || macroBusy}
+                onClick={() => {
+                  const finalName = repoName.trim() || deriveRepoName(repoUrl.trim());
+                  hostBridge.macroFetchRepository(repoUrl.trim(), repoBranch.trim(), finalName);
+                }}
+              >
+                Fetch Repo
+              </button>
+            </div>
+
+            {/* Linked Repositories */}
+            {Array.isArray(macroRepositories?.repositories) && macroRepositories.repositories.length > 0 && (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rt-border, #333)' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FolderGit2 size={14} /> Linked Repositories ({macroRepositories.repositories.length})
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {macroRepositories.repositories.map((repo) => {
+                    const rName = repo.path?.split('/').pop() || repo.name || 'repository';
+                    const localPath = repo.localPath || repo.path;
+                    return (
+                      <div
+                        key={repo.path}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 10px',
+                          background: 'var(--rt-bg-card, #252526)',
+                          borderRadius: 4,
+                          border: '1px solid var(--rt-border, #333)',
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1, marginRight: 8 }}>
+                          <div style={{ fontWeight: 600, color: 'var(--rt-fg, #ccc)' }}>{rName}</div>
+                          <div style={{ color: 'var(--rt-muted, #888)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {repo.url} ({repo.currentCommit ? repo.currentCommit.slice(0, 8) : repo.revision || 'HEAD'})
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            className="rt-btn subtle"
+                            style={{ height: 24, fontSize: 11, padding: '0 8px', gap: 4 }}
+                            title={`Inspect packages inside ${localPath}`}
+                            onClick={() => {
+                              if (localPath) {
+                                setScanPath(localPath);
+                                hostBridge.macroInspectSources(localPath);
+                              }
+                            }}
+                          >
+                            <FolderSearch size={12} /> Scan Packages
+                          </button>
+                          <button
+                            type="button"
+                            className="rt-btn subtle icon-only"
+                            style={{ height: 24, width: 24, padding: 0 }}
+                            title="Copy local path to clipboard"
+                            onClick={() => {
+                              if (navigator.clipboard && localPath) {
+                                navigator.clipboard.writeText(localPath);
+                                showToast(`Copied repository path: ${localPath}`);
+                              }
+                            }}
+                          >
+                            <Copy size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rt-card">

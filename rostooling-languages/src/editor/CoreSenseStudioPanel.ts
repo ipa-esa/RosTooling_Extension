@@ -55,6 +55,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
   private activeProjectId = '';
   private latestProjects: { id: string; name?: string; systemName?: string; root?: string }[] = [];
   private latestEnvelope: ProjectEnvelope | null = null;
+  private latestRepositories: unknown = null;
   private latestMcpStatus: unknown = null;
 
   private nodeIndex: Record<string, unknown> = {};
@@ -348,8 +349,25 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         'GET',
         `/api/projects/${encodeURIComponent(this.activeProjectId)}`
       );
+      await this.refreshRepositories(this.activeProjectId);
     } catch {
       this.latestEnvelope = null;
+      this.latestRepositories = null;
+    }
+  }
+
+  private async refreshRepositories(pid: string): Promise<void> {
+    if (!pid) {
+      this.latestRepositories = null;
+      return;
+    }
+    try {
+      this.latestRepositories = await this.daemonManager.request(
+        'GET',
+        `/api/projects/${encodeURIComponent(pid)}/repositories`
+      );
+    } catch {
+      this.latestRepositories = null;
     }
   }
 
@@ -376,6 +394,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
             'GET',
             `/api/projects/${encodeURIComponent(pid)}`
           );
+          await this.refreshRepositories(pid);
           this.setBusy(false);
           this.broadcastMacroState();
           break;
@@ -643,16 +662,58 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         case 'macroFetchRepository': {
           const pid = await this.ensureActiveProjectId();
           this.setBusy(true);
-          await this.daemonManager.request(
-            'POST',
-            `/api/projects/${encodeURIComponent(pid)}/repositories`,
-            {
-              url: msg.url,
-              branch: msg.branch || 'main',
+          const rawUrl = String(msg.url || '').trim();
+          const rawBranch = String(msg.branch || msg.revision || '').trim();
+          let repoName = typeof msg.name === 'string' ? msg.name.trim() : '';
+          if (!repoName && rawUrl) {
+            const raw = rawUrl.replace(/\/+$/, '').split('/').pop()?.replace(/\.git$/, '') || '';
+            let derived = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+            if (derived && !/^[a-z]/.test(derived)) {
+              derived = 'repo_' + derived;
             }
-          );
-          this.setBusy(false);
-          this.broadcastToast('Repository fetched into Studio project.');
+            repoName = (derived || 'repo').slice(0, 48);
+          }
+          const revision = rawBranch || 'HEAD';
+          try {
+            await this.daemonManager.request(
+              'POST',
+              `/api/projects/${encodeURIComponent(pid)}/repositories`,
+              {
+                name: repoName,
+                url: rawUrl,
+                revision,
+                branch: rawBranch || revision,
+              }
+            );
+            this.broadcastToast(`Repository "${repoName}" fetched into Studio project.`);
+            await this.refreshRepositories(pid);
+            this.broadcastMacroState();
+
+            // Refresh sources inspection if path specified or active workspace exists
+            const defaultWs = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const targetPath =
+              typeof msg.scanPath === 'string' && msg.scanPath.trim()
+                ? msg.scanPath.trim()
+                : defaultWs;
+            if (targetPath) {
+              const queryParam = `?path=${encodeURIComponent(targetPath)}`;
+              const sources = await this.daemonManager.request(
+                'GET',
+                `/api/projects/${encodeURIComponent(pid)}/source/inspect${queryParam}`
+              );
+              for (const inst of this.panels) {
+                void inst.panel.webview.postMessage({
+                  type: 'macroSourcesResult',
+                  sources,
+                });
+              }
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.broadcastToast(`Failed to fetch repository: ${message}`, true);
+          } finally {
+            this.setBusy(false);
+          }
           break;
         }
         case 'macroInspectSources': {
@@ -834,6 +895,7 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
         projects: this.latestProjects,
         activeProjectId: this.activeProjectId,
         envelope: this.latestEnvelope,
+        repositories: this.latestRepositories,
         mcpStatus: this.latestMcpStatus,
         workspaceRoot: wsRoot,
         busy: false,

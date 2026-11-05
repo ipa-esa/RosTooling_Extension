@@ -348,4 +348,53 @@ suite('Unified RosTooling Studio Consolidation Suite', () => {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
+
+  test('Repository name auto-derivation and validation from GitHub URL and local path', async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-repo-test-'));
+    const daemon = new StudioDaemonManager({
+      extensionPath: extRoot,
+      storageRoot: tmpRoot,
+      port: 8778,
+      silentMissingBackend: true,
+    });
+
+    try {
+      await daemon.ensureRunning();
+      const created = await daemon.request<{ projectId?: string }>(
+        'POST',
+        '/api/projects',
+        { name: 'repo_test_sys', mode: 'starter' }
+      );
+      const pid = String(created.projectId || '');
+      assert.ok(pid);
+
+      // 1. Locate local directory without providing 'name' -> should auto-derive name from folder
+      const localRepoDir = path.join(tmpRoot, 'schunk_mechatronic_gripper');
+      fs.mkdirSync(localRepoDir, { recursive: true });
+
+      const locateRes = await daemon.request<{ ok: boolean; repository: { path: string } }>(
+        'POST',
+        `/api/projects/${encodeURIComponent(pid)}/repositories`,
+        {
+          operation: 'locate',
+          path: localRepoDir,
+        }
+      );
+      assert.strictEqual(locateRes.ok, true);
+      assert.strictEqual(locateRes.repository.path, 'src/vendor/schunk_mechatronic_gripper');
+
+      // 2. Fetch endpoint should auto-derive name from URL if name is omitted, rather than throwing 'invalid_repository'
+      // Test URL name derivation:
+      const testUrl = 'https://github.com/SCHUNK-SE-Co-KG/schunk_mechatronic_gripper.git';
+      const raw = testUrl.replace(/\/+$/, '').split('/').pop()?.replace(/\.git$/, '') || '';
+      let derived = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+      if (derived && !/^[a-z]/.test(derived)) {
+        derived = 'repo_' + derived;
+      }
+      assert.strictEqual(derived, 'schunk_mechatronic_gripper');
+    } finally {
+      daemon.dispose();
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
 });

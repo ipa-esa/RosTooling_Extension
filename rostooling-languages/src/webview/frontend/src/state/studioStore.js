@@ -523,6 +523,7 @@ const state = {
   macroExternalChange: null,
   macroWorkspaceRoot: init.macroWorkspaceRoot || '',
   macroCustomScanPath: '',
+  macroRepositories: null,
 
   isReadOnly: init.isReadOnly,
   docFileName: init.docFileName,
@@ -646,6 +647,9 @@ registerHostMessageListener({
     }
     if (msg.workspaceRoot !== undefined) {
       state.macroWorkspaceRoot = msg.workspaceRoot || '';
+    }
+    if (msg.repositories !== undefined) {
+      state.macroRepositories = msg.repositories;
     }
     emitChange();
   },
