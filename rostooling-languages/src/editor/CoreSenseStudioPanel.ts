@@ -87,7 +87,9 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
       })
     );
 
-    const projectWatcher = vscode.workspace.createFileSystemWatcher('**/{.rostooling/project.json,project.json}');
+    const projectWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/{.rostooling/project.json,.rostooling/active_project.json,project.json,models/*.ros2,models/*.ros,models/*.rossystem,*.ros2,*.ros,*.rossystem}'
+    );
     const onProjectFileChange = (uri: vscode.Uri) => {
       if (uri.scheme === 'file') {
         void this.handleExternalProjectChange(uri.fsPath);
@@ -96,7 +98,8 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
     this.disposables.push(
       projectWatcher,
       projectWatcher.onDidChange(onProjectFileChange),
-      projectWatcher.onDidCreate(onProjectFileChange)
+      projectWatcher.onDidCreate(onProjectFileChange),
+      projectWatcher.onDidDelete(onProjectFileChange)
     );
   }
 
@@ -953,12 +956,33 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
       const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (wsRoot) {
         const wsProjectJson = path.join(wsRoot, '.rostooling', 'project.json');
-        if (fs.existsSync(wsProjectJson)) {
+        const wsActiveJson = path.join(wsRoot, '.rostooling', 'active_project.json');
+
+        let chosenFile: string | null = null;
+        if (fs.existsSync(wsProjectJson) && fs.existsSync(wsActiveJson)) {
+          const statP = await fs.promises.stat(wsProjectJson);
+          const statA = await fs.promises.stat(wsActiveJson);
+          chosenFile = statA.mtimeMs > statP.mtimeMs ? wsActiveJson : wsProjectJson;
+        } else if (fs.existsSync(wsProjectJson)) {
+          chosenFile = wsProjectJson;
+        } else if (fs.existsSync(wsActiveJson)) {
+          chosenFile = wsActiveJson;
+        }
+
+        if (chosenFile) {
           try {
-            const wsContent = await fs.promises.readFile(wsProjectJson, 'utf8');
+            const wsContent = await fs.promises.readFile(chosenFile, 'utf8');
             const wsHash = crypto.createHash('sha256').update(wsContent).digest('hex');
             if (wsHash !== this.lastSyncedProjectHash) {
               const wsProj = JSON.parse(wsContent);
+              if (wsProj && typeof wsProj === 'object') {
+                wsProj.studio = wsProj.studio || {};
+                wsProj.studio.workspaceRoot = wsRoot;
+                const modelsDir = path.join(wsRoot, 'models');
+                if (fs.existsSync(modelsDir)) {
+                  wsProj.studio.promotedTargetDir = modelsDir;
+                }
+              }
               const current = await this.daemonManager.request<ProjectEnvelope>(
                 'GET',
                 `/api/projects/${encodeURIComponent(pid)}`
@@ -974,35 +998,31 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
               this.lastSyncedProjectHash = wsHash;
             }
           } catch (e) {
-            console.warn('[CoreSenseStudioPanel] Error syncing workspace project.json to daemon:', e);
+            console.warn('[CoreSenseStudioPanel] Error syncing workspace project file to daemon:', e);
           }
         }
       }
 
+      let queryParams = '';
+      if (wsRoot) {
+        const modelsDir = path.join(wsRoot, 'models');
+        queryParams = `?workspaceRoot=${encodeURIComponent(wsRoot)}&modelsDir=${encodeURIComponent(modelsDir)}`;
+      }
+
       this.latestEnvelope = await this.daemonManager.request<ProjectEnvelope>(
         'GET',
-        `/api/projects/${encodeURIComponent(pid)}`
+        `/api/projects/${encodeURIComponent(pid)}${queryParams}`
       );
 
-      // Keep workspace project files updated with the reconciled daemon project
+      // Keep both workspace project files synchronized with the reconciled daemon project
       if (wsRoot && this.latestEnvelope?.project) {
-        try {
-          const wsProjectJson = path.join(wsRoot, '.rostooling', 'project.json');
-          const wsActiveJson = path.join(wsRoot, '.rostooling', 'active_project.json');
-          const updatedStr = JSON.stringify(this.latestEnvelope.project, null, 2);
-          this.lastSyncedProjectHash = crypto.createHash('sha256').update(updatedStr).digest('hex');
-          await fs.promises.mkdir(path.dirname(wsProjectJson), { recursive: true });
-          await fs.promises.writeFile(wsProjectJson, updatedStr, 'utf8');
-          await fs.promises.writeFile(wsActiveJson, updatedStr, 'utf8');
-        } catch (syncErr) {
-          console.warn('[CoreSenseStudioPanel] Error saving reconciled project to workspace:', syncErr);
-        }
+        await this.syncActiveProjectToWorkspace(wsRoot, this.latestEnvelope.project);
       }
 
       this.setBusy(false);
       this.broadcastMacroState();
       this.broadcastToast(
-        `Reloaded project "${this.activeProjectId}" from disk (rev #${this.latestEnvelope?.revision ?? '?'})`
+        `Reloaded project "${this.activeProjectId}" and reconciled models (rev #${this.latestEnvelope?.revision ?? '?'})`
       );
     } catch (err) {
       this.setBusy(false);
