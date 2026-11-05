@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Cpu,
   Layers,
+  Bot,
 } from 'lucide-react';
 import {
   useStudio,
@@ -573,14 +574,25 @@ export function MacroPackagesView() {
                 <FolderSearch size={15} />
                 <h4 style={{ margin: 0, fontSize: 13.5 }}>Workspace Source Discovery</h4>
               </div>
-              <button
-                type="button"
-                className="rt-btn primary"
-                disabled={macroBusy}
-                onClick={() => hostBridge.macroInspectSources(scanPath.trim())}
-              >
-                Scan Workspace Sources
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  className="rt-btn subtle"
+                  style={{ height: 26, fontSize: 11.5, padding: '0 8px', gap: 5 }}
+                  title="Install AI Agent Skills & MCP server for Claude Code, Antigravity, and Cursor"
+                  onClick={() => hostBridge.macroInstallAgentSkills()}
+                >
+                  <Bot size={13} /> Install Agent Skills...
+                </button>
+                <button
+                  type="button"
+                  className="rt-btn primary"
+                  disabled={macroBusy}
+                  onClick={() => hostBridge.macroInspectSources(scanPath.trim())}
+                >
+                  Scan Workspace Sources
+                </button>
+              </div>
             </div>
             <p className="rt-macro-help">
               Inspect <code>package.xml</code>, C++, Python, interfaces, and launch files in your active IDE workspace or a custom path.
@@ -745,6 +757,15 @@ export function MacroPackagesView() {
                           }}
                         >
                           Copy Agent Prompt
+                        </button>
+                        <button
+                          type="button"
+                          className="rt-btn subtle"
+                          style={{ height: 24, fontSize: 11, padding: '0 8px', gap: 4 }}
+                          title="Install AI agent skills for Claude Code, Antigravity, Cursor, and configure MCP"
+                          onClick={() => hostBridge.macroInstallAgentSkills()}
+                        >
+                          <Bot size={12} /> Install Agent Skills...
                         </button>
                         <button
                           type="button"

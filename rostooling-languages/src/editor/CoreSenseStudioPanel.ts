@@ -8,6 +8,7 @@ import { DraftContentProvider } from '../orchestration/DraftContentProvider';
 import { MaterializationGate } from '../orchestration/MaterializationGate';
 import { ReconciliationWatcher } from '../orchestration/ReconciliationWatcher';
 import { StudioDaemonManager, StudioDaemonError } from '../orchestration/StudioDaemonManager';
+import { AgentSkillInstaller } from '../agent/AgentSkillInstaller';
 
 export type MacroStageId = 'intent' | 'packages' | 'architecture' | 'checks' | 'deployment';
 
@@ -720,6 +721,15 @@ export class RosStudioWorkbenchController implements vscode.Disposable {
             this.setBusy(false);
             const errMsg = err instanceof Error ? err.message : String(err);
             this.broadcastToast(`Extraction failed: ${errMsg}`, true);
+          }
+          break;
+        }
+        case 'macroInstallAgentSkills': {
+          try {
+            await AgentSkillInstaller.promptInstallSkills(this.context);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            this.broadcastToast(`Failed to install agent skills: ${errMsg}`, true);
           }
           break;
         }

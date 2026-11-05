@@ -393,6 +393,7 @@ pyrightconfig.json
 
 # Vendored Python Studio backend (populated during build/packaging from ipa-rostooling-studio)
 rostooling-languages/scripts/
+rostooling-languages/assets/skills/
 ipa-rostooling-studio/
 
 # End of https://www.toptal.com/developers/gitignore/api/python

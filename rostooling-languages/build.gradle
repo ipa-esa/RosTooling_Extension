@@ -17,6 +17,9 @@ task copyStudioBackend(type: Copy) {
             exclude "**/__pycache__/**"
             exclude "**/*.pyc"
         }
+        from("${studioDir}/.agents/skills") {
+            into "assets/skills"
+        }
     }
 }
 

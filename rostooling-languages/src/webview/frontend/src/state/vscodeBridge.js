@@ -199,4 +199,7 @@ export const hostBridge = {
   macroExtractSelectedPackages(packages) {
     getVsCodeApi().postMessage({ type: 'macroExtractSelectedPackages', packages });
   },
+  macroInstallAgentSkills() {
+    getVsCodeApi().postMessage({ type: 'macroInstallAgentSkills' });
+  },
 };
