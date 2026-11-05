@@ -46,6 +46,7 @@ import {
   normalizeDiagnostics,
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
+import { buildIntentContext } from './MacroLifecycleViews';
 import { RosNodeCard } from '../components/RosNodeCard';
 import { ProcessGroupNode } from '../components/ProcessGroupNode';
 import { SubsystemNodeCard } from '../components/SubsystemNodeCard';
@@ -1079,11 +1080,18 @@ function SystemCanvasInner() {
                   const flagSummary = flags
                     .map((f, i) => `${i + 1}. [${f.package || 'pkg'}] ${f.reason} (at ${f.at || f.file || 'source'})`)
                     .join('\n');
-                  const promptText = `Please help resolve the following ${flags.length} dynamic item(s) flagged during model extraction in .rostooling/active_project.json:\n\n${flagSummary}\n\nUsing the ros-model and ros-modeler skills, inspect the source files, determine the actual topic/service/action names or parameter values, and update the corresponding .ros2 component models.`;
+                  const intentBlock = buildIntentContext(project);
+                  const promptText = `Please help resolve the following ${flags.length} dynamic item(s) flagged during model extraction in .rostooling/active_project.json:
+
+${intentBlock ? `## 🎯 System Mission & Intent Context (from Stage 1 Intent)\n${intentBlock}\n\n` : ''}## 🚩 Flagged Dynamic Items
+${flagSummary}
+
+## 📋 Instructions:
+Using the ros-model and ros-modeler skills, inspect the source files, determine the actual topic/service/action names, parameter defaults, and gripper/fruit/sensor names relevant to this mission and application, and update the corresponding .ros2 component models in models/. When done, instruct the user to click Reload in RosTooling Studio.`;
                   if (navigator.clipboard) {
                     navigator.clipboard.writeText(promptText);
                   }
-                  showToast('Copied flag resolution prompt to clipboard');
+                  showToast('Copied Intent-guided flag resolution prompt to clipboard');
                 }}
               >
                 <Sparkles size={12} /> Copy Agent Prompt

@@ -40,6 +40,46 @@ export const MACRO_STAGES = [
   { id: 'deployment', label: '5. Deployment', emoji: '🚀' },
 ];
 
+export function buildIntentContext(project) {
+  const p = project || {};
+  const studio = p.studio || {};
+  const brief = studio.brief || {};
+  const criteria = Array.isArray(studio.criteria) ? studio.criteria : [];
+  const behaviors = Array.isArray(studio.behavior) ? studio.behavior : [];
+
+  const parts = [];
+  const sysName = p.system?.name;
+  if (sysName) {
+    parts.push(`- **System Name**: ${sysName}`);
+  }
+  if (brief.purpose || brief.goal) {
+    parts.push(`- **Mission Purpose / Goal**: ${brief.purpose || brief.goal}`);
+  }
+  if (brief.environment || brief.context) {
+    parts.push(`- **Operating Environment & Platform**: ${brief.environment || brief.context}`);
+  }
+  if (brief.constraints) {
+    parts.push(`- **Architectural & Real-Time Constraints**: ${brief.constraints}`);
+  }
+  if (brief.acceptance) {
+    parts.push(`- **Acceptance Gate**: ${brief.acceptance}`);
+  }
+  if (criteria.length > 0) {
+    const critList = criteria
+      .map((c, i) => `  ${i + 1}. ${c.statement || c.name || ''} (Verification: ${c.verification || 'check'})`)
+      .join('\n');
+    parts.push(`- **Acceptance Criteria**:\n${critList}`);
+  }
+  if (behaviors.length > 0) {
+    const behList = behaviors
+      .map((b, i) => `  ${i + 1}. **${b.name || `Behavior ${i + 1}`}**: When \`${b.trigger || 'trigger'}\` -> Then \`${b.response || 'response'}\``)
+      .join('\n');
+    parts.push(`- **Target Behaviors & Operational Sequence**:\n${behList}`);
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
 export function MacroIntentView() {
   const { project, macroProjects, macroActiveProjectId } = useStudio();
   const [newProjName, setNewProjName] = useState('');
@@ -401,6 +441,8 @@ export function MacroPackagesView() {
   const [scanPath, setScanPath] = useState(macroCustomScanPath || macroWorkspaceRoot || '');
 
   const p = project || {};
+  const studio = p.studio || {};
+  const brief = studio.brief || {};
   const selectedPackages = Array.isArray(p.studio?.selectedPackages)
     ? p.studio.selectedPackages
     : Object.keys(p.packages || {}).map((name) => ({
@@ -408,6 +450,42 @@ export function MacroPackagesView() {
         path: p.packages[name]?.path || '',
         buildType: p.packages[name]?.buildType || 'unknown',
       }));
+
+  const copyIntentModelingPrompt = (targetPackages = null) => {
+    const pkgs = macroSources?.packages || [];
+    const pkgList = pkgs
+      .map((pkg, i) => `${i + 1}. \`${pkg.name}\` (${pkg.path}) [${pkg.buildType}]`)
+      .join('\n');
+    const intentBlock = buildIntentContext(p);
+    const isSpecific = Array.isArray(targetPackages) && targetPackages.length > 0;
+    const targetNames = isSpecific ? targetPackages.map((s) => s.name).join(', ') : null;
+
+    const promptText = `Please assist with ROS 2 system modeling using the \`ros-model\` and \`ros-modeler\` skills in .rostooling/active_project.json.
+
+## 🎯 System Mission & Intent Context (from Stage 1 Intent)
+${intentBlock || 'No detailed brief recorded in project.json. Please inspect .rostooling/active_project.json.'}
+
+## 📦 Discovered Workspace Packages (${pkgs.length} found)
+${pkgList || 'No packages discovered in workspace scan.'}
+
+${targetNames ? `## 📌 Currently Selected Packages\n${targetNames}\n` : ''}
+## 📋 Agent Instructions:
+1. **Analyze Package Fit with Intent**:
+   Review the Mission Purpose, Operating Environment, Constraints, Acceptance Criteria, and Target Behaviors above. Compare them against the discovered workspace packages. Determine which packages are relevant or required to achieve this robotic application (including perception, planning, control, manipulation, simulation, and hardware interfaces).
+2. **Select & Suggest Packages**:
+   In \`.rostooling/active_project.json\`, ensure \`studio.selectedPackages\` contains all packages required for this mission. If you recommend additional packages, explain why they are needed for specific mission behaviors.
+3. **Extract & Author .ros2 Component Models**:
+   For the selected packages, generate or update component models in \`models/<package_name>.ros2\` (and message specs in \`models/<package_name>.ros\`).
+4. **Resolve Dynamic Topics & Parameters with Intent**:
+   Use the System Intent context above to resolve any runtime-built topic/service/action names, gripper commands, or dynamic parameters to concrete mission-appropriate names and values rather than leaving unresolved flags.
+5. **Verify**:
+   Run \`rosmodel_lint.py\` to verify 0 errors. When complete, instruct the user to click **Reload** in RosTooling Studio to reconcile the models into Stage 3 Architecture.`;
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(promptText);
+    }
+    showToast(isSpecific ? 'Copied Intent-guided modeling prompt to clipboard' : 'Copied Intent package selection prompt to clipboard');
+  };
 
   const isSelected = (pkgName) =>
     selectedPackages.some((sp) => sp.name === pkgName);
@@ -652,11 +730,58 @@ export function MacroPackagesView() {
 
                 {Array.isArray(macroSources.packages) && macroSources.packages.length > 0 ? (
                   <div style={{ marginBottom: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    {/* Stage 1 Intent Summary Banner */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        marginBottom: 10,
+                        background: 'rgba(59, 130, 246, 0.06)',
+                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                        <Target size={15} color="var(--rt-accent, #3b82f6)" style={{ flexShrink: 0 }} />
+                        <div style={{ overflow: 'hidden' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--rt-accent, #3b82f6)' }}>Stage 1 Intent Context: </span>
+                          <span style={{ color: 'var(--rt-text)' }}>
+                            {brief.purpose || brief.goal || 'No mission goal recorded in Stage 1 yet.'}
+                          </span>
+                          {(brief.environment || brief.constraints) && (
+                            <span style={{ color: 'var(--rt-muted)', marginLeft: 8, fontSize: 11 }}>
+                              ({[brief.environment, brief.constraints].filter(Boolean).join(' • ')})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rt-btn subtle"
+                        style={{ height: 22, fontSize: 11, padding: '0 8px', flexShrink: 0 }}
+                        onClick={() => setUIState({ macroStage: 'intent' })}
+                      >
+                        Edit Intent →
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--rt-text)' }}>
                         Select packages for the agent to model in Stage 3 Architecture:
                       </span>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="rt-btn subtle"
+                          style={{ height: 22, fontSize: 11, padding: '0 8px', gap: 4, color: 'var(--rt-accent, #3b82f6)' }}
+                          title="Copy prompt asking the agent to evaluate workspace packages against Intent and automatically select/model them"
+                          onClick={() => copyIntentModelingPrompt(null)}
+                        >
+                          <Sparkles size={11} /> AI Auto-Select from Intent
+                        </button>
                         <button
                           type="button"
                           className="rt-btn subtle"
@@ -745,18 +870,11 @@ export function MacroPackagesView() {
                         <button
                           type="button"
                           className="rt-btn subtle"
-                          style={{ height: 24, fontSize: 11, padding: '0 8px' }}
-                          title="Copy a prompt for the agent to model these packages"
-                          onClick={() => {
-                            const names = selectedPackages.map((s) => s.name).join(', ');
-                            const promptText = `Please use the ros-model skill to extract and generate .ros2 models for the selected packages (${names}) in .rostooling/active_project.json in preparation for the architecture step.`;
-                            if (navigator.clipboard) {
-                              navigator.clipboard.writeText(promptText);
-                            }
-                            showToast('Copied agent prompt to clipboard');
-                          }}
+                          style={{ height: 24, fontSize: 11, padding: '0 8px', gap: 4 }}
+                          title="Copy a prompt with Intent context for the agent to model these packages"
+                          onClick={() => copyIntentModelingPrompt(selectedPackages)}
                         >
-                          Copy Agent Prompt
+                          <Sparkles size={12} /> Copy Agent Prompt
                         </button>
                         <button
                           type="button"
