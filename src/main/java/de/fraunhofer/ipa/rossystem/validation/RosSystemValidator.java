@@ -7,15 +7,28 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EObject;
+import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.eclipse.xtext.validation.Check;
 import org.eclipse.xtext.xbase.lib.ArrayExtensions;
 import org.eclipse.xtext.xbase.lib.CollectionLiterals;
 import org.eclipse.xtext.xbase.lib.Conversions;
 import org.eclipse.xtext.xbase.lib.Exceptions;
 import org.eclipse.xtext.xbase.lib.IterableExtensions;
+import ros.ActionClient;
+import ros.ActionServer;
+import ros.Node;
 import ros.Parameter;
+import ros.ParameterString;
+import ros.ParameterStringType;
+import ros.ParameterType;
+import ros.ParameterValue;
+import ros.Publisher;
+import ros.ServiceClient;
+import ros.ServiceServer;
+import ros.Subscriber;
 import system.Component;
 import system.Connection;
 import system.InterfaceReference;
@@ -28,8 +41,8 @@ import system.RosPublisherReference;
 import system.RosServiceClientReference;
 import system.RosServiceServerReference;
 import system.RosSubscriberReference;
-import system.SubSystem;
 import system.RossystemFactory;
+import system.SubSystem;
 import system.impl.RosSystemConnectionImpl;
 
 /**
@@ -154,94 +167,119 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
       return interfaces;
     }
     EList<Component> _components = system.getComponents();
-    if (_components == null) {
+    boolean _tripleEquals = (_components == null);
+    if (_tripleEquals) {
       return interfaces;
     }
-    for (final Component component : _components) {
+    EList<Component> _components_1 = system.getComponents();
+    for (final Component component : _components_1) {
       if ((component instanceof RosNode)) {
-        RosNode rosNode = (RosNode) component;
-        if (rosNode.getRosinterfaces() != null && !rosNode.getRosinterfaces().isEmpty()) {
+        final RosNode rosNode = ((RosNode) component);
+        if (((rosNode.getRosinterfaces() != null) && (!rosNode.getRosinterfaces().isEmpty()))) {
           interfaces.addAll(rosNode.getRosinterfaces());
         } else {
-          // If node has no explicit interfaces, ensure synthetic interfaces are created
-          ros.Node fromNode = rosNode.getFrom();
-          if (fromNode != null && fromNode.eIsProxy()) {
-            fromNode = (ros.Node) org.eclipse.emf.ecore.util.EcoreUtil.resolve(fromNode, system);
+          Node fromNode = rosNode.getFrom();
+          if (((fromNode != null) && fromNode.eIsProxy())) {
+            EObject _resolve = EcoreUtil.resolve(fromNode, system);
+            fromNode = ((Node) _resolve);
           }
-          if (fromNode != null && !fromNode.eIsProxy()) {
-            java.util.Set<String> existing = new java.util.HashSet<>();
-            for (RosInterface ex : rosNode.getRosinterfaces()) {
-              if (ex.getName() != null) existing.add(ex.getName());
+          if (((fromNode != null) && (!fromNode.eIsProxy()))) {
+            final HashSet<String> existing = CollectionLiterals.<String>newHashSet();
+            EList<RosInterface> _rosinterfaces = rosNode.getRosinterfaces();
+            for (final RosInterface ex : _rosinterfaces) {
+              String _name = ex.getName();
+              boolean _tripleNotEquals = (_name != null);
+              if (_tripleNotEquals) {
+                existing.add(ex.getName());
+              }
             }
-            if (fromNode.getPublisher() != null) {
-              for (ros.Publisher pub : fromNode.getPublisher()) {
-                if (pub.getName() != null && existing.add(pub.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
+            EList<Publisher> _publisher = fromNode.getPublisher();
+            boolean _tripleNotEquals_1 = (_publisher != null);
+            if (_tripleNotEquals_1) {
+              EList<Publisher> _publisher_1 = fromNode.getPublisher();
+              for (final Publisher pub : _publisher_1) {
+                if (((pub.getName() != null) && existing.add(pub.getName()))) {
+                  final RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
                   iface.setName(pub.getName());
-                  RosPublisherReference ref = RossystemFactory.eINSTANCE.createRosPublisherReference();
+                  final RosPublisherReference ref = RossystemFactory.eINSTANCE.createRosPublisherReference();
                   ref.setFrom(pub);
                   iface.setReference(ref);
                   rosNode.getRosinterfaces().add(iface);
                 }
               }
             }
-            if (fromNode.getSubscriber() != null) {
-              for (ros.Subscriber sub : fromNode.getSubscriber()) {
-                if (sub.getName() != null && existing.add(sub.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
-                  iface.setName(sub.getName());
-                  RosSubscriberReference ref = RossystemFactory.eINSTANCE.createRosSubscriberReference();
-                  ref.setFrom(sub);
-                  iface.setReference(ref);
-                  rosNode.getRosinterfaces().add(iface);
+            EList<Subscriber> _subscriber = fromNode.getSubscriber();
+            boolean _tripleNotEquals_2 = (_subscriber != null);
+            if (_tripleNotEquals_2) {
+              EList<Subscriber> _subscriber_1 = fromNode.getSubscriber();
+              for (final Subscriber sub : _subscriber_1) {
+                if (((sub.getName() != null) && existing.add(sub.getName()))) {
+                  final RosInterface iface_1 = RossystemFactory.eINSTANCE.createRosInterface();
+                  iface_1.setName(sub.getName());
+                  final RosSubscriberReference ref_1 = RossystemFactory.eINSTANCE.createRosSubscriberReference();
+                  ref_1.setFrom(sub);
+                  iface_1.setReference(ref_1);
+                  rosNode.getRosinterfaces().add(iface_1);
                 }
               }
             }
-            if (fromNode.getServiceserver() != null) {
-              for (ros.ServiceServer ss : fromNode.getServiceserver()) {
-                if (ss.getName() != null && existing.add(ss.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
-                  iface.setName(ss.getName());
-                  RosServiceServerReference ref = RossystemFactory.eINSTANCE.createRosServiceServerReference();
-                  ref.setFrom(ss);
-                  iface.setReference(ref);
-                  rosNode.getRosinterfaces().add(iface);
+            EList<ServiceServer> _serviceserver = fromNode.getServiceserver();
+            boolean _tripleNotEquals_3 = (_serviceserver != null);
+            if (_tripleNotEquals_3) {
+              EList<ServiceServer> _serviceserver_1 = fromNode.getServiceserver();
+              for (final ServiceServer ss : _serviceserver_1) {
+                if (((ss.getName() != null) && existing.add(ss.getName()))) {
+                  final RosInterface iface_2 = RossystemFactory.eINSTANCE.createRosInterface();
+                  iface_2.setName(ss.getName());
+                  final RosServiceServerReference ref_2 = RossystemFactory.eINSTANCE.createRosServiceServerReference();
+                  ref_2.setFrom(ss);
+                  iface_2.setReference(ref_2);
+                  rosNode.getRosinterfaces().add(iface_2);
                 }
               }
             }
-            if (fromNode.getServiceclient() != null) {
-              for (ros.ServiceClient sc : fromNode.getServiceclient()) {
-                if (sc.getName() != null && existing.add(sc.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
-                  iface.setName(sc.getName());
-                  RosServiceClientReference ref = RossystemFactory.eINSTANCE.createRosServiceClientReference();
-                  ref.setFrom(sc);
-                  iface.setReference(ref);
-                  rosNode.getRosinterfaces().add(iface);
+            EList<ServiceClient> _serviceclient = fromNode.getServiceclient();
+            boolean _tripleNotEquals_4 = (_serviceclient != null);
+            if (_tripleNotEquals_4) {
+              EList<ServiceClient> _serviceclient_1 = fromNode.getServiceclient();
+              for (final ServiceClient sc : _serviceclient_1) {
+                if (((sc.getName() != null) && existing.add(sc.getName()))) {
+                  final RosInterface iface_3 = RossystemFactory.eINSTANCE.createRosInterface();
+                  iface_3.setName(sc.getName());
+                  final RosServiceClientReference ref_3 = RossystemFactory.eINSTANCE.createRosServiceClientReference();
+                  ref_3.setFrom(sc);
+                  iface_3.setReference(ref_3);
+                  rosNode.getRosinterfaces().add(iface_3);
                 }
               }
             }
-            if (fromNode.getActionserver() != null) {
-              for (ros.ActionServer as : fromNode.getActionserver()) {
-                if (as.getName() != null && existing.add(as.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
-                  iface.setName(as.getName());
-                  RosActionServerReference ref = RossystemFactory.eINSTANCE.createRosActionServerReference();
-                  ref.setFrom(as);
-                  iface.setReference(ref);
-                  rosNode.getRosinterfaces().add(iface);
+            EList<ActionServer> _actionserver = fromNode.getActionserver();
+            boolean _tripleNotEquals_5 = (_actionserver != null);
+            if (_tripleNotEquals_5) {
+              EList<ActionServer> _actionserver_1 = fromNode.getActionserver();
+              for (final ActionServer actServer : _actionserver_1) {
+                if (((actServer.getName() != null) && existing.add(actServer.getName()))) {
+                  final RosInterface iface_4 = RossystemFactory.eINSTANCE.createRosInterface();
+                  iface_4.setName(actServer.getName());
+                  final RosActionServerReference ref_4 = RossystemFactory.eINSTANCE.createRosActionServerReference();
+                  ref_4.setFrom(actServer);
+                  iface_4.setReference(ref_4);
+                  rosNode.getRosinterfaces().add(iface_4);
                 }
               }
             }
-            if (fromNode.getActionclient() != null) {
-              for (ros.ActionClient ac : fromNode.getActionclient()) {
-                if (ac.getName() != null && existing.add(ac.getName())) {
-                  RosInterface iface = RossystemFactory.eINSTANCE.createRosInterface();
-                  iface.setName(ac.getName());
-                  RosActionClientReference ref = RossystemFactory.eINSTANCE.createRosActionClientReference();
-                  ref.setFrom(ac);
-                  iface.setReference(ref);
-                  rosNode.getRosinterfaces().add(iface);
+            EList<ActionClient> _actionclient = fromNode.getActionclient();
+            boolean _tripleNotEquals_6 = (_actionclient != null);
+            if (_tripleNotEquals_6) {
+              EList<ActionClient> _actionclient_1 = fromNode.getActionclient();
+              for (final ActionClient ac : _actionclient_1) {
+                if (((ac.getName() != null) && existing.add(ac.getName()))) {
+                  final RosInterface iface_5 = RossystemFactory.eINSTANCE.createRosInterface();
+                  iface_5.setName(ac.getName());
+                  final RosActionClientReference ref_5 = RossystemFactory.eINSTANCE.createRosActionClientReference();
+                  ref_5.setFrom(ac);
+                  iface_5.setReference(ref_5);
+                  rosNode.getRosinterfaces().add(iface_5);
                 }
               }
             }
@@ -251,10 +289,11 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
       } else {
         if ((component instanceof SubSystem)) {
           system.System subSystem = ((SubSystem)component).getSystem();
-          if (subSystem != null && subSystem.eIsProxy()) {
-            subSystem = (system.System) org.eclipse.emf.ecore.util.EcoreUtil.resolve(subSystem, system);
+          if (((subSystem != null) && subSystem.eIsProxy())) {
+            EObject _resolve_1 = EcoreUtil.resolve(subSystem, system);
+            subSystem = ((system.System) _resolve_1);
           }
-          if (subSystem != null && !subSystem.eIsProxy()) {
+          if (((subSystem != null) && (!subSystem.eIsProxy()))) {
             interfaces.addAll(this.getAllInterfaces(subSystem));
           }
         }
@@ -265,7 +304,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
 
   @Check
   public void checkIfInterfaceInSystem(final Connection connection) {
-    if (!(connection instanceof RosSystemConnectionImpl)) {
+    if ((!(connection instanceof RosSystemConnectionImpl))) {
       return;
     }
     RosSystemConnectionImpl connection_def = ((RosSystemConnectionImpl) connection);
@@ -275,9 +314,6 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
       return;
     }
     EObject _eContainer = connection.eContainer();
-    if (!(_eContainer instanceof system.System)) {
-      return;
-    }
     system.System system = ((system.System) _eContainer);
     List<RosInterface> AllInterfaces = this.getAllInterfaces(system);
     boolean _contains = AllInterfaces.contains(from_connection);
@@ -301,7 +337,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
 
   @Check
   public void checkPortPatterns(final Connection connection) {
-    if (!(connection instanceof RosSystemConnectionImpl)) {
+    if ((!(connection instanceof RosSystemConnectionImpl))) {
       return;
     }
     List<String> validFromType = CollectionLiterals.<String>newArrayList("RosPublisherReference", "RosServiceServerReference", "RosActionServerReference");
@@ -312,7 +348,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
     if (((((from_connection == null) || from_connection.eIsProxy()) || (to_connection == null)) || to_connection.eIsProxy())) {
       return;
     }
-    if (from_connection.getReference() == null || to_connection.getReference() == null) {
+    if (((from_connection.getReference() == null) || (to_connection.getReference() == null))) {
       return;
     }
     boolean _contains = validFromType.contains(from_connection.getReference().eClass().getName());
@@ -355,7 +391,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
 
   @Check
   public void MatchPortMsgs(final Connection connection) {
-    if (!(connection instanceof RosSystemConnectionImpl)) {
+    if ((!(connection instanceof RosSystemConnectionImpl))) {
       return;
     }
     RosSystemConnectionImpl connection_def = ((RosSystemConnectionImpl) connection);
@@ -364,7 +400,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
     if (((((from_connection == null) || from_connection.eIsProxy()) || (to_connection == null)) || to_connection.eIsProxy())) {
       return;
     }
-    if (from_connection.getReference() == null || to_connection.getReference() == null) {
+    if (((from_connection.getReference() == null) || (to_connection.getReference() == null))) {
       return;
     }
     String _name = from_connection.getReference().eClass().getName();
@@ -451,9 +487,102 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
 
   private EObject expected_sub_type = null;
 
+  public static final Set<String> KNOWN_SUBSTITUTIONS = CollectionLiterals.<String>newHashSet(
+    "all", "and", "anon", "any", "command", "dirname", "env", "optenv", 
+    "equals", "eval", "exec-in-pkg", "file-content", "filename", "find-exec", 
+    "find-pkg-prefix", "find-pkg-share", "if", "launch_log_dir", "log_dir", 
+    "not", "not-equals", "or", "param", "var");
+
   @Check
   public void CheckParameter(final RosParameter rosparam) {
-    this.CheckParameterValue(rosparam.getFrom(), rosparam.getValue());
+    if (((rosparam == null) || (rosparam.getValue() == null))) {
+      return;
+    }
+    if (((rosparam.getValue() instanceof ParameterString) || rosparam.getValue().eClass().getName().contains("ParameterString"))) {
+      ParameterValue _value = rosparam.getValue();
+      final String strVal = ((ParameterString) _value).getValue();
+      if (((strVal != null) && strVal.contains("$("))) {
+        int depth = 0;
+        boolean unbalanced = false;
+        for (int k = 0; (k < strVal.length()); k++) {
+          {
+            final String c = strVal.substring(k, (k + 1));
+            boolean _equals = Objects.equals(c, "(");
+            if (_equals) {
+              depth++;
+            } else {
+              boolean _equals_1 = Objects.equals(c, ")");
+              if (_equals_1) {
+                depth--;
+                if ((depth < 0)) {
+                  unbalanced = true;
+                }
+              }
+            }
+          }
+        }
+        if ((depth != 0)) {
+          unbalanced = true;
+        }
+        if (unbalanced) {
+          String _name = rosparam.getName();
+          String _plus = ("Launch substitution expression in parameter \'" + _name);
+          String _plus_1 = (_plus + "\' has unbalanced parentheses.");
+          this.error(_plus_1, rosparam, null);
+          return;
+        }
+        int idx = strVal.indexOf("$(");
+        while ((idx != (-1))) {
+          {
+            final int startName = (idx + 2);
+            int endName = startName;
+            while (((endName < strVal.length()) && ((Character.isLetterOrDigit(strVal.charAt(endName)) || Objects.equals(strVal.substring(endName, (endName + 1)), "_")) || Objects.equals(strVal.substring(endName, (endName + 1)), "-")))) {
+              endName++;
+            }
+            final String subName = strVal.substring(startName, endName);
+            if (((subName.length() == 0) || (!RosSystemValidator.KNOWN_SUBSTITUTIONS.contains(subName)))) {
+              String _name_1 = rosparam.getName();
+              String _plus_2 = ((("Unknown launch substitution \'" + subName) + "\' in parameter \'") + _name_1);
+              String _plus_3 = (_plus_2 + "\'.");
+              this.error(_plus_3, rosparam, null);
+              return;
+            }
+            idx = strVal.indexOf("$(", startName);
+          }
+        }
+        Parameter _from = rosparam.getFrom();
+        boolean _tripleNotEquals = (_from != null);
+        if (_tripleNotEquals) {
+          final ParameterType expectedType = rosparam.getFrom().getType();
+          if (((expectedType instanceof ParameterStringType) || ((expectedType != null) && expectedType.eClass().getName().contains("ParameterStringType")))) {
+            String _name_1 = rosparam.getName();
+            String _plus_2 = ("Parameter \'" + _name_1);
+            String _plus_3 = (_plus_2 + "\' uses launch-time substitution; computed at launch time, not checked statically.");
+            this.info(_plus_3, rosparam, null);
+          } else {
+            String _xifexpression = null;
+            if ((expectedType != null)) {
+              _xifexpression = expectedType.eClass().getName().replace("Impl", "").replace("Parameter", "").replace("Type", "");
+            } else {
+              _xifexpression = "unknown";
+            }
+            final String typeName = _xifexpression;
+            String _name_2 = rosparam.getName();
+            String _plus_4 = ("Parameter \'" + _name_2);
+            String _plus_5 = (_plus_4 + "\' is of type ");
+            String _plus_6 = (_plus_5 + typeName);
+            String _plus_7 = (_plus_6 + " but assigned a launch substitution expression; the generator will force value_type=str.");
+            this.warning(_plus_7, rosparam, null);
+          }
+        }
+        return;
+      }
+    }
+    Parameter _from_1 = rosparam.getFrom();
+    boolean _tripleNotEquals_1 = (_from_1 != null);
+    if (_tripleNotEquals_1) {
+      this.CheckParameterValue(rosparam.getFrom(), rosparam.getValue());
+    }
   }
 
   public void CheckParameterValue(final EObject expected_parameter, final EObject given_parameter) {
