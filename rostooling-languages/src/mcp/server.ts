@@ -107,7 +107,7 @@ async function openCompanionFiles(client: HeadlessLspClient, modelDir: string): 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
-    version: '2.3.0',
+    version: '2.3.1',
   });
 
   // Tool 1: generate_ros2_wrappers
@@ -175,8 +175,8 @@ export function createMcpServer(): McpServer {
       const nodesToProcess =
         target_nodes && target_nodes.length > 0
           ? allNodesInFile.filter(
-              n => target_nodes.includes(n.artifactName) || target_nodes.includes(n.nodeName)
-            )
+            n => target_nodes.includes(n.artifactName) || target_nodes.includes(n.nodeName)
+          )
           : allNodesInFile;
 
       // Clean opposite-language files if re-generating with a different language

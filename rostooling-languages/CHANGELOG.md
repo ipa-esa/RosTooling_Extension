@@ -5,6 +5,9 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-11-06
+Nothing added, changed or fixed. Just a patch to circumvent the marketplace deleted but cached version.
+
 ## [2.3.0] - 2026-11-03
 
 ### Added
