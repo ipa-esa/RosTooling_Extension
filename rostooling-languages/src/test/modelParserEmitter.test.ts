@@ -47,6 +47,44 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.strictEqual(project.connections.length, 1);
   });
 
+  test('Parse .rossystem with semicolon-delimited connections', () => {
+    const rossystemContent = `test_system:
+  fromFile: "test/launch/test.launch.py"
+  nodes:
+    node_a:
+      from: "pkg_a.node_a"
+      interfaces:
+        - "out_pub": pub-> "node_a::out"
+        - "in_sub": sub-> "node_a::in"
+    node_b:
+      from: "pkg_b.node_b"
+      interfaces:
+        - "in_sub": sub-> "node_b::in"
+        - "out_pub": pub-> "node_b::out"
+  connections:
+    - [node_a.out_pub; node_b.in_sub]
+    - ["node_b.out_pub"; "node_a.in_sub"]
+    - [node_a.out_pub; node_b.in_sub];
+    - [node_b.out_pub, node_a.in_sub];
+    - node_a.out_pub; node_b.in_sub
+    - node_b.out_pub; node_a.in_sub;
+`;
+    const project = RosModelParser.parseRosSystem(rossystemContent, 'test_system.rossystem');
+    assert.strictEqual(project.connections.length, 6);
+    assert.strictEqual(project.connections[0].rawFrom, 'node_a.out_pub');
+    assert.strictEqual(project.connections[0].rawTo, 'node_b.in_sub');
+    assert.strictEqual(project.connections[1].rawFrom, 'node_b.out_pub');
+    assert.strictEqual(project.connections[1].rawTo, 'node_a.in_sub');
+    assert.strictEqual(project.connections[2].rawFrom, 'node_a.out_pub');
+    assert.strictEqual(project.connections[2].rawTo, 'node_b.in_sub');
+    assert.strictEqual(project.connections[3].rawFrom, 'node_b.out_pub');
+    assert.strictEqual(project.connections[3].rawTo, 'node_a.in_sub');
+    assert.strictEqual(project.connections[4].rawFrom, 'node_a.out_pub');
+    assert.strictEqual(project.connections[4].rawTo, 'node_b.in_sub');
+    assert.strictEqual(project.connections[5].rawFrom, 'node_b.out_pub');
+    assert.strictEqual(project.connections[5].rawTo, 'node_a.in_sub');
+  });
+
   test('Emit .rossystem generates valid indentation and Xtext structure with arrows and bracketed connections', () => {
     const project = RosModelParser.parseRosSystem(sampleRosSystem, 'turtlebot3_navigation.rossystem');
     const emitted = RosModelEmitter.emitRosSystem(project);

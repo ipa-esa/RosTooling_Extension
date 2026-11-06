@@ -412,11 +412,11 @@ export const RosModelParser = {
         let fromLabel: string | null = null;
         let toLabel: string | null = null;
 
-        // Xtext bracketed connection: - [from, to] or - ["from", "to"]
-        const connBracket = /^-\s*\[\s*("[^"]*"|'[^']*'|[^,\]\s]+)\s*,\s*("[^"]*"|'[^']*'|[^,\]\s]+)\s*\]/.exec(body);
+        // Xtext connection: - [from, to] or - [from; to] or - from; to with optional quotes and trailing semicolon
+        const connBracket = /^-\s*\[?\s*("[^"]*"|'[^']*'|[^,;\]\s]+)\s*[,;]\s*("[^"]*"|'[^']*'|[^,;\]\s]+)\s*\]?;?/.exec(body);
         if (connBracket) {
-          fromLabel = this.unquote(connBracket[1]);
-          toLabel = this.unquote(connBracket[2]);
+          fromLabel = this.unquote(connBracket[1].replace(/;$/, '').trim());
+          toLabel = this.unquote(connBracket[2].replace(/;$/, '').trim());
         } else {
           // Lenient fallback: - "from": "to"
           const connMatch = /^-\s*("[^"]*"|'[^']*'|[^:#]+?)\s*:\s*(.*)$/.exec(body);
