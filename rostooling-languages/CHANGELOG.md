@@ -5,6 +5,16 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-11-06
+
+### Added
+- **Semicolon Connection Syntax Support**:
+  - Enhanced `RosModelParser.ts` to parse connection lines delimited by semicolons (`- [from; to]`, `- from; to`, and trailing semicolons).
+- **Launch Substitution Parameter Diagnostics**:
+  - Updated `RosSystemValidator.java` language server overlay with validation checks for launch substitution expressions (`$(...)`) inside parameter definitions.
+- **Dependency Update**:
+  - Updated RosTooling backend dependency to `3.3.2-SNAPSHOT`.
+
 ## [2.3.1] - 2026-11-06
 Nothing added, changed or fixed. Just a patch to circumvent the marketplace deleted but cached version.
 
