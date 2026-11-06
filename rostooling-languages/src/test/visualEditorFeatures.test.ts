@@ -1317,6 +1317,76 @@ robot_system:
     assert.strictEqual(schDirect1?.x, 600, 'Schematic direct node1 must retain moved position');
     assert.strictEqual(schMember1?.x, 130, 'Schematic member node1 must retain distinct position');
   });
+
+  // 20. Subsystem model interface synchronization when wiring to unexposed subsystem interface
+  test('20. Subsystem model interface synchronization when wiring to unexposed subsystem interface', async () => {
+    const mockContext = { extensionUri: vscode.Uri.file(__dirname) } as vscode.ExtensionContext;
+    const provider = new RosCustomEditorProvider(mockContext);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-subsync-test-'));
+    const subSysPath = path.join(tmpDir, 'cell_sub.rossystem');
+    const mainSysPath = path.join(tmpDir, 'main_app.rossystem');
+
+    const subSysContent = `cell_sub:
+  nodes:
+    bridge:
+      from: "ros_gz_bridge.parameter_bridge"
+      interfaces:
+        - "/camera_3/image": pub-> "parameter_bridge::/camera_3/image"
+        - "/vacuum/attach": sub-> "parameter_bridge::/vacuum/attach"
+`;
+    fs.writeFileSync(subSysPath, subSysContent, 'utf-8');
+
+    const mainProject: RosProject = {
+      formatVersion: 1,
+      packages: {},
+      types: {},
+      isRosSystem: true,
+      system: { name: 'main_app' },
+      subSystems: [{ ref: 'cell_sub', fromFile: subSysPath }],
+      nodes: [
+        {
+          id: 'n_cell_sub_bridge',
+          label: 'bridge',
+          subRef: 'cell_sub',
+          backing: 'sub',
+          from: 'ros_gz_bridge.parameter_bridge',
+          ifaces: [
+            { id: 'i_cell_sub_bridge_/camera_3/image', name: '/camera_3/image', label: '/camera_3/image', kind: 'pub', exposed: true, artifact: 'parameter_bridge' },
+            { id: 'i_cell_sub_bridge_/camera_1/color/image_raw', name: '/camera_1/color/image_raw', label: '/camera_1/color/image_raw', kind: 'pub', exposed: true, artifact: 'parameter_bridge' },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_localizer',
+          label: 'localizer',
+          ifaces: [
+            { id: 'i_localizer_cam', name: 'cam', label: 'cam', kind: 'sub', exposed: true },
+          ],
+          params: [],
+        },
+      ],
+      connections: [
+        {
+          id: 'c1',
+          from: { n: 'n_cell_sub_bridge', i: 'i_cell_sub_bridge_/camera_1/color/image_raw' },
+          to: { n: 'n_localizer', i: 'i_localizer_cam' },
+        },
+      ],
+    };
+
+    const synced = await provider.syncSubsystemModels(mainProject, mainSysPath);
+    assert.strictEqual(synced, true, 'syncSubsystemModels should return true when subsystem was modified');
+
+    const updatedSubContent = fs.readFileSync(subSysPath, 'utf-8');
+    assert.ok(updatedSubContent.includes('/camera_1/color/image_raw'), 'Subsystem must now expose /camera_1/color/image_raw');
+    assert.ok(updatedSubContent.includes('pub-> "parameter_bridge::/camera_1/color/image_raw"'), 'Target reference must be formatted with artifact');
+    assert.ok(updatedSubContent.includes('/camera_3/image'), 'Pre-existing interfaces must be preserved');
+    assert.ok(updatedSubContent.includes('/vacuum/attach'), 'Pre-existing subscribers must be preserved');
+
+    // Clean up
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
 
 

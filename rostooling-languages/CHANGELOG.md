@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.3.2] - 2026-11-06
 
 ### Added
+- **Automated Subsystem Model Interface Synchronization**:
+  - Implemented `syncSubsystemModels` in `RosCustomEditorProvider.ts` to automatically update companion subsystem `.rossystem` models when connections are wired in the GUI to unexposed subsystem interfaces.
+  - Inserts missing interfaces into the subsystem node's `interfaces:` block in canonical kind order (`pub` -> `sub` -> `ss` -> `sc` -> `as` -> `ac`), preventing `Couldn't resolve reference to RosInterface` errors.
 - **Semicolon Connection Syntax Support**:
   - Enhanced `RosModelParser.ts` to parse connection lines delimited by semicolons (`- [from; to]`, `- from; to`, and trailing semicolons).
 - **Launch Substitution Parameter Diagnostics**:

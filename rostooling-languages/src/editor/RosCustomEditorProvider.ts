@@ -847,6 +847,186 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     return;
   }
 
+  public async syncSubsystemModels(project: RosProject, docFilePath: string): Promise<boolean> {
+    if (!project.isRosSystem || !project.subSystems || project.subSystems.length === 0) {
+      return false;
+    }
+    if (!project.connections || project.connections.length === 0) {
+      return false;
+    }
+
+    const KIND_ORDER: Record<string, number> = { pub: 1, sub: 2, ss: 3, sc: 4, as: 5, ac: 6 };
+
+    // Group needed interfaces by subRef -> nodeLabel -> Map<ifaceName, RosInterface>
+    const neededBySub = new Map<string, Map<string, Map<string, RosInterface>>>();
+
+    for (const conn of project.connections) {
+      const endpoints = [
+        { end: conn.from, raw: conn.rawFrom },
+        { end: conn.to, raw: conn.rawTo },
+      ];
+
+      for (const { end, raw } of endpoints) {
+        let node: RosNode | undefined;
+        let iface: RosInterface | undefined;
+
+        if (end?.n) {
+          node = project.nodes.find(
+            (n) =>
+              n.id === end.n ||
+              n.label === end.n ||
+              (n.subRef && (n.id === `n_${n.subRef}_${end.n}` || `${n.subRef}.${n.label}` === end.n))
+          );
+          if (node && end.i) {
+            iface = node.ifaces?.find((f) => f.id === end.i || f.label === end.i || f.name === end.i);
+          }
+        }
+
+        if ((!node || !iface) && raw) {
+          const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
+          if (sepIdx > 0) {
+            const nodePart = raw.slice(0, sepIdx).trim();
+            const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
+            node = project.nodes.find(
+              (n) =>
+                n.label === nodePart ||
+                n.id === nodePart ||
+                n.id === `n_${nodePart}` ||
+                (n.subRef && `${n.subRef}.${n.label}` === nodePart) ||
+                (n.subRef && n.label === nodePart) ||
+                (n.subRef && n.id === `n_${n.subRef}_${nodePart}`)
+            );
+            if (node) {
+              iface = node.ifaces?.find((f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart);
+            }
+          } else {
+            const candNodes = project.nodes.filter((n) =>
+              n.ifaces?.some((f) => f.label === raw || f.name === raw || f.id === raw)
+            );
+            if (candNodes.length === 1) {
+              node = candNodes[0];
+              iface = node.ifaces?.find((f) => f.label === raw || f.name === raw || f.id === raw);
+            } else if (candNodes.length > 1) {
+              const subCand = candNodes.find((n) => n.subRef || n.backing === 'sub');
+              if (subCand) {
+                node = subCand;
+                iface = node.ifaces?.find((f) => f.label === raw || f.name === raw || f.id === raw);
+              }
+            }
+          }
+        }
+
+        if (node && (node.subRef || node.backing === 'sub') && iface) {
+          const subRef = node.subRef || project.subSystems[0]?.ref;
+          if (!subRef) continue;
+          const nodeLabel = node.label;
+          let subMap = neededBySub.get(subRef);
+          if (!subMap) {
+            subMap = new Map();
+            neededBySub.set(subRef, subMap);
+          }
+          let ifaceMap = subMap.get(nodeLabel);
+          if (!ifaceMap) {
+            ifaceMap = new Map();
+            subMap.set(nodeLabel, ifaceMap);
+          }
+          const key = iface.name || iface.label;
+          if (key && !ifaceMap.has(key)) {
+            ifaceMap.set(key, iface);
+          }
+        }
+      }
+    }
+
+    if (neededBySub.size === 0) {
+      return false;
+    }
+
+    let anyUpdated = false;
+
+    for (const [subRef, nodeMap] of neededBySub.entries()) {
+      const subEntry = project.subSystems.find((s) => s.ref === subRef);
+      const subFilePath = this.resolveSubsystemFilePath(subRef, subEntry?.fromFile, docFilePath);
+      if (!subFilePath || !fs.existsSync(subFilePath)) {
+        continue;
+      }
+      if (this.isCoreCatalogue(subFilePath)) {
+        continue;
+      }
+
+      try {
+        const subContent = this.readDocumentOrFile(subFilePath);
+        const subProject = RosModelParser.parseRosSystem(subContent, subFilePath);
+        let subModified = false;
+
+        for (const [nodeLabel, neededIfaces] of nodeMap.entries()) {
+          const subNode = subProject.nodes.find((n) => n.label === nodeLabel);
+          if (!subNode) continue;
+
+          // If the node in the subsystem has an explicit interfaces: block (subNode.ifaces.length > 0),
+          // only explicitly listed interfaces are exposed.
+          // Append any newly connected interfaces so they become part of the subsystem's exposed interfaces.
+          if (subNode.ifaces && subNode.ifaces.length > 0) {
+            for (const needed of neededIfaces.values()) {
+              const neededKey = needed.name || needed.label;
+              const alreadyPresent = subNode.ifaces.some(
+                (f) => f.name === neededKey || f.label === neededKey
+              );
+              if (!alreadyPresent) {
+                const targetArt =
+                  needed.artifact ||
+                  subNode.artifact ||
+                  (subNode.from && subNode.from.includes('.') ? subNode.from.split('.')[1] : undefined);
+                const newIface: RosInterface = {
+                  id: `i_${subNode.label}_${neededKey}`,
+                  name: needed.name,
+                  label: needed.label || needed.name,
+                  kind: needed.kind,
+                  type: needed.type || '',
+                  artifact: targetArt,
+                  exposed: true,
+                };
+
+                // Insert in canonical kind order: pub -> sub -> ss -> sc -> as -> ac
+                const neededOrd = KIND_ORDER[newIface.kind] || 99;
+                let insertIdx = subNode.ifaces.length;
+                for (let k = 0; k < subNode.ifaces.length; k++) {
+                  const currOrd = KIND_ORDER[subNode.ifaces[k].kind] || 99;
+                  if (currOrd > neededOrd) {
+                    insertIdx = k;
+                    break;
+                  }
+                }
+                subNode.ifaces.splice(insertIdx, 0, newIface);
+                subModified = true;
+              }
+            }
+          }
+        }
+
+        if (subModified) {
+          const newSubContent = RosModelEmitter.emitRosSystem(subProject);
+          const openDoc = vscode.workspace.textDocuments.find(
+            (d) => d.uri.fsPath === subFilePath || d.fileName === subFilePath
+          );
+          if (openDoc) {
+            const wsEdit = new vscode.WorkspaceEdit();
+            wsEdit.replace(openDoc.uri, new vscode.Range(0, 0, openDoc.lineCount + 5, 0), newSubContent);
+            await vscode.workspace.applyEdit(wsEdit);
+            await openDoc.save();
+          } else {
+            fs.writeFileSync(subFilePath, newSubContent, 'utf-8');
+          }
+          anyUpdated = true;
+        }
+      } catch (err) {
+        console.warn(`Failed to sync subsystem ${subRef}:`, err);
+      }
+    }
+
+    return anyUpdated;
+  }
+
   private assignGridPositions(project: RosProject) {
     let subIdx = 0;
     for (const sub of project.subSystems || []) {
@@ -1454,6 +1634,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             // Sync type changes back to backing companion models (.ros2 / .ros1 / .ros)
             await this.syncCompanionRos2Models(updatedProject, document.fileName);
 
+            // Automatically sync referenced interfaces to subsystem models (.rossystem)
+            await this.syncSubsystemModels(updatedProject, document.fileName);
+
             // Save layout schematic
             await this.saveLayoutSchematic(document.fileName, updatedProject);
 
@@ -1614,6 +1797,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         freshProject.isRos = isRos;
         if (!isRos) {
           this.resolveSystemInterfaces(freshProject, document.fileName);
+          void this.syncSubsystemModels(freshProject, document.fileName);
         }
         const currentCached = this.projectCache.get(docKey);
 
