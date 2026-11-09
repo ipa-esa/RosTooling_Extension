@@ -41,18 +41,33 @@ export const RosModelEmitter = {
     return "'" + str + "'";
   },
 
-  formatParamValue(ptype = 'String', value: unknown): string {
-    const type = (ptype || 'String').trim();
-    const raw = value === undefined || value === null ? '' : String(value);
+  formatParamValue(ptype = 'String', value: unknown, valueQuoted?: boolean, rawValText?: string): string {
+    if (value === undefined || value === null) return '""';
+    const raw = String(value).trim();
 
-    if (type === 'Boolean') {
-      return /^true|1|yes$/i.test(raw.trim()) ? 'true' : 'false';
+    if (rawValText && !valueQuoted && rawValText.trim().startsWith('[') && rawValText.trim().endsWith(']')) {
+      return rawValText.trim();
     }
-    if (type === 'Integer') {
-      const num = parseInt(raw, 10);
-      return isNaN(num) ? '0' : String(num);
+
+    // If an array or list, NEVER quote it!
+    if (Array.isArray(value)) {
+      return `[${value.map((v) => typeof v === 'string' && !/^-?\d+(\.\d+)?$/.test(v) && v !== 'true' && v !== 'false' ? this.qDouble(v) : String(v)).join(', ')}]`;
     }
-    if (type === 'Double') {
+    if (raw.startsWith('[') && raw.endsWith(']')) {
+      return raw;
+    }
+    if (ptype === 'List' || ptype === 'Array') {
+      return raw;
+    }
+
+    if (ptype === 'Boolean' || typeof value === 'boolean') {
+      return /^true|1|yes$/i.test(raw) ? 'true' : 'false';
+    }
+    if (valueQuoted === false && /^(true|false)$/i.test(raw)) {
+      return raw.toLowerCase();
+    }
+
+    if (ptype === 'Double') {
       let f = parseFloat(raw);
       if (isNaN(f)) f = 0.0;
       let s = String(f);
@@ -61,6 +76,33 @@ export const RosModelEmitter = {
       }
       return s;
     }
+
+    if (ptype === 'Integer') {
+      const num = parseInt(raw, 10);
+      return isNaN(num) ? '0' : String(num);
+    }
+    if (valueQuoted === false && /^-?\d+$/.test(raw)) {
+      return raw;
+    }
+
+    if (typeof value === 'number') {
+      if (Number.isInteger(value)) {
+        return String(value);
+      }
+      let s = String(value);
+      if (!s.includes('.') && !s.includes('e') && !s.includes('E')) {
+        s += '.0';
+      }
+      return s;
+    }
+    if (valueQuoted === false && /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(raw)) {
+      return raw;
+    }
+
+    if (valueQuoted === false && (raw.startsWith('$(') || raw.startsWith('$'))) {
+      return raw;
+    }
+
     return this.qDouble(raw);
   },
 
@@ -76,10 +118,13 @@ export const RosModelEmitter = {
     return `"${str}"`;
   },
 
-  formatKey(s: unknown): string {
+  formatKey(s: unknown, forceQuote?: boolean): string {
     let str = String(s == null ? '' : s).trim();
     if ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'"))) {
       str = str.slice(1, -1);
+    }
+    if (forceQuote) {
+      return this.qDouble(str);
     }
     // Valid unquoted identifier in Xtext/YAML: alphanumeric, underscores, and dashes only
     if (/^[a-zA-Z0-9_-]+$/.test(str)) {
@@ -105,223 +150,276 @@ export const RosModelEmitter = {
 
     // System name header
     const sysName = project.system.name || 'ros_system';
-    lines.push(`${this.formatKey(sysName)}:`);
+    lines.push(`${this.formatKey(sysName, project.system.quoted)}:`);
 
     // fromFile (System.fromFile, RosSystem.xtext:34)
     if (project.system.fromFile) {
       lines.push(`  fromFile: ${this.qDouble(project.system.fromFile)}`);
     }
 
-    // subSystems: components+=SubSystem* (RosSystem.xtext:47-49)
-    if (project.subSystems && project.subSystems.length > 0) {
-      lines.push('  subSystems:');
-      for (const sub of project.subSystems) {
-        const beforeComments = sub.comments?.before;
-        if (Array.isArray(beforeComments)) {
-          for (const c of beforeComments) {
-            lines.push(`    # ${String(c)}`);
+    const emitSubsystems = () => {
+      if (project.subSystems && project.subSystems.length > 0) {
+        lines.push('  subSystems:');
+        for (const sub of project.subSystems) {
+          const beforeComments = sub.comments?.before;
+          if (Array.isArray(beforeComments)) {
+            for (const c of beforeComments) {
+              lines.push(`    # ${String(c)}`);
+            }
           }
-        }
-        lines.push(`    ${this.formatKey(sub.ref)}`);
-      }
-    }
-
-    // nodes: components+=RosNode* (RosSystem.xtext:60-75)
-    const localNodes = (project.nodes || []).filter((n) => n.backing !== 'sub' && !n.subRef);
-    if (localNodes.length > 0) {
-      lines.push('  nodes:');
-      for (const node of localNodes) {
-        const beforeComments = node.comments?.before;
-        if (Array.isArray(beforeComments)) {
-          for (const c of beforeComments) {
-            lines.push(`    # ${String(c)}`);
-          }
-        }
-        lines.push(`    ${this.formatKey(node.label)}:`);
-
-        if (node.from) {
-          lines.push(`      from: ${this.qDouble(node.from)}`);
-        }
-        if (node.namespace) {
-          lines.push(`      namespace: ${this.qDouble(node.namespace)}`);
-        }
-
-        // Interfaces (exposures with Xtext arrow: pub-> / sub-> / ss-> / sc-> / as-> / ac->)
-        const exposedIfaces = (node.ifaces || []).filter((f) => f.exposed !== false);
-        if (exposedIfaces.length > 0) {
-          lines.push('      interfaces:');
-          for (const iface of exposedIfaces) {
-            const expLabel = iface.label || iface.name;
-            const artName = iface.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
-            const targetRef = artName ? `${artName}::${iface.name}` : iface.name;
-            const kindArrow = `${iface.kind || 'pub'}->`;
-            lines.push(`        - ${this.formatKey(expLabel)}: ${kindArrow} ${this.qDouble(targetRef)}`);
-          }
-        }
-
-        // Node Parameters: '-' name=EString ':' from=[ros::Parameter|EString] / 'value:' value=ParameterValue
-        // RosSystem.xtext requires 'value:' for any parameter emitted in .rossystem.
-        // Omit parameters that have no value assigned.
-        const exposedParams = (node.params || []).filter((p) => {
-          if (p.exposed === false) return false;
-          const val = (p.sysValue !== undefined && p.sysValue !== null && String(p.sysValue).trim() !== '')
-            ? p.sysValue
-            : (p.value !== undefined && p.value !== null && String(p.value).trim() !== '' ? p.value : null);
-          return val !== null;
-        });
-        if (exposedParams.length > 0) {
-          lines.push('      parameters:');
-          for (const param of exposedParams) {
-            const expLabel = param.label || param.name;
-            const artName = param.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
-            const targetRef = artName ? `${artName}::${param.name}` : param.name;
-            const val = (param.sysValue !== undefined && param.sysValue !== null && String(param.sysValue).trim() !== '')
-              ? param.sysValue
-              : (param.value ?? '');
-            lines.push(`        - ${this.formatKey(expLabel)}: ${this.qDouble(targetRef)}`);
-            lines.push(`          value: ${this.formatParamValue(param.ptype, val)}`);
-          }
+          const commentPart = sub.lineComment ? ` # ${sub.lineComment}` : '';
+          lines.push(`    ${this.formatKey(sub.ref, sub.quoted)}${commentPart}`);
         }
       }
-    }
+    };
 
-    // connections: connections+=RosSystemConnection* (RosSystem.xtext:85-88)
-    if (project.connections && project.connections.length > 0) {
-      lines.push('  connections:');
-
-      // Count occurrences of each bare interface name/label across all nodes and subsystems to identify duplicates
-      const ifaceCounts: Record<string, number> = {};
-      for (const n of project.nodes || []) {
-        const nodeNames = new Set<string>();
-        for (const f of n.ifaces || []) {
-          const key = f.label || f.name;
-          if (key) nodeNames.add(key);
-        }
-        for (const key of nodeNames) {
-          ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
-        }
-      }
-
-      // Also count interfaces in subsystems' graphs
-      for (const sub of project.subSystems || []) {
-        for (const sn of sub.graph?.nodes || []) {
-          const subNodeNames = new Set<string>();
-          for (const iface of sn.interfaces || []) {
-            const key = iface.label || iface.name;
-            if (key) subNodeNames.add(key);
+    const emitNodes = () => {
+      const localNodes = (project.nodes || []).filter((n) => n.backing !== 'sub' && !n.subRef);
+      if (localNodes.length > 0) {
+        lines.push('  nodes:');
+        for (const node of localNodes) {
+          const beforeComments = node.comments?.before;
+          if (Array.isArray(beforeComments)) {
+            for (const c of beforeComments) {
+              lines.push(`    # ${String(c)}`);
+            }
           }
-          for (const key of subNodeNames) {
-            ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
-          }
-        }
-      }
+          lines.push(`    ${this.formatKey(node.label, node.quoted)}:`);
 
-      // If rawFrom / rawTo contain qualified names (e.g. "map_server::map" or "slam.map"),
-      // account for the interface name so that homonymous direct node interfaces are recognized as duplicates
-      for (const conn of project.connections || []) {
-        for (const raw of [conn.rawFrom, conn.rawTo]) {
-          if (raw) {
-            const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
-            if (sepIdx > 0) {
-              const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
-              const nodePart = raw.slice(0, sepIdx).trim();
-              const alreadyCountedNode = (project.nodes || []).some(
-                (n) => n.label === nodePart || n.id === nodePart || (n.subRef && `${n.subRef}.${n.label}` === nodePart)
-              );
-              if (!alreadyCountedNode && ifacePart) {
-                ifaceCounts[ifacePart] = (ifaceCounts[ifacePart] || 0) + 1;
-              }
+          if (node.from) {
+            const commentPart = node.fromComment ? ` # ${node.fromComment}` : '';
+            lines.push(`      from: ${this.qDouble(node.from)}${commentPart}`);
+          }
+          if (node.namespace) {
+            lines.push(`      namespace: ${this.qDouble(node.namespace)}`);
+          }
+
+          // Interfaces (exposures with Xtext arrow: pub-> / sub-> / ss-> / sc-> / as-> / ac->)
+          const exposedIfaces = (node.ifaces || []).filter((f) => f.exposed !== false);
+          if (exposedIfaces.length > 0) {
+            lines.push('      interfaces:');
+            for (const iface of exposedIfaces) {
+              const expLabel = iface.label || iface.name;
+              const artName = iface.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+              const targetRef = artName ? `${artName}::${iface.name}` : iface.name;
+              const kindArrow = `${iface.kind || 'pub'}->`;
+              const commentPart = iface.lineComment ? ` # ${iface.lineComment}` : '';
+              lines.push(`        - ${this.formatKey(expLabel, iface.quoted)}: ${kindArrow} ${this.qDouble(targetRef)}${commentPart}`);
+            }
+          }
+
+          // Node Parameters
+          const exposedParams = (node.params || []).filter((p) => {
+            if (p.exposed === false) return false;
+            const val = (p.sysValue !== undefined && p.sysValue !== null && String(p.sysValue).trim() !== '')
+              ? p.sysValue
+              : (p.value !== undefined && p.value !== null && String(p.value).trim() !== '' ? p.value : null);
+            return val !== null;
+          });
+          if (exposedParams.length > 0) {
+            lines.push('      parameters:');
+            for (const param of exposedParams) {
+              const expLabel = param.label || param.name;
+              const artName = param.artifact || node.artifact || (node.from && node.from.includes('.') ? node.from.split('.')[1] : undefined);
+              const targetRef = artName ? `${artName}::${param.name}` : param.name;
+              const val = (param.sysValue !== undefined && param.sysValue !== null && String(param.sysValue).trim() !== '')
+                ? param.sysValue
+                : (param.value ?? '');
+              const commentPart = param.lineComment ? ` # ${param.lineComment}` : '';
+              lines.push(`        - ${this.formatKey(expLabel, param.quoted)}: ${this.qDouble(targetRef)}${commentPart}`);
+              lines.push(`          value: ${this.formatParamValue(param.ptype, val, param.valueQuoted, param.rawValText)}`);
             }
           }
         }
       }
+    };
 
-      const emittedConnections = new Set<string>();
-      for (const conn of project.connections) {
-        if (conn.from?.n && conn.to?.n && conn.from.n === conn.to.n && conn.from.i === conn.to.i) {
-          continue;
-        }
-        const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
-        const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
-        const fromIface = fromNode?.ifaces?.find(
-          (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
-        );
-        const toIface = toNode?.ifaces?.find(
-          (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
-        );
-
-        let fromName = '';
-        if (fromIface && fromNode) {
-          const rawName = fromIface.label || fromIface.name;
-          // If the interface name is shared by more than 1 node, qualify with node name using colon format (::)
-          if (ifaceCounts[rawName] > 1) {
-            fromName = `${fromNode.label || fromNode.id}::${rawName}`;
-          } else {
-            fromName = rawName;
+    const emitParameters = () => {
+      if (project.parameters && project.parameters.length > 0) {
+        lines.push('  parameters:');
+        for (const param of project.parameters) {
+          const beforeComments = param.comments?.before;
+          if (Array.isArray(beforeComments)) {
+            for (const c of beforeComments) {
+              lines.push(`    # ${String(c)}`);
+            }
           }
-        } else if (conn.rawFrom) {
-          fromName = conn.rawFrom;
-        }
-
-        let toName = '';
-        if (toIface && toNode) {
-          const rawName = toIface.label || toIface.name;
-          // If the interface name is shared by more than 1 node, qualify with node name using colon format (::)
-          if (ifaceCounts[rawName] > 1) {
-            toName = `${toNode.label || toNode.id}::${rawName}`;
-          } else {
-            toName = rawName;
+          const commentPart = param.lineComment ? ` # ${param.lineComment}` : '';
+          lines.push(`    ${this.formatKey(param.name, param.quoted)}:${commentPart}`);
+          lines.push(`      type: ${param.type || 'String'}`);
+          if (param.value !== undefined && param.value !== null) {
+            lines.push(`      value: ${this.formatParamValue(param.type, param.value, param.valueQuoted, param.rawValText)}`);
           }
-        } else if (conn.rawTo) {
-          toName = conn.rawTo;
-        }
-
-        if (!fromName && conn.from?.i) {
-          const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
-            (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
-          );
-          fromName = fallback ? (fallback.label || fallback.name) : conn.from.i;
-        }
-        if (!toName && conn.to?.i) {
-          const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
-            (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
-          );
-          toName = fallback ? (fallback.label || fallback.name) : conn.to.i;
-        }
-
-        if (fromName && toName) {
-          if (fromNode && toNode && fromNode.id === toNode.id && fromName === toName) {
-            continue;
-          }
-          const connKey = `${fromName}->${toName}`;
-          if (emittedConnections.has(connKey)) {
-            continue;
-          }
-          emittedConnections.add(connKey);
-          // Format as bracketed connection pair [from, to]
-          lines.push(`    - [${this.qDouble(fromName)}, ${this.qDouble(toName)}]`);
         }
       }
-    }
+    };
 
-    // processes: processes+=Process* (RosSystem.xtext:51-58)
-    if (project.processes && project.processes.length > 0) {
-      lines.push('  processes:');
-      for (const proc of project.processes) {
-        const beforeComments = proc.comments?.before;
-        if (Array.isArray(beforeComments)) {
-          for (const c of beforeComments) {
-            lines.push(`    # ${String(c)}`);
+    const emitConnections = () => {
+      if (project.connections && project.connections.length > 0) {
+        lines.push('  connections:');
+
+        // Count occurrences of each bare interface name/label across all nodes and subsystems to identify duplicates
+        const ifaceCounts: Record<string, number> = {};
+        for (const n of project.nodes || []) {
+          const nodeNames = new Set<string>();
+          for (const f of n.ifaces || []) {
+            const key = f.label || f.name;
+            if (key) nodeNames.add(key);
+          }
+          for (const key of nodeNames) {
+            ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
           }
         }
-        lines.push(`    ${this.formatKey(proc.name)}:`);
-        if (proc.nodes && proc.nodes.length > 0) {
-          const nodesStr = proc.nodes.map((n) => this.formatKey(n)).join(', ');
-          lines.push(`      nodes: [ ${nodesStr} ]`);
+
+        // Also count interfaces in subsystems' graphs
+        for (const sub of project.subSystems || []) {
+          for (const sn of sub.graph?.nodes || []) {
+            const subNodeNames = new Set<string>();
+            for (const iface of sn.interfaces || []) {
+              const key = iface.label || iface.name;
+              if (key) subNodeNames.add(key);
+            }
+            for (const key of subNodeNames) {
+              ifaceCounts[key] = (ifaceCounts[key] || 0) + 1;
+            }
+          }
         }
-        if (proc.threads != null) {
-          lines.push(`      threads: ${proc.threads}`);
+
+        for (const conn of project.connections || []) {
+          for (const raw of [conn.rawFrom, conn.rawTo]) {
+            if (raw) {
+              const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
+              if (sepIdx > 0) {
+                const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
+                const nodePart = raw.slice(0, sepIdx).trim();
+                const alreadyCountedNode = (project.nodes || []).some(
+                  (n) => n.label === nodePart || n.id === nodePart || (n.subRef && `${n.subRef}.${n.label}` === nodePart)
+                );
+                if (!alreadyCountedNode && ifacePart) {
+                  ifaceCounts[ifacePart] = (ifaceCounts[ifacePart] || 0) + 1;
+                }
+              }
+            }
+          }
         }
+
+        const emittedConnections = new Set<string>();
+        for (const conn of project.connections) {
+          if (conn.from?.n && conn.to?.n && conn.from.n === conn.to.n && conn.from.i === conn.to.i) {
+            continue;
+          }
+          const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
+          const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
+          const fromIface = fromNode?.ifaces?.find(
+            (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+          );
+          const toIface = toNode?.ifaces?.find(
+            (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+          );
+
+          let fromName = '';
+          if (fromIface && fromNode) {
+            const rawName = fromIface.label || fromIface.name;
+            if (ifaceCounts[rawName] > 1) {
+              fromName = `${fromNode.label || fromNode.id}::${rawName}`;
+            } else {
+              fromName = rawName;
+            }
+          } else if (conn.rawFrom) {
+            fromName = conn.rawFrom;
+          }
+
+          let toName = '';
+          if (toIface && toNode) {
+            const rawName = toIface.label || toIface.name;
+            if (ifaceCounts[rawName] > 1) {
+              toName = `${toNode.label || toNode.id}::${rawName}`;
+            } else {
+              toName = rawName;
+            }
+          } else if (conn.rawTo) {
+            toName = conn.rawTo;
+          }
+
+          if (!fromName && conn.from?.i) {
+            const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
+              (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+            );
+            fromName = fallback ? (fallback.label || fallback.name) : conn.from.i;
+          }
+          if (!toName && conn.to?.i) {
+            const fallback = (project.nodes || []).flatMap((n) => n.ifaces || []).find(
+              (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+            );
+            toName = fallback ? (fallback.label || fallback.name) : conn.to.i;
+          }
+
+          if (fromName && toName) {
+            if (fromNode && toNode && fromNode.id === toNode.id && fromName === toName) {
+              continue;
+            }
+            const connKey = `${fromName}->${toName}`;
+            if (emittedConnections.has(connKey)) {
+              continue;
+            }
+            emittedConnections.add(connKey);
+            const qFrom = conn.fromQuoted !== undefined ? conn.fromQuoted : true;
+            const qTo = conn.toQuoted !== undefined ? conn.toQuoted : true;
+            const commentPart = conn.lineComment ? ` # ${conn.lineComment}` : '';
+            lines.push(`    - [${this.formatKey(fromName, qFrom)}, ${this.formatKey(toName, qTo)}]${commentPart}`);
+          }
+        }
+      }
+    };
+
+    const emitProcesses = () => {
+      if (project.processes && project.processes.length > 0) {
+        lines.push('  processes:');
+        for (const proc of project.processes) {
+          const beforeComments = proc.comments?.before;
+          if (Array.isArray(beforeComments)) {
+            for (const c of beforeComments) {
+              lines.push(`    # ${String(c)}`);
+            }
+          }
+          lines.push(`    ${this.formatKey(proc.name)}:`);
+          if (proc.nodes && proc.nodes.length > 0) {
+            const nodesStr = proc.nodes.map((n) => this.formatKey(n)).join(', ');
+            lines.push(`      nodes: [ ${nodesStr} ]`);
+          }
+          if (proc.threads != null) {
+            lines.push(`      threads: ${proc.threads}`);
+          }
+        }
+      }
+    };
+
+    const defaultOrder: ('subSystems' | 'processes' | 'nodes' | 'parameters' | 'connections')[] = [
+      'subSystems',
+      'nodes',
+      'parameters',
+      'connections',
+      'processes',
+    ];
+    const order = project.sectionOrder && project.sectionOrder.length > 0 ? project.sectionOrder : defaultOrder;
+    const handled = new Set<string>();
+
+    for (const sec of order) {
+      if (handled.has(sec)) continue;
+      handled.add(sec);
+      if (sec === 'subSystems') emitSubsystems();
+      else if (sec === 'nodes') emitNodes();
+      else if (sec === 'parameters') emitParameters();
+      else if (sec === 'connections') emitConnections();
+      else if (sec === 'processes') emitProcesses();
+    }
+    for (const sec of defaultOrder) {
+      if (!handled.has(sec)) {
+        if (sec === 'subSystems') emitSubsystems();
+        else if (sec === 'nodes') emitNodes();
+        else if (sec === 'parameters') emitParameters();
+        else if (sec === 'connections') emitConnections();
+        else if (sec === 'processes') emitProcesses();
       }
     }
 

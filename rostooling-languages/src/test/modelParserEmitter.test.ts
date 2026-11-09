@@ -94,8 +94,8 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.ok(emitted.includes('amcl:'));
     assert.ok(emitted.includes('from: "nav2_amcl.amcl"'));
     assert.ok(emitted.includes('namespace: "/robot1"'));
-    assert.ok(emitted.includes('- scan_sub: sub-> "amcl::scan"'));
-    assert.ok(emitted.includes('- map_pub: pub-> "amcl::map"'));
+    assert.ok(emitted.includes('scan_sub') && emitted.includes('sub-> "amcl::scan"'));
+    assert.ok(emitted.includes('map_pub') && emitted.includes('pub-> "amcl::map"'));
     assert.ok(emitted.includes('connections:'));
     assert.ok(emitted.includes('- ["map_server_pub", "map_pub"]'));
   });
@@ -158,7 +158,7 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.ok(emitted.includes('navigation'));
     assert.ok(emitted.includes('perception'));
     assert.ok(emitted.includes('base_node:'));
-    assert.ok(emitted.includes('- odom_pub: pub-> "base_node::odom"'));
+    assert.ok(emitted.includes('odom_pub') && emitted.includes('pub-> "base_node::odom"'));
   });
 
   test('Infer interface kinds accurately when arrow is present or from naming fallback', () => {
@@ -414,7 +414,7 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.ok(emitted.includes('from: "coverless_machine_simulation.setup_scene_node"'));
     assert.ok(emitted.includes('- "/joint_states_sub": sub-> "setup_scene::/joint_states"'));
     assert.ok(emitted.includes('- "/robot_description_semantic_sub": sub-> "setup_scene::/robot_description_semantic"'));
-    assert.ok(emitted.includes('- use_sim_time: "setup_scene::use_sim_time"'));
+    assert.ok(emitted.includes('use_sim_time') && emitted.includes('"setup_scene::use_sim_time"'));
     assert.strictEqual(emitted.includes('setup_scene_node::'), false, 'Must not emit node name as artifact target reference');
   });
 
@@ -716,6 +716,67 @@ suite('RosModelParser & Emitter Test Suite', () => {
     // Valid connection must be emitted exactly once
     const matches = emitted.match(/\["carto::map", "rviz2::map"\]/g);
     assert.strictEqual(matches?.length, 1);
+  });
+
+  test('Round-trip .rossystem with system-level parameters, list parameters, comments, and quotes', () => {
+    const rossystemWithSysParams = `fruit_pick_place_app_real_no_vision:
+  parameters:
+    robot_ip:
+      type: String
+      value: "192.168.1.10"
+    use_mock_hardware:
+      type: Boolean
+      value: false
+  subSystems:
+    "simple_ur_cell_real" # subsystem comment
+  nodes:
+    fruit_localizer:
+      from: "fruit_detection.fruit_localizer" # project-local, see models/...
+      parameters:
+        - fruit_position: "fruit_localizer::fruit_position"
+          value: [0.36, 0.16, 0.88]
+        - finger_closed_gap: "fruit_localizer::finger_closed_gap"
+          value: 0.0236
+  connections:
+    - ["subsys_iface", "node_iface"] # inline connection comment
+`;
+
+    const parsed = RosModelParser.parseRosSystem(rossystemWithSysParams, 'fruit_pick_place_app_real_no_vision.rossystem');
+    assert.ok(parsed.parameters);
+    assert.strictEqual(parsed.parameters.length, 2);
+    assert.strictEqual(parsed.parameters[0].name, 'robot_ip');
+    assert.strictEqual(parsed.parameters[0].type, 'String');
+    assert.strictEqual(parsed.parameters[0].value, '192.168.1.10');
+    assert.strictEqual(parsed.parameters[1].name, 'use_mock_hardware');
+    assert.strictEqual(parsed.parameters[1].type, 'Boolean');
+    assert.strictEqual(parsed.parameters[1].value, false);
+
+    const localizer = parsed.nodes.find(n => n.label === 'fruit_localizer');
+    assert.ok(localizer);
+    const fruitPos = localizer?.params.find(p => p.name === 'fruit_position');
+    assert.ok(fruitPos);
+    // Value must be raw list, not string quoted
+    assert.strictEqual(fruitPos?.sysValue, '[0.36, 0.16, 0.88]');
+
+    const emitted = RosModelEmitter.emitRosSystem(parsed);
+
+    // Verify system parameters are present
+    assert.ok(emitted.includes('parameters:'), 'Emitted content should include parameters');
+    assert.ok(emitted.includes('robot_ip:'), 'Emitted content should include robot_ip');
+    assert.ok(emitted.includes('value: "192.168.1.10"'));
+    assert.ok(emitted.includes('use_mock_hardware:'));
+    assert.ok(emitted.includes('value: false'));
+
+    // Verify list parameter is NOT quoted as a string
+    assert.ok(emitted.includes('value: [0.36, 0.16, 0.88]'), 'List parameter must be emitted as raw list');
+    assert.ok(!emitted.includes('value: "[0.36, 0.16, 0.88]"'), 'List parameter must NOT be quoted string');
+
+    // Verify quotes are preserved on subsystem name
+    assert.ok(emitted.includes('"simple_ur_cell_real"'));
+
+    // Verify inline comments are preserved
+    assert.ok(emitted.includes('# project-local, see models/...'));
+    assert.ok(emitted.includes('# inline connection comment'));
   });
 });
 

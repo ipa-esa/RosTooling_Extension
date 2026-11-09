@@ -3,6 +3,7 @@ import {
   RosNode,
   RosInterface,
   RosParameter,
+  RosSystemParameter,
   RosSubSystem,
   RosInteractionKind,
   RosTypeSpec,
@@ -122,6 +123,7 @@ export const RosModelParser = {
     let curSection: 'subSystems' | 'nodes' | 'connections' | 'parameters' | 'processes' | null = null;
     let curNode: RosNode | null = null;
     let curProcess: RosProcess | null = null;
+    let curSysParam: RosSystemParameter | null = null;
     let curSubSection: 'interfaces' | 'parameters' | null = null;
 
     for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
@@ -144,6 +146,8 @@ export const RosModelParser = {
       // Root system declaration: name=EString ':'
       if (!seenRoot && keyMatch && !val && ind === 0) {
         proj.system.name = kw || 'ros_system';
+        const rawKey = keyMatch[1].trim();
+        proj.system.quoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
         seenRoot = true;
         if (leadComments.length) {
           proj.system.comments = { header: [...leadComments] };
@@ -162,6 +166,11 @@ export const RosModelParser = {
 
       // Top level sections (subSystems, processes, nodes, parameters, connections)
       if (seenRoot && keyMatch && !val && ind <= 2) {
+        if (!proj.sectionOrder) proj.sectionOrder = [];
+        if (['subSystems', 'nodes', 'connections', 'parameters', 'processes'].includes(kw || '')) {
+          proj.sectionOrder.push(kw as 'subSystems' | 'nodes' | 'connections' | 'parameters' | 'processes');
+        }
+        curSysParam = null;
         if (kw === 'subSystems') {
           curSection = 'subSystems';
           curNode = null;
@@ -203,17 +212,25 @@ export const RosModelParser = {
       // SubSystems entries: SubSystem: system=[System|EString]
       if (curSection === 'subSystems') {
         let subRef = '';
+        let isQuoted = false;
+        let rawSub = '';
         const listMatch = /^-\s*(.*)$/.exec(body);
         if (listMatch) {
-          subRef = this.unquote(listMatch[1]);
+          rawSub = listMatch[1].replace(/:$/, '').trim();
         } else if (!keyMatch || val === '') {
-          subRef = this.unquote(body.replace(/:$/, ''));
+          rawSub = body.replace(/:$/, '').trim();
+        }
+        if (rawSub) {
+          isQuoted = (rawSub.startsWith('"') && rawSub.endsWith('"')) || (rawSub.startsWith("'") && rawSub.endsWith("'"));
+          subRef = this.unquote(rawSub);
         }
         if (subRef && subRef !== 'subSystems') {
           const sub: RosSubSystem = {
             ref: subRef,
             state: 'collapsed',
             line: lineNo,
+            quoted: isQuoted,
+            lineComment: note || undefined,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           if (proj.view?.subStates && !proj.view.subStates[subRef]) {
@@ -222,6 +239,56 @@ export const RosModelParser = {
           proj.subSystems.push(sub);
           leadComments = [];
           continue;
+        }
+      }
+
+      // Top-level Parameters entries: parameter+=Parameter* (RosSystem.xtext:34-38)
+      if (curSection === 'parameters') {
+        if (!proj.parameters) proj.parameters = [];
+        if (keyMatch && !val && ind <= 4 && kw !== 'type' && kw !== 'value' && kw !== 'ns') {
+          const paramName = kw || 'param';
+          const rawKey = keyMatch[1].trim();
+          const isQuoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
+          curSysParam = {
+            name: paramName,
+            type: 'String',
+            quoted: isQuoted,
+            line: lineNo,
+            lineComment: note || undefined,
+            comments: leadComments.length ? { before: [...leadComments] } : undefined,
+          };
+          proj.parameters.push(curSysParam);
+          leadComments = [];
+          continue;
+        }
+
+        if (curSysParam) {
+          if (keyMatch && kw === 'type') {
+            curSysParam.type = val || 'String';
+            if (note) curSysParam.lineComment = note;
+            continue;
+          }
+          if (keyMatch && kw === 'value') {
+            const rawVal = (val || '').trim();
+            const isValQuoted = (rawVal.startsWith('"') && rawVal.endsWith('"')) || (rawVal.startsWith("'") && rawVal.endsWith("'"));
+            curSysParam.valueQuoted = isValQuoted;
+            curSysParam.rawValText = rawVal;
+            if (note) curSysParam.lineComment = note;
+            if (isValQuoted) {
+              curSysParam.value = this.unquote(rawVal);
+            } else if (rawVal.startsWith('[') && rawVal.endsWith(']')) {
+              curSysParam.value = rawVal;
+            } else if (/^(true|false)$/i.test(rawVal)) {
+              curSysParam.value = rawVal.toLowerCase() === 'true';
+            } else if (/^-?\d+$/.test(rawVal)) {
+              curSysParam.value = parseInt(rawVal, 10);
+            } else if (/^-?\d+\.\d+([eE][-+]?\d+)?$/.test(rawVal)) {
+              curSysParam.value = parseFloat(rawVal);
+            } else {
+              curSysParam.value = rawVal;
+            }
+            continue;
+          }
         }
       }
 
@@ -266,6 +333,8 @@ export const RosModelParser = {
       if (curSection === 'nodes') {
         if (keyMatch && !val && ind <= 4 && kw !== 'interfaces' && kw !== 'parameters') {
           const nodeLabel = kw || 'node';
+          const rawKey = keyMatch[1].trim();
+          const isQuoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
           curNode = {
             id: `n_${nodeLabel}`,
             label: nodeLabel,
@@ -274,6 +343,8 @@ export const RosModelParser = {
             backing: 'local',
             line: lineNo,
             lineEnd: lineNo,
+            quoted: isQuoted,
+            lineComment: note || undefined,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           };
           if (note) {
@@ -288,7 +359,10 @@ export const RosModelParser = {
         if (curNode) {
           curNode.lineEnd = lineNo;
           if (keyMatch && kw === 'from') {
-            curNode.from = this.unquote(val);
+            const rawFrom = (val || '').trim();
+            curNode.fromQuoted = (rawFrom.startsWith('"') && rawFrom.endsWith('"')) || (rawFrom.startsWith("'") && rawFrom.endsWith("'"));
+            curNode.from = this.unquote(rawFrom);
+            curNode.fromComment = note || undefined;
             const parts = (curNode.from || '').split('.');
             if (parts.length >= 2) {
               curNode.pkg = parts[0];
@@ -321,9 +395,13 @@ export const RosModelParser = {
             // Check for explicit Xtext arrow: - "label": kind-> "artifact::interface"
             const arrowMatch = /^-\s*("[^"]*"|'[^']*'|[^:#]+?)\s*:\s*(pub|sub|ss|sc|as|ac)->\s*(.*)$/.exec(body);
             if (arrowMatch) {
-              const expLabel = this.unquote(arrowMatch[1]);
+              const rawKey = arrowMatch[1].trim();
+              const isKeyQuoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
+              const expLabel = this.unquote(rawKey);
               const kind = arrowMatch[2] as RosInteractionKind;
-              const refTarget = this.unquote(arrowMatch[3]);
+              const rawRef = arrowMatch[3].trim();
+              const isTargetQuoted = (rawRef.startsWith('"') && rawRef.endsWith('"')) || (rawRef.startsWith("'") && rawRef.endsWith("'"));
+              const refTarget = this.unquote(rawRef);
               const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const ifaceName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
               if (targetArt) {
@@ -337,6 +415,9 @@ export const RosModelParser = {
                 exposed: true,
                 artifact: targetArt,
                 line: lineNo,
+                quoted: isKeyQuoted,
+                targetRefQuoted: isTargetQuoted,
+                lineComment: note || undefined,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.ifaces.push(iface);
@@ -347,8 +428,12 @@ export const RosModelParser = {
             // Fallback for interface without arrow prefix
             const ifaceMatch = /^-\s*("[^"]*"|'[^']*'|[^:#]+?)\s*:\s*(.*)$/.exec(body);
             if (ifaceMatch) {
-              const expLabel = this.unquote(ifaceMatch[1]);
-              const refTarget = this.unquote(ifaceMatch[2]);
+              const rawKey = ifaceMatch[1].trim();
+              const isKeyQuoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
+              const expLabel = this.unquote(rawKey);
+              const rawRef = ifaceMatch[2].trim();
+              const isTargetQuoted = (rawRef.startsWith('"') && rawRef.endsWith('"')) || (rawRef.startsWith("'") && rawRef.endsWith("'"));
+              const refTarget = this.unquote(rawRef);
               const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const ifaceName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
               if (targetArt) {
@@ -363,6 +448,9 @@ export const RosModelParser = {
                 exposed: true,
                 artifact: targetArt,
                 line: lineNo,
+                quoted: isKeyQuoted,
+                targetRefQuoted: isTargetQuoted,
+                lineComment: note || undefined,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.ifaces.push(iface);
@@ -375,8 +463,12 @@ export const RosModelParser = {
           if (curSubSection === 'parameters') {
             const paramMatch = /^-\s*("[^"]*"|'[^']*'|[^:#]+?)\s*:\s*(.*)$/.exec(body);
             if (paramMatch) {
-              const paramLabel = this.unquote(paramMatch[1]);
-              const refTarget = this.unquote(paramMatch[2]);
+              const rawKey = paramMatch[1].trim();
+              const isKeyQuoted = (rawKey.startsWith('"') && rawKey.endsWith('"')) || (rawKey.startsWith("'") && rawKey.endsWith("'"));
+              const paramLabel = this.unquote(rawKey);
+              const rawRef = paramMatch[2].trim();
+              const isTargetQuoted = (rawRef.startsWith('"') && rawRef.endsWith('"')) || (rawRef.startsWith("'") && rawRef.endsWith("'"));
+              const refTarget = this.unquote(rawRef);
               const targetArt = refTarget.includes('::') ? refTarget.split('::')[0] : undefined;
               const paramName = refTarget.includes('::') ? refTarget.split('::')[1] : refTarget;
               if (targetArt) {
@@ -390,6 +482,9 @@ export const RosModelParser = {
                 ptype: 'String',
                 artifact: targetArt,
                 line: lineNo,
+                quoted: isKeyQuoted,
+                targetRefQuoted: isTargetQuoted,
+                lineComment: note || undefined,
                 comments: leadComments.length ? { before: [...leadComments] } : undefined,
               };
               curNode.params.push(param);
@@ -398,8 +493,35 @@ export const RosModelParser = {
             }
             if (keyMatch && kw === 'value' && curNode.params.length > 0) {
               const lastParam = curNode.params[curNode.params.length - 1];
-              lastParam.sysValue = this.unquote(val);
-              lastParam.value = lastParam.sysValue;
+              const rawVal = (val || '').trim();
+              const isValQuoted = (rawVal.startsWith('"') && rawVal.endsWith('"')) || (rawVal.startsWith("'") && rawVal.endsWith("'"));
+              lastParam.valueQuoted = isValQuoted;
+              lastParam.rawValText = rawVal;
+              if (note) lastParam.lineComment = note;
+              if (isValQuoted) {
+                lastParam.sysValue = this.unquote(rawVal);
+                lastParam.value = lastParam.sysValue;
+                lastParam.ptype = 'String';
+              } else if (rawVal.startsWith('[') && rawVal.endsWith(']')) {
+                lastParam.sysValue = rawVal;
+                lastParam.value = rawVal;
+                lastParam.ptype = 'List';
+              } else if (/^(true|false)$/i.test(rawVal)) {
+                lastParam.sysValue = rawVal;
+                lastParam.value = rawVal.toLowerCase() === 'true';
+                lastParam.ptype = 'Boolean';
+              } else if (/^-?\d+$/.test(rawVal)) {
+                lastParam.sysValue = rawVal;
+                lastParam.value = parseInt(rawVal, 10);
+                lastParam.ptype = 'Integer';
+              } else if (/^-?\d+\.\d+([eE][-+]?\d+)?$/.test(rawVal)) {
+                lastParam.sysValue = rawVal;
+                lastParam.value = parseFloat(rawVal);
+                lastParam.ptype = 'Double';
+              } else {
+                lastParam.sysValue = rawVal;
+                lastParam.value = rawVal;
+              }
               continue;
             }
           }
@@ -411,18 +533,30 @@ export const RosModelParser = {
       if (curSection === 'connections') {
         let fromLabel: string | null = null;
         let toLabel: string | null = null;
+        let fromQuoted = false;
+        let toQuoted = false;
+        let hasBrackets = false;
 
         // Xtext connection: - [from, to] or - [from; to] or - from; to with optional quotes and trailing semicolon
         const connBracket = /^-\s*\[?\s*("[^"]*"|'[^']*'|[^,;\]\s]+)\s*[,;]\s*("[^"]*"|'[^']*'|[^,;\]\s]+)\s*\]?;?/.exec(body);
         if (connBracket) {
-          fromLabel = this.unquote(connBracket[1].replace(/;$/, '').trim());
-          toLabel = this.unquote(connBracket[2].replace(/;$/, '').trim());
+          const raw1 = connBracket[1].replace(/;$/, '').trim();
+          const raw2 = connBracket[2].replace(/;$/, '').trim();
+          fromQuoted = (raw1.startsWith('"') && raw1.endsWith('"')) || (raw1.startsWith("'") && raw1.endsWith("'"));
+          toQuoted = (raw2.startsWith('"') && raw2.endsWith('"')) || (raw2.startsWith("'") && raw2.endsWith("'"));
+          fromLabel = this.unquote(raw1);
+          toLabel = this.unquote(raw2);
+          hasBrackets = body.includes('[');
         } else {
           // Lenient fallback: - "from": "to"
           const connMatch = /^-\s*("[^"]*"|'[^']*'|[^:#]+?)\s*:\s*(.*)$/.exec(body);
           if (connMatch) {
-            fromLabel = this.unquote(connMatch[1]);
-            toLabel = this.unquote(connMatch[2]);
+            const raw1 = connMatch[1].trim();
+            const raw2 = connMatch[2].trim();
+            fromQuoted = (raw1.startsWith('"') && raw1.endsWith('"')) || (raw1.startsWith("'") && raw1.endsWith("'"));
+            toQuoted = (raw2.startsWith('"') && raw2.endsWith('"')) || (raw2.startsWith("'") && raw2.endsWith("'"));
+            fromLabel = this.unquote(raw1);
+            toLabel = this.unquote(raw2);
           }
         }
 
@@ -498,7 +632,11 @@ export const RosModelParser = {
             },
             rawFrom: fromLabel,
             rawTo: toLabel,
+            fromQuoted: fromQuoted,
+            toQuoted: toQuoted,
+            hasBrackets: hasBrackets,
             line: lineNo,
+            lineComment: note || undefined,
             comments: leadComments.length ? { before: [...leadComments] } : undefined,
           });
           leadComments = [];

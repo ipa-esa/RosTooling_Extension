@@ -14,19 +14,39 @@ export interface RosInterface {
   artifact?: string;
   line?: number;
   comments?: Record<string, unknown>;
+  quoted?: boolean;
+  targetRefQuoted?: boolean;
+  lineComment?: string;
+}
+
+export interface RosSystemParameter {
+  name: string;
+  type: string;
+  value?: unknown;
+  quoted?: boolean;
+  valueQuoted?: boolean;
+  rawValText?: string;
+  line?: number;
+  comments?: Record<string, unknown>;
+  lineComment?: string;
 }
 
 export interface RosParameter {
   id?: string;
   name: string;
   ptype?: string;
-  value?: string | number | boolean;
+  value?: unknown;
   label?: string;
   exposed?: boolean;
-  sysValue?: string | number | boolean;
+  sysValue?: unknown;
   artifact?: string;
   line?: number;
   comments?: Record<string, unknown>;
+  quoted?: boolean;
+  targetRefQuoted?: boolean;
+  valueQuoted?: boolean;
+  rawValText?: string;
+  lineComment?: string;
 }
 
 export interface RosNode {
@@ -51,6 +71,10 @@ export interface RosNode {
   lineEnd?: number;
   comments?: Record<string, unknown>;
   diag?: string[];
+  quoted?: boolean;
+  fromQuoted?: boolean;
+  fromComment?: string;
+  lineComment?: string;
 }
 
 export interface RosConnection {
@@ -66,6 +90,10 @@ export interface RosConnection {
   midOffset?: number;
   line?: number;
   comments?: Record<string, unknown>;
+  fromQuoted?: boolean;
+  toQuoted?: boolean;
+  hasBrackets?: boolean;
+  lineComment?: string;
 }
 
 export interface RosSubSystem {
@@ -79,6 +107,9 @@ export interface RosSubSystem {
   h?: number;
   line?: number;
   comments?: Record<string, unknown>;
+  quoted?: boolean;
+  lineComment?: string;
+  fromComment?: string;
   graph?: {
     nodes: {
       label: string;
@@ -192,7 +223,10 @@ export interface RosProject {
     name: string;
     fromFile?: string;
     comments?: Record<string, unknown>;
+    quoted?: boolean;
   };
+  sectionOrder?: ('subSystems' | 'processes' | 'nodes' | 'parameters' | 'connections')[];
+  parameters?: RosSystemParameter[];
   subSystems: RosSubSystem[];
   processes?: RosProcess[];
   nodes: RosNode[];

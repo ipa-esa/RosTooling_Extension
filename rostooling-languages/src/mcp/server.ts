@@ -220,10 +220,18 @@ export function createMcpServer(): McpServer {
 
       if (genResult.error) {
         return {
+          isError: true,
           content: [
             {
               type: 'text',
-              text: JSON.stringify({ error: genResult.error }),
+              text: JSON.stringify(
+                {
+                  status: 'error',
+                  error: genResult.error,
+                },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -312,10 +320,18 @@ export function createMcpServer(): McpServer {
 
       if (genResult.error) {
         return {
+          isError: true,
           content: [
             {
               type: 'text',
-              text: JSON.stringify({ error: genResult.error }),
+              text: JSON.stringify(
+                {
+                  status: 'error',
+                  error: genResult.error,
+                },
+                null,
+                2
+              ),
             },
           ],
         };

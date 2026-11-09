@@ -8,6 +8,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.util.EcoreUtil;
@@ -550,6 +552,26 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
             idx = strVal.indexOf("$(", startName);
           }
         }
+        final Pattern varPattern = Pattern.compile("\\$\\(\\s*var\\s+([a-zA-Z0-9_.-]+)");
+        final Matcher varMatcher = varPattern.matcher(strVal);
+        while (varMatcher.find()) {
+          {
+            final String varName = varMatcher.group(1);
+            EObject container = rosparam.eContainer();
+            while (((container != null) && (!(container instanceof system.System)))) {
+              container = container.eContainer();
+            }
+            final system.System sys = ((system.System) container);
+            if (((sys != null) && (!this.isSystemVariableDeclared(sys, varName)))) {
+              String _name_1 = rosparam.getName();
+              String _plus_2 = ((("Launch substitution \'$(var " + varName) + ")\' in parameter \'") + _name_1);
+              String _plus_3 = (_plus_2 + "\' references variable \'");
+              String _plus_4 = (_plus_3 + varName);
+              String _plus_5 = (_plus_4 + "\' which is not declared as a system-level parameter or by an included subsystem.");
+              this.warning(_plus_5, rosparam, null);
+            }
+          }
+        }
         Parameter _from = rosparam.getFrom();
         boolean _tripleNotEquals = (_from != null);
         if (_tripleNotEquals) {
@@ -644,7 +666,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
           this.error(_plus_1, null, RosSystemValidator.INVALID_LENGHT);
         }
       } else {
-        this.error("Expect a list of elements; format { , ,...}", null, RosSystemValidator.INVALID_LENGHT);
+        this.error("Expect a list of elements; format [ , ,...]", null, RosSystemValidator.INVALID_LENGHT);
       }
     } else {
       boolean _contains_2 = this.expected_type.contains("ParameterArrayType");
@@ -672,7 +694,7 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
             }
           }
         } else {
-          this.error("Expect a list of elements; format { , , }", null, RosSystemValidator.INVALID_LENGHT);
+          this.error("Expect a list of elements; format [ , , ]", null, RosSystemValidator.INVALID_LENGHT);
         }
       } else {
         boolean _contains_5 = this.expected_type.contains("ParameterStruct");
@@ -781,6 +803,94 @@ public class RosSystemValidator extends AbstractRosSystemValidator {
     int _indexOf = Element.indexOf("value:");
     int _plus = (_indexOf + 6);
     return Element.substring(_plus, Element.indexOf(")"));
+  }
+
+  public boolean isSystemVariableDeclared(final system.System system, final String varName) {
+    if ((system == null)) {
+      return false;
+    }
+    EList<Parameter> _parameter = system.getParameter();
+    boolean _tripleNotEquals = (_parameter != null);
+    if (_tripleNotEquals) {
+      EList<Parameter> _parameter_1 = system.getParameter();
+      for (final Parameter p : _parameter_1) {
+        if (((p instanceof Parameter) && Objects.equals(((Parameter) p).getName(), varName))) {
+          return true;
+        }
+      }
+    }
+    EList<Component> _components = system.getComponents();
+    boolean _tripleNotEquals_1 = (_components != null);
+    if (_tripleNotEquals_1) {
+      EList<Component> _components_1 = system.getComponents();
+      for (final Component comp : _components_1) {
+        if ((comp instanceof SubSystem)) {
+          system.System sub = ((SubSystem) comp).getSystem();
+          if (((sub != null) && sub.eIsProxy())) {
+            EObject _resolve = EcoreUtil.resolve(sub, system);
+            sub = ((system.System) _resolve);
+          }
+          if (((sub != null) && (!sub.eIsProxy()))) {
+            boolean _isSubsystemDeclaringOrUsingVariable = this.isSubsystemDeclaringOrUsingVariable(sub, varName);
+            if (_isSubsystemDeclaringOrUsingVariable) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  public boolean isSubsystemDeclaringOrUsingVariable(final system.System sub, final String varName) {
+    if ((sub == null)) {
+      return false;
+    }
+    EList<Parameter> _parameter = sub.getParameter();
+    boolean _tripleNotEquals = (_parameter != null);
+    if (_tripleNotEquals) {
+      EList<Parameter> _parameter_1 = sub.getParameter();
+      for (final Parameter p : _parameter_1) {
+        if (((p instanceof Parameter) && Objects.equals(((Parameter) p).getName(), varName))) {
+          return true;
+        }
+      }
+    }
+    EList<Component> _components = sub.getComponents();
+    boolean _tripleNotEquals_1 = (_components != null);
+    if (_tripleNotEquals_1) {
+      EList<Component> _components_1 = sub.getComponents();
+      for (final Component comp : _components_1) {
+        if ((comp instanceof RosNode)) {
+          final RosNode rnode = ((RosNode) comp);
+          if (((rnode.getFrom() != null) && (rnode.getFrom().getParameter() != null))) {
+            EList<Parameter> _parameter_2 = rnode.getFrom().getParameter();
+            for (final Parameter p_1 : _parameter_2) {
+              String _name = p_1.getName();
+              boolean _equals = Objects.equals(_name, varName);
+              if (_equals) {
+                return true;
+              }
+            }
+          }
+        } else {
+          if ((comp instanceof SubSystem)) {
+            system.System nestedSub = ((SubSystem) comp).getSystem();
+            if (((nestedSub != null) && nestedSub.eIsProxy())) {
+              EObject _resolve = EcoreUtil.resolve(nestedSub, sub);
+              nestedSub = ((system.System) _resolve);
+            }
+            if (((nestedSub != null) && (!nestedSub.eIsProxy()))) {
+              boolean _isSubsystemDeclaringOrUsingVariable = this.isSubsystemDeclaringOrUsingVariable(nestedSub, varName);
+              if (_isSubsystemDeclaringOrUsingVariable) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

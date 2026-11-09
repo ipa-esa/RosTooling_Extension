@@ -369,7 +369,7 @@ export class RosCatalogueManager {
               for (const param of n.params || []) {
                 paramMap[param.name] = {
                   type: param.ptype || 'String',
-                  value: param.value,
+                  value: param.value as string | number | boolean | undefined,
                 };
               }
 
