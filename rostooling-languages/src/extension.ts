@@ -10,6 +10,7 @@ import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 import { RosModelParser } from './model/RosModelParser';
+import { AgentSkillInstaller } from './agent/AgentSkillInstaller';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -1059,6 +1060,13 @@ export async function activate(context: ExtensionContext) {
             window.showErrorMessage(message)
         }
     });
+
+    safeRegisterCommand('rostooling.installAgentSkills', async () => {
+        await AgentSkillInstaller.promptInstallSkills(context);
+    });
+
+    // Offer agent skill installation on workspace startup if not already installed
+    void AgentSkillInstaller.checkAndPromptOnStartup(context);
 
     const tTotalElapsed = Math.round(performance.now() - tActivationStart);
     outputChannel.appendLine(`[Benchmark] Extension activation completed in ${tTotalElapsed}ms (LSP starting in background)`);

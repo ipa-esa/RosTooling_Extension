@@ -5,15 +5,42 @@ task copyFatJar(type: Copy) {
     into "server"
 }
 
-clean {
-    doLast {
-        delete copyFatJar.outputs
+task copyStudioBackend(type: Copy) {
+    into projectDir
+    def studioDir = file("${rootProject.projectDir}/../ipa-rostooling-studio")
+    if (!studioDir.exists()) {
+        studioDir = file("${rootProject.projectDir}/ipa-rostooling-studio")
+    }
+    if (studioDir.exists()) {
+        from("${studioDir}/scripts") {
+            into "scripts"
+            exclude "**/__pycache__/**"
+            exclude "**/*.pyc"
+        }
+        from("${studioDir}/.agents/skills") {
+            into "assets/skills"
+        }
+        from("${studioDir}/hooks") {
+            into "assets/hooks"
+        }
     }
 }
 
-npmInstall.dependsOn copyFatJar
+clean {
+    doLast {
+        delete copyFatJar.outputs
+        delete "${projectDir}/scripts"
+        delete "${projectDir}/assets/skills"
+        delete "${projectDir}/assets/hooks"
+    }
+}
+
+npmInstall.dependsOn copyFatJar, copyStudioBackend
 tasks.named('npm_test').configure {
-    dependsOn copyFatJar
+    dependsOn copyFatJar, copyStudioBackend
+}
+tasks.named('vscodeExtension').configure {
+    dependsOn copyFatJar, copyStudioBackend
 }
 
 task installExtension(type: Exec, dependsOn: vscodeExtension) {

@@ -148,6 +148,11 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to a custom RosTooling Language Server fat JAR (e.g., from local Gradle shadowJar builds). If left empty, uses the bundled extension JAR."
+        },
+        "rostooling-languages.agentSkills.promptOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically prompt to install RosTooling AI Agent skills (Claude Code, Antigravity, Cursor) when opening a ROS workspace."
         }
       }
     },
@@ -183,6 +188,12 @@
         "command": "rostooling.selectServerJar",
         "title": "Select Language Server JAR...",
         "category": "RosTooling"
+      },
+      {
+        "command": "rostooling.installAgentSkills",
+        "title": "Install AI Agent Skills & MCP (Claude Code, Antigravity, Cursor)",
+        "category": "RosTooling",
+        "icon": "$(sparkle)"
       },
       {
         "command": "rossystem.triggerCodeGeneration",
@@ -245,12 +256,14 @@
     }
   },
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:ros",
     "onLanguage:ros1",
     "onLanguage:ros2",
     "onLanguage:rossystem",
     "onCommand:rostooling.openVisualStudio",
     "onCommand:rostooling.selectServerJar",
+    "onCommand:rostooling.installAgentSkills",
     "onCommand:ros2.generateWrappers",
     "onCommand:rossystem.triggerCodeGeneration",
     "onCommand:rossdl.buildPackage",

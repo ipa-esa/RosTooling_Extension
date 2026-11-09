@@ -212,3 +212,14 @@ graphify-out/**
 rostooling-languages/src/webview/frontend/node_modules/
 !rostooling-languages/src/webview/frontend/dist/
 !rostooling-languages/src/webview/frontend/dist/**
+
+# Vendored Python Studio backend & AI agent assets (populated during build/packaging from ipa-rostooling-studio)
+rostooling-languages/scripts/
+rostooling-languages/assets/skills/
+rostooling-languages/assets/hooks/
+ipa-rostooling-studio/
+
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
