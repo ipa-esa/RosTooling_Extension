@@ -1387,6 +1387,138 @@ robot_system:
     // Clean up
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  // 21. Subsystem interface remapping updates connection endpoints in-place and preserves connections
+  test('21. Subsystem interface remapping updates connection endpoints in-place and preserves connections', async () => {
+    const mockContext = { extensionUri: vscode.Uri.file(__dirname) } as vscode.ExtensionContext;
+    const provider = new RosCustomEditorProvider(mockContext);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-remap-test-'));
+    const subSysPath = path.join(tmpDir, 'camera_sub.rossystem');
+
+    // Subsystem file has remapped the interface to /camera/camera_3/color/image_raw
+    const subSysContent = `camera_sub:
+  nodes:
+    camera_node:
+      from: "realsense2_camera.realsense2_camera_node"
+      interfaces:
+        - "/camera/camera_3/color/image_raw": pub-> "realsense2_camera_node::color/image_raw"
+`;
+    fs.writeFileSync(subSysPath, subSysContent, 'utf-8');
+
+    // Main system has a connection recorded with the old label: /camera_3/color/image_raw
+    const mainProject: RosProject = {
+      formatVersion: 1,
+      packages: {},
+      types: {},
+      isRosSystem: true,
+      system: { name: 'main_system' },
+      subSystems: [{ ref: 'camera_sub', fromFile: subSysPath }],
+      nodes: [
+        {
+          id: 'n_camera_sub_camera_node',
+          label: 'camera_node',
+          subRef: 'camera_sub',
+          backing: 'sub',
+          from: 'realsense2_camera.realsense2_camera_node',
+          artifact: 'realsense2_camera_node',
+          ifaces: [
+            {
+              id: 'i_camera_sub_camera_node_/camera/camera_3/color/image_raw',
+              name: 'color/image_raw',
+              label: '/camera/camera_3/color/image_raw',
+              kind: 'pub',
+              type: 'sensor_msgs/msg/Image',
+              exposed: true,
+              artifact: 'realsense2_camera_node',
+            },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_defect_detector',
+          label: 'defect_detector',
+          ifaces: [
+            {
+              id: 'i_defect_detector_image',
+              name: 'image',
+              label: 'image',
+              kind: 'sub',
+              type: 'sensor_msgs/msg/Image',
+              exposed: true,
+            },
+          ],
+          params: [],
+        },
+      ],
+      connections: [
+        {
+          id: 'c_camera_to_defect',
+          rawFrom: 'camera_node::/camera_3/color/image_raw',
+          rawTo: 'defect_detector::image',
+          from: { n: '', i: '' },
+          to: { n: '', i: '' },
+        },
+      ],
+    };
+
+    // Run interface resolution on the project
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (provider as any).resolveSystemInterfaces(mainProject);
+
+    // Verify connection was preserved via candidate interface matching and rawFrom was updated to the new label
+    const conn = mainProject.connections[0];
+    assert.ok(conn, 'Connection must not be deleted');
+    assert.strictEqual(
+      conn.rawFrom,
+      '/camera/camera_3/color/image_raw',
+      'Old remapped connection endpoint must be automatically replaced with the new remapped label'
+    );
+    assert.strictEqual(conn.from?.n, 'n_camera_sub_camera_node', 'Connection source node must be correctly resolved');
+    assert.strictEqual(conn.to?.n, 'n_defect_detector', 'Connection target node must be correctly resolved');
+
+    // Clean up
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // 22. Workspace root discovery and companion artifact caching bounds traversal
+  test('22. Workspace root discovery and companion artifact caching bounds traversal', async () => {
+    const mockContext = { extensionUri: vscode.Uri.file(__dirname) } as vscode.ExtensionContext;
+    const provider = new RosCustomEditorProvider(mockContext);
+
+    // Create a mock package in a temporary directory
+    const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-ws-test-'));
+    const pkgDir = path.join(tmpWs, 'src', 'demo_pkg', 'models');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    const modelPath = path.join(pkgDir, 'demo.rossystem');
+    fs.writeFileSync(modelPath, 'demo:\n', 'utf-8');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const roots = (provider as any).getWorkspaceRoots(modelPath) as string[];
+    assert.ok(roots.length > 0, 'Roots should not be empty');
+    // None of the roots should be home directory or root filesystem
+    for (const root of roots) {
+      assert.notStrictEqual(root, os.homedir(), 'Root traversal must never climb up to user home directory');
+      assert.notStrictEqual(root, '/', 'Root traversal must never climb up to root filesystem');
+    }
+
+    // Verify companion cache works
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const firstCall = await (provider as any).loadCompanionArtifacts(modelPath);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const secondCall = await (provider as any).loadCompanionArtifacts(modelPath);
+    assert.strictEqual(firstCall, secondCall, 'Repeated companion artifact calls should hit cache');
+
+    // Invalidate cache
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (provider as any).invalidateCompanionCache();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const thirdCall = await (provider as any).loadCompanionArtifacts(modelPath);
+    assert.notStrictEqual(firstCall, thirdCall, 'Invalidate cache should refresh companion artifacts');
+
+    // Clean up
+    fs.rmSync(tmpWs, { recursive: true, force: true });
+  });
 });
 
 

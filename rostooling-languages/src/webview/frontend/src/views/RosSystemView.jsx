@@ -840,12 +840,16 @@ function SystemCanvasInner() {
       const newConnId = `c_${res.normalizedFrom.i}_${res.normalizedTo.i}_${Date.now().toString(36)}`;
       mutateProject((proj) => {
         if (!proj.connections) proj.connections = [];
+        // Prune any existing connection into the same input target port to prevent dead/duplicate connections
+        proj.connections = proj.connections.filter(
+          (c) => !(c.to?.n === res.normalizedTo.n && c.to?.i === res.normalizedTo.i)
+        );
         proj.connections.push({
           id: newConnId,
           from: { n: res.normalizedFrom.n, i: res.normalizedFrom.i },
           to: { n: res.normalizedTo.n, i: res.normalizedTo.i },
         });
-      });
+      }, true);
       setUIState({
         selectedEdgeId: newConnId,
         selectedNodeId: null,
@@ -917,7 +921,7 @@ function SystemCanvasInner() {
             }
           }
         }
-      });
+      }, true);
       setUIState({
         selectedNodeId: null,
         selectedEdgeId: null,
@@ -934,7 +938,7 @@ function SystemCanvasInner() {
       const ids = new Set(deletedEdges.map((e) => e.id));
       mutateProject((proj) => {
         proj.connections = (proj.connections || []).filter((c) => !ids.has(c.id));
-      });
+      }, true);
       setUIState({ selectedEdgeId: null });
     },
     [isReadOnly]
@@ -1634,10 +1638,21 @@ function SystemInspector() {
                       placeholder={iface.name}
                       onChange={(e) => {
                         const remapped = e.target.value;
+                        const oldLabel = iface.label ?? iface.name;
                         mutateProject((proj) => {
                           const n = (proj.nodes || []).find((x) => x.id === selectedNode.id);
                           const f = (n?.ifaces || []).find((x) => x.id === iface.id);
                           if (f) f.label = remapped;
+
+                          // Keep existing connections wired to this interface in sync with the new remapped label
+                          for (const c of proj.connections || []) {
+                            if (c.from?.n === selectedNode.id && (c.from?.i === iface.id || c.from?.i === oldLabel || c.rawFrom === oldLabel)) {
+                              c.rawFrom = remapped;
+                            }
+                            if (c.to?.n === selectedNode.id && (c.to?.i === iface.id || c.to?.i === oldLabel || c.rawTo === oldLabel)) {
+                              c.rawTo = remapped;
+                            }
+                          }
                         });
                       }}
                     />

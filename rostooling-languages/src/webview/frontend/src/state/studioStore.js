@@ -349,6 +349,20 @@ const state = {
 let version = 0;
 const listeners = new Set();
 let toastTimer = null;
+let applyEditTimer = null;
+let pendingProjectToApply = null;
+
+export function flushPendingEdits() {
+  if (applyEditTimer) {
+    clearTimeout(applyEditTimer);
+    applyEditTimer = null;
+  }
+  if (pendingProjectToApply) {
+    const toSend = pendingProjectToApply;
+    pendingProjectToApply = null;
+    hostBridge.applyEdit(toSend);
+  }
+}
 
 function emitChange() {
   version += 1;
@@ -359,6 +373,10 @@ function emitChange() {
 
 registerHostMessageListener({
   onUpdateModel(freshProject) {
+    if (applyEditTimer !== null || pendingProjectToApply !== null) {
+      // User is actively editing inputs; do not stomp on ongoing in-flight edits
+      return;
+    }
     state.project = freshProject;
     if (state.selectedNodeId && !(freshProject.nodes || []).some((n) => n.id === state.selectedNodeId)) {
       state.selectedNodeId = state.mode === 'component' ? freshProject.nodes?.[0]?.id || null : null;
@@ -413,7 +431,7 @@ export function requestFitView() {
   emitChange();
 }
 
-export function mutateProject(recipe) {
+export function mutateProject(recipe, immediate = false) {
   if (state.isReadOnly) {
     showToast('Core catalogue models are read-only and cannot be modified.', true);
     return;
@@ -425,8 +443,23 @@ export function mutateProject(recipe) {
   const next = cloneDeep(state.project);
   recipe(next);
   state.project = next;
-  hostBridge.applyEdit(next);
   emitChange();
+
+  if (immediate) {
+    flushPendingEdits();
+    hostBridge.applyEdit(next);
+  } else {
+    pendingProjectToApply = next;
+    if (applyEditTimer) clearTimeout(applyEditTimer);
+    applyEditTimer = setTimeout(() => {
+      applyEditTimer = null;
+      if (pendingProjectToApply) {
+        const toSend = pendingProjectToApply;
+        pendingProjectToApply = null;
+        hostBridge.applyEdit(toSend);
+      }
+    }, 300);
+  }
 }
 
 export function mutateLayout(recipe) {
@@ -441,6 +474,7 @@ export function mutateLayout(recipe) {
 
 export function undoEdit() {
   if (state.isReadOnly || state.past.length === 0) return;
+  flushPendingEdits();
   state.future.push(cloneDeep(state.project));
   const prev = state.past.pop();
   state.project = prev;
@@ -450,6 +484,7 @@ export function undoEdit() {
 
 export function redoEdit() {
   if (state.isReadOnly || state.future.length === 0) return;
+  flushPendingEdits();
   state.past.push(cloneDeep(state.project));
   const next = state.future.pop();
   state.project = next;

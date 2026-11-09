@@ -17,6 +17,7 @@ import {
   updateNodeLabel,
   updateNodePackageAndArtifact,
   runDagreAutoLayout,
+  flushPendingEdits,
 } from './state/studioStore';
 
 if (typeof window !== 'undefined') {
@@ -38,6 +39,7 @@ if (typeof window !== 'undefined') {
     updateNodeLabel,
     updateNodePackageAndArtifact,
     runDagreAutoLayout,
+    flushPendingEdits,
   };
 }
 

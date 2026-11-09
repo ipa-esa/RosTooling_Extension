@@ -27,6 +27,18 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   private nodeIndex: Record<string, unknown> | null = null;
   private typeIndex: Record<string, unknown> | null = null;
   private projectCache = new Map<string, RosProject>();
+  private companionCache = new Map<
+    string,
+    {
+      timestamp: number;
+      artifactMap: Map<string, DeclaredArtifact>;
+      subsystemMap: Map<string, string>;
+    }
+  >();
+
+  public invalidateCompanionCache(): void {
+    this.companionCache.clear();
+  }
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadCatalogues();
@@ -276,7 +288,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       if (!fs.existsSync(dir)) return results;
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const ent of entries) {
-        if (ent.name.startsWith('.') || ent.name === 'node_modules' || ent.name === 'build' || ent.name === 'install') {
+        if (
+          ent.name.startsWith('.') ||
+          ent.name === 'node_modules' ||
+          ent.name === 'build' ||
+          ent.name === 'install' ||
+          ent.name === 'log' ||
+          ent.name === '__pycache__'
+        ) {
           continue;
         }
         const full = path.join(dir, ent.name);
@@ -293,59 +312,100 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   }
 
   private getWorkspaceRoots(docFilePath: string): string[] {
-    const roots: string[] = [];
+    const rawRoots = new Set<string>();
     if (vscode.workspace.workspaceFolders) {
       for (const wf of vscode.workspace.workspaceFolders) {
-        roots.push(wf.uri.fsPath);
+        rawRoots.add(wf.uri.fsPath);
       }
     }
-    let curDir = path.dirname(docFilePath);
-    for (let i = 0; i < 8; i++) {
-      if (curDir && curDir !== '/' && !roots.includes(curDir)) {
-        roots.push(curDir);
+
+    if (docFilePath) {
+      const fileDir = path.dirname(docFilePath);
+      rawRoots.add(fileDir);
+
+      let curDir = fileDir;
+      const homeDir = os.homedir();
+
+      // Ascend upwards looking for package.xml, ROS workspace root (containing src/), git root, or catalog folders.
+      // STOP at homeDir or root to prevent scanning the entire home directory!
+      for (let i = 0; i < 6; i++) {
+        if (!curDir || curDir === '/' || curDir === '.' || curDir === homeDir) {
+          break;
+        }
+
+        const sibModels = path.join(curDir, 'RosModelsCatalog');
+        if (fs.existsSync(sibModels)) rawRoots.add(sibModels);
+        const sibCommon = path.join(curDir, 'RosCommonObjects');
+        if (fs.existsSync(sibCommon)) rawRoots.add(sibCommon);
+
+        const srcDir = path.join(curDir, 'src');
+        if (fs.existsSync(srcDir)) {
+          try {
+            if (fs.statSync(srcDir).isDirectory()) {
+              rawRoots.add(curDir);
+              break; // Hit ROS workspace root (containing src/)
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const pkgXml = path.join(curDir, 'package.xml');
+        const gitDir = path.join(curDir, '.git');
+        if (fs.existsSync(pkgXml) || fs.existsSync(gitDir)) {
+          rawRoots.add(curDir);
+        }
+
+        const parent = path.dirname(curDir);
+        if (parent === curDir || parent === homeDir) break;
+        curDir = parent;
       }
-      const sibModels = path.join(curDir, 'RosModelsCatalog');
-      if (fs.existsSync(sibModels) && !roots.includes(sibModels)) {
-        roots.push(sibModels);
-      }
-      const sibCommon = path.join(curDir, 'RosCommonObjects');
-      if (fs.existsSync(sibCommon) && !roots.includes(sibCommon)) {
-        roots.push(sibCommon);
-      }
-      const parent = path.dirname(curDir);
-      if (parent === curDir) break;
-      curDir = parent;
     }
-    for (const sr of this.getSearchRoots()) {
-      if (sr && !roots.includes(sr)) {
-        roots.push(sr);
-      }
-    }
+
     if (this.catalogueManager) {
       const storageDir = this.catalogueManager.getStorageDir();
-      if (fs.existsSync(storageDir) && !roots.includes(storageDir)) {
-        roots.push(storageDir);
+      if (fs.existsSync(storageDir)) {
+        rawRoots.add(storageDir);
       }
       for (const cf of this.catalogueManager.getCustomFolders()) {
-        if (cf.path && fs.existsSync(cf.path) && !roots.includes(cf.path)) {
-          roots.push(cf.path);
+        if (cf.path && fs.existsSync(cf.path)) {
+          rawRoots.add(cf.path);
         }
       }
     }
-    return roots;
+
+    // Filter out roots that are subdirectories of other roots to prevent redundant duplicate scans
+    const sorted = Array.from(rawRoots).sort((a, b) => a.length - b.length);
+    const nonRedundant: string[] = [];
+    for (const r of sorted) {
+      const isSub = nonRedundant.some((parent) => {
+        const rel = path.relative(parent, r);
+        return !rel.startsWith('..') && !path.isAbsolute(rel);
+      });
+      if (!isSub) {
+        nonRedundant.push(r);
+      }
+    }
+
+    return nonRedundant;
   }
 
   private loadCompanionArtifacts(docFilePath: string): {
     artifactMap: Map<string, DeclaredArtifact>;
     subsystemMap: Map<string, string>;
   } {
+    const cached = this.companionCache.get(docFilePath);
+    if (cached && Date.now() - cached.timestamp < 3000) {
+      return cached;
+    }
+
     const artifactMap = new Map<string, DeclaredArtifact>();
     const subsystemMap = new Map<string, string>();
     const roots = this.getWorkspaceRoots(docFilePath);
     const seenFiles = new Set<string>();
 
     for (const root of roots) {
-      const files = this.findModelFilesRecursive(root, ['.ros2', '.ros1', '.ros', '.rossystem'], 5);
+      const files = this.findModelFilesRecursive(root, ['.ros2', '.ros1', '.ros', '.rossystem'], 4);
       for (const fullPath of files) {
         if (seenFiles.has(fullPath)) continue;
         seenFiles.add(fullPath);
@@ -385,7 +445,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     }
 
-    return { artifactMap, subsystemMap };
+    const result = { timestamp: Date.now(), artifactMap, subsystemMap };
+    this.companionCache.set(docFilePath, result);
+    return result;
   }
 
   private enrichNodeWithDefinitions(
@@ -766,6 +828,43 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               }
             }
           }
+
+          // Fallback: If remapped in subsystem, match candidate by base interface name, compatible kind and type
+          if (!fromNode || !fromIface) {
+            const cleanTarget = targetLabel.replace(/^['"]|['"]$/g, '').trim();
+            const baseFrom = cleanTarget.includes('::') ? cleanTarget.split('::').pop() || cleanTarget : cleanTarget;
+            let candidateMatch: { node: RosNode; iface: RosInterface } | undefined;
+            for (const n of project.nodes) {
+              for (const f of n.ifaces || []) {
+                if (!outputKinds.has(f.kind)) continue;
+                const matchesBase =
+                  f.name &&
+                  (f.name === baseFrom ||
+                    cleanTarget.endsWith('/' + f.name) ||
+                    cleanTarget.endsWith('::' + f.name) ||
+                    cleanTarget === f.name);
+                if (matchesBase) {
+                  if (toIface && toIface.type && f.type && f.type !== '—' && toIface.type !== '—') {
+                    const cleanFType = f.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
+                    const cleanToType = toIface.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
+                    if (cleanFType !== cleanToType && !cleanFType.endsWith('/' + cleanToType) && !cleanToType.endsWith('/' + cleanFType)) {
+                      continue;
+                    }
+                  }
+                  candidateMatch = { node: n, iface: f };
+                  break;
+                }
+              }
+              if (candidateMatch) break;
+            }
+            if (candidateMatch) {
+              conn.from.n = candidateMatch.node.id;
+              conn.from.i = candidateMatch.iface.id;
+              conn.rawFrom = candidateMatch.iface.label || candidateMatch.iface.name;
+              fromNode = candidateMatch.node;
+              fromIface = candidateMatch.iface;
+            }
+          }
         }
       }
 
@@ -809,6 +908,43 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
                 toIface = matchIface;
                 break;
               }
+            }
+          }
+
+          // Fallback: If remapped in subsystem, match candidate by base interface name, compatible kind and type
+          if (!toNode || !toIface) {
+            const cleanTarget = targetLabel.replace(/^['"]|['"]$/g, '').trim();
+            const baseTo = cleanTarget.includes('::') ? cleanTarget.split('::').pop() || cleanTarget : cleanTarget;
+            let candidateMatch: { node: RosNode; iface: RosInterface } | undefined;
+            for (const n of project.nodes) {
+              for (const f of n.ifaces || []) {
+                if (!inputKinds.has(f.kind)) continue;
+                const matchesBase =
+                  f.name &&
+                  (f.name === baseTo ||
+                    cleanTarget.endsWith('/' + f.name) ||
+                    cleanTarget.endsWith('::' + f.name) ||
+                    cleanTarget === f.name);
+                if (matchesBase) {
+                  if (fromIface && fromIface.type && f.type && f.type !== '—' && fromIface.type !== '—') {
+                    const cleanFType = fromIface.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
+                    const cleanTType = f.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
+                    if (cleanFType !== cleanTType && !cleanFType.endsWith('/' + cleanTType) && !cleanTType.endsWith('/' + cleanFType)) {
+                      continue;
+                    }
+                  }
+                  candidateMatch = { node: n, iface: f };
+                  break;
+                }
+              }
+              if (candidateMatch) break;
+            }
+            if (candidateMatch) {
+              conn.to.n = candidateMatch.node.id;
+              conn.to.i = candidateMatch.iface.id;
+              conn.rawTo = candidateMatch.iface.label || candidateMatch.iface.name;
+              toNode = candidateMatch.node;
+              toIface = candidateMatch.iface;
             }
           }
         }
@@ -969,10 +1105,16 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           if (subNode.ifaces && subNode.ifaces.length > 0) {
             for (const needed of neededIfaces.values()) {
               const neededKey = needed.name || needed.label;
-              const alreadyPresent = subNode.ifaces.some(
-                (f) => f.name === neededKey || f.label === neededKey
+              const existingIface = subNode.ifaces.find(
+                (f) => f.name === needed.name || f.label === neededKey || (needed.label && f.label === needed.label)
               );
-              if (!alreadyPresent) {
+              if (existingIface) {
+                // If interface remapped label was updated in main system / connection, keep subsystem in sync
+                if (needed.label && existingIface.label !== needed.label) {
+                  existingIface.label = needed.label;
+                  subModified = true;
+                }
+              } else {
                 const targetArt =
                   needed.artifact ||
                   subNode.artifact ||
@@ -1652,6 +1794,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             vscode.window.showErrorMessage(`Failed to apply model changes: ${err}`);
           } finally {
             isInternalUpdate = false;
+            lastInternalUpdateTime = Date.now();
           }
           break;
         }
@@ -1821,7 +1964,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
     // Sync external text changes (both on active document AND companion .ros2/.ros1/.ros/.rossystem files) into Webview
     const changeDocSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
-      if (isInternalUpdate || Date.now() - lastInternalUpdateTime < 600) {
+      if (isInternalUpdate || Date.now() - lastInternalUpdateTime < 1000) {
         return;
       }
 
@@ -1835,6 +1978,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         changedPath !== document.fileName;
 
       if (isTargetDoc || isCompanionDoc) {
+        this.invalidateCompanionCache();
         refreshWebviewFromDocument();
       }
     });
@@ -1848,7 +1992,10 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         savedPath.endsWith('.ros') ||
         savedPath.endsWith('.rossystem')
       ) {
-        refreshWebviewFromDocument();
+        this.invalidateCompanionCache();
+        if (savedPath !== document.fileName) {
+          refreshWebviewFromDocument();
+        }
       }
     });
 

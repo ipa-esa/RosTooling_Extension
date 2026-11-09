@@ -124,6 +124,7 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
     updateNodeLabel: (nodeId: string, newLabel: string) => void;
     updateNodePackageAndArtifact: (node: { id: string }, pkgVal?: string, artVal?: string) => void;
     runDagreAutoLayout: () => void;
+    flushPendingEdits?: () => void;
     estimateCardHeight?: (node: Record<string, unknown>) => number;
     estimateCardWidth?: (node: Record<string, unknown>) => number;
   }
@@ -2273,6 +2274,7 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       const { studioApi, postedMessages } = runStudioBundleInVm(html);
 
       studioApi.updateNodeLabel('n_defect_detector', 'defect_detector_renamed');
+      studioApi.flushPendingEdits?.();
       assert.strictEqual(postedMessages.length, 1, 'updateNodeLabel must dispatch applyEdit');
       const updatedNode = postedMessages[0].project?.nodes.find((n) => n.id === 'n_defect_detector');
       assert.ok(updatedNode, 'Updated node must exist in emitted project');
