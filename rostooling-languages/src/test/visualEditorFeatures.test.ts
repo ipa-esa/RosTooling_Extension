@@ -1519,6 +1519,58 @@ robot_system:
     // Clean up
     fs.rmSync(tmpWs, { recursive: true, force: true });
   });
+
+  // 23. Subsystem save automatically updates parent system model file and replaces remapped connection
+  test('23. Subsystem save automatically updates parent system model file and replaces remapped connection', async () => {
+    const mockContext = { extensionUri: vscode.Uri.file(__dirname) } as vscode.ExtensionContext;
+    const provider = new RosCustomEditorProvider(mockContext);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rostooling-parent-sync-test-'));
+    const modelsDir = path.join(tmpDir, 'src', 'app_pkg', 'models');
+    fs.mkdirSync(modelsDir, { recursive: true });
+
+    const subSysPath = path.join(modelsDir, 'camera_sub.rossystem');
+    const parentSysPath = path.join(modelsDir, 'parent_app.rossystem');
+
+    const subSysContent = `camera_sub:
+  nodes:
+    camera_node:
+      from: "realsense2_camera.realsense2_camera_node"
+      interfaces:
+        - "/camera/camera_3/color/image_raw": pub-> "realsense2_camera_node::color/image_raw"
+`;
+    fs.writeFileSync(subSysPath, subSysContent, 'utf-8');
+
+    const parentSysContent = `parent_app:
+  subSystems:
+    "camera_sub"
+  nodes:
+    defect_detector:
+      from: "inspection.defect_detector"
+      interfaces:
+        - "image": sub-> "defect_detector::image"
+  connections:
+    - ["/camera_3/color/image_raw", "image"]
+`;
+    fs.writeFileSync(parentSysPath, parentSysContent, 'utf-8');
+
+    // Trigger parent sync on subsystem save
+    const updated = await provider.syncParentSystemsOnSubsystemSave(subSysPath);
+    assert.strictEqual(updated, true, 'syncParentSystemsOnSubsystemSave should return true when parent system was updated');
+
+    const updatedParentContent = fs.readFileSync(parentSysPath, 'utf-8');
+    assert.ok(
+      updatedParentContent.includes('["/camera/camera_3/color/image_raw", "image"]'),
+      'Parent system file on disk must have the connection updated to the new remapped label'
+    );
+    assert.ok(
+      !updatedParentContent.includes('["/camera_3/color/image_raw", "image"]'),
+      'Parent system file on disk must not retain the old stale connection label'
+    );
+
+    // Clean up
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 });
 
 

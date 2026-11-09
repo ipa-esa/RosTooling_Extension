@@ -42,6 +42,17 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.loadCatalogues();
+    if (this.context && this.context.subscriptions) {
+      this.context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument((savedDoc) => {
+          const savedPath = savedDoc.fileName || savedDoc.uri.fsPath;
+          if (savedPath && savedPath.endsWith('.rossystem')) {
+            this.invalidateCompanionCache();
+            void this.syncParentSystemsOnSubsystemSave(savedPath);
+          }
+        })
+      );
+    }
   }
 
   private getSearchRoots(docFilePath?: string): string[] {
@@ -627,7 +638,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     }
   }
 
-  private resolveSystemInterfaces(project: RosProject, docFilePath: string) {
+  private resolveSystemInterfaces(project: RosProject, docFilePath = ''): boolean {
+    let connectionsModified = false;
     const { artifactMap, subsystemMap } = this.loadCompanionArtifacts(docFilePath);
     const catNodes = (this.nodeIndex && (this.nodeIndex['nodes'] as Record<string, {
       from?: string;
@@ -858,9 +870,13 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               if (candidateMatch) break;
             }
             if (candidateMatch) {
+              const newRawFrom = candidateMatch.iface.label || candidateMatch.iface.name;
+              if (conn.rawFrom !== newRawFrom) {
+                conn.rawFrom = newRawFrom;
+                connectionsModified = true;
+              }
               conn.from.n = candidateMatch.node.id;
               conn.from.i = candidateMatch.iface.id;
-              conn.rawFrom = candidateMatch.iface.label || candidateMatch.iface.name;
               fromNode = candidateMatch.node;
               fromIface = candidateMatch.iface;
             }
@@ -940,9 +956,13 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               if (candidateMatch) break;
             }
             if (candidateMatch) {
+              const newRawTo = candidateMatch.iface.label || candidateMatch.iface.name;
+              if (conn.rawTo !== newRawTo) {
+                conn.rawTo = newRawTo;
+                connectionsModified = true;
+              }
               conn.to.n = candidateMatch.node.id;
               conn.to.i = candidateMatch.iface.id;
-              conn.rawTo = candidateMatch.iface.label || candidateMatch.iface.name;
               toNode = candidateMatch.node;
               toIface = candidateMatch.iface;
             }
@@ -969,6 +989,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     project.connections = (project.connections || []).filter(
       (c) => !(c.from?.n && c.to?.n && c.from.n === c.to.n && c.from.i === c.to.i)
     );
+
+    return connectionsModified;
   }
 
   public normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
@@ -1167,6 +1189,64 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     }
 
     return anyUpdated;
+  }
+
+  public async syncParentSystemsOnSubsystemSave(subsystemFilePath: string): Promise<boolean> {
+    if (!subsystemFilePath.endsWith('.rossystem')) return false;
+    const subBaseName = path.basename(subsystemFilePath, '.rossystem');
+    const subFileName = path.basename(subsystemFilePath);
+    const roots = this.getWorkspaceRoots(subsystemFilePath);
+    let anyParentUpdated = false;
+
+    for (const root of roots) {
+      const files = this.findModelFilesRecursive(root, ['.rossystem'], 4);
+      for (const parentPath of files) {
+        if (parentPath === subsystemFilePath) continue;
+        if (this.isCoreCatalogue(parentPath)) continue;
+
+        try {
+          const parentContent = this.readDocumentOrFile(parentPath);
+          if (!parentContent.includes(subBaseName) && !parentContent.includes(subFileName)) {
+            continue;
+          }
+
+          const parentProject = RosModelParser.parseRosSystem(parentContent, parentPath);
+          const referencesSub = (parentProject.subSystems || []).some(
+            (s) =>
+              s.ref === subBaseName ||
+              s.ref === subFileName ||
+              (s.fromFile &&
+                (s.fromFile.includes(subBaseName) ||
+                  s.fromFile.includes(subFileName) ||
+                  path.basename(s.fromFile, '.rossystem') === subBaseName))
+          );
+          if (!referencesSub) continue;
+
+          this.invalidateCompanionCache();
+          const connUpdated = this.resolveSystemInterfaces(parentProject, parentPath);
+          if (connUpdated) {
+            const newContent = RosModelEmitter.emitRosSystem(parentProject);
+            if (newContent !== parentContent) {
+              const openDoc = vscode.workspace.textDocuments.find(
+                (d) => d.uri.fsPath === parentPath || d.fileName === parentPath
+              );
+              if (openDoc) {
+                const wsEdit = new vscode.WorkspaceEdit();
+                wsEdit.replace(openDoc.uri, new vscode.Range(0, 0, openDoc.lineCount + 5, 0), newContent);
+                await vscode.workspace.applyEdit(wsEdit);
+                await openDoc.save();
+              } else {
+                fs.writeFileSync(parentPath, newContent, 'utf-8');
+              }
+              anyParentUpdated = true;
+            }
+          }
+        } catch (err) {
+          console.warn(`Error auto-syncing parent system ${parentPath}:`, err);
+        }
+      }
+    }
+    return anyParentUpdated;
   }
 
   private assignGridPositions(project: RosProject) {
@@ -1688,6 +1768,7 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     const initialText = document.getText();
     const isRosSystem = document.fileName.endsWith('.rossystem');
     const isRos = document.fileName.endsWith('.ros');
+    const isReadOnly = this.isCoreCatalogue(document.fileName);
     const cached = this.projectCache.get(docKey);
     let project: RosProject;
 
@@ -1696,7 +1777,16 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       project.isRosSystem = isRosSystem;
       project.isRos = isRos;
       if (!isRos) {
-        this.resolveSystemInterfaces(project, document.fileName);
+        const connUpdated = this.resolveSystemInterfaces(project, document.fileName);
+        if (connUpdated && !isReadOnly && isRosSystem) {
+          const newText = RosModelEmitter.emitRosSystem(project);
+          if (newText !== initialText) {
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount + 5, 0), newText);
+            await vscode.workspace.applyEdit(edit);
+            await document.save();
+          }
+        }
       }
       this.assignGridPositions(project);
       const schematic = this.loadLayoutSchematic(document.fileName);
@@ -1734,7 +1824,6 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     }
 
     this.refreshCatalogues(document.fileName);
-    const isReadOnly = this.isCoreCatalogue(document.fileName);
     webviewPanel.webview.html = getStudioHtml(
       project,
       this.context.extensionUri,
@@ -1933,13 +2022,22 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     });
 
-    const refreshWebviewFromDocument = () => {
+    const refreshWebviewFromDocument = async () => {
       try {
         const freshProject = RosModelParser.parse(document.getText(), document.fileName);
         freshProject.isRosSystem = isRosSystem;
         freshProject.isRos = isRos;
         if (!isRos) {
-          this.resolveSystemInterfaces(freshProject, document.fileName);
+          const connUpdated = this.resolveSystemInterfaces(freshProject, document.fileName);
+          if (connUpdated && !isReadOnly && isRosSystem) {
+            const newText = RosModelEmitter.emitRosSystem(freshProject);
+            if (newText !== document.getText()) {
+              const edit = new vscode.WorkspaceEdit();
+              edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount + 5, 0), newText);
+              await vscode.workspace.applyEdit(edit);
+              await document.save();
+            }
+          }
           void this.syncSubsystemModels(freshProject, document.fileName);
         }
         const currentCached = this.projectCache.get(docKey);
