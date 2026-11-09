@@ -15,7 +15,7 @@ apply plugin: 'net.researchgate.release'
 ext {
     xtextVersion = '2.39.0'
     group = 'de.fraunhofer.ipa.ros'
-    version = '3.3.2-SNAPSHOT'
+    version = '3.3.3-SNAPSHOT'
 }
 
 java {

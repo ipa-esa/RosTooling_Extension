@@ -5,6 +5,30 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.4] - 2026-11-09
+
+### Added
+- **Automated Parent System Connection Synchronization**:
+  - Implemented `syncParentSystemsOnSubsystemSave` in `RosCustomEditorProvider.ts` to automatically detect when a subsystem `.rossystem` model is saved, locate all parent `.rossystem` models in the workspace referencing it, and update remapped connection endpoints in place without requiring manual rewiring.
+  - Automatically persists connection remapping updates to open documents and disk when loading or refreshing models, preventing `Couldn't resolve reference to RosInterface` errors.
+- **Bundled Agent Skills & Python Hooks Packaging**:
+  - Embedded RosTooling agent skills, Python hooks, and CLI scripts into the extension build (`.agents/skills`, `.agents/scripts`, `.agents/hooks`).
+  - Added automatic installation command and tests for multi-IDE workflows (Claude Code, Antigravity, Cursor).
+  - Updated CI packaging workflows to bundle skills without requiring an external repository clone.
+- **Automatic LSP JAR and VSIX Build Cleanup**:
+  - Enhanced Gradle build tasks (`copyFatJar`, `vscodeExtension`) to automatically clean up older language server JAR versions and superseded VSIX archives.
+
+### Fixed
+- **Visual Editor Auto-Save Debouncing & Responsiveness**:
+  - Implemented 300ms auto-save debouncing in `studioStore.js` with `flushPendingEdits()` on blur, undo, redo, and discrete canvas interactions, eliminating keystroke loss and input race conditions.
+  - Added bounded workspace root discovery in `getWorkspaceRoots()` and in-memory caching for companion artifacts to eliminate filesystem traversal lag across user directories.
+- **Model Round-Trip Fidelity & Code Generation Validation**:
+  - Preserved system-level parameters block (`parameters:`), list values (`[a, b, c]`), inline `#` comments, and quote styles when saving `.rossystem` files.
+  - Enforced pre-flight model validation in generator command services, preventing code generation when model errors are present.
+
+### Changed
+- Updated RosTooling backend dependency to `3.3.3-SNAPSHOT`.
+
 ## [2.3.3] - 2026-11-07
 
 ### Added
