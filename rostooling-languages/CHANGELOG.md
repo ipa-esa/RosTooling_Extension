@@ -5,6 +5,23 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Canvas Error Boundary & Crash Protection**:
+  - Implemented `ErrorBoundary.jsx` around visual editor components (`SystemCanvasInner`, `SystemInspector`, and the root application view) to prevent React 18 from unmounting into a blank canvas when unexpected component errors occur.
+  - Added an inline error recovery banner with a "Recover Canvas" action that restores visual editor state without reloading the document.
+
+### Fixed
+- **Subsystem Connection Persistence & Multi-Source Wiring**:
+  - Ensured interactive connections from subsystem nodes derive fully-qualified endpoints (`subsystem::node::interface`), enabling newly created connections to persist on reload and round-trip cleanly through `RosModelEmitter` and `RosModelParser`.
+  - Replaced aggressive target-port pruning with duplicate detection in `RosSystemView.jsx`, preserving pre-existing connections from real hardware subsystems when wiring alternative or multiple simulation sources (e.g. sim `/tf` alongside real `/tf`).
+- **Edge Routing & Inspector Coordinate Safety**:
+  - Added coordinate validation guards in `JumpOrthogonalEdge.jsx` and `orthogonalRouter.js` to safely handle `undefined`, `null`, and `NaN` coordinates without throwing SVG render errors.
+  - Guarded node resolution and button actions in `SystemInspector` to prevent null-dereference errors when inspecting connections with composite or unmapped endpoints.
+- **Document Edit Range Clamping**:
+  - Applied `document.validateRange(...)` to workspace edits in `RosCustomEditorProvider.ts` to prevent out-of-bounds `Range` errors during model synchronization.
+
 ## [2.3.4] - 2026-11-09
 
 ### Added

@@ -96,6 +96,25 @@ export function computeLiveOrthogonalEdge({
   midY,
   waypoints = [],
 }) {
+  if (
+    sourceX == null ||
+    sourceY == null ||
+    targetX == null ||
+    targetY == null ||
+    isNaN(sourceX) ||
+    isNaN(sourceY) ||
+    isNaN(targetX) ||
+    isNaN(targetY)
+  ) {
+    return {
+      pathD: '',
+      pts: [],
+      handleV: null,
+      handleH: null,
+      handleWaypoints: [],
+    };
+  }
+
   const STUB = 26;
   const isDirect = sourceX + STUB < targetX - STUB;
 
@@ -233,11 +252,13 @@ export function computeLiveOrthogonalEdge({
     }
   }
 
-  const handleWaypoints = (waypoints || []).map((wp, idx) => ({
-    idx,
-    x: wp.x,
-    y: wp.y,
-  }));
+  const handleWaypoints = (Array.isArray(waypoints) ? waypoints : [])
+    .filter((wp) => wp && !isNaN(wp.x) && !isNaN(wp.y))
+    .map((wp, idx) => ({
+      idx,
+      x: wp.x,
+      y: wp.y,
+    }));
 
   return {
     pathD: pathD.trim(),

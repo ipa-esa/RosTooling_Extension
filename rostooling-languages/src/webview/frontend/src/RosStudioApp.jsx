@@ -32,6 +32,7 @@ import {
 import { hostBridge } from './state/vscodeBridge';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner';
 import { CatalogueDrawer } from './components/CatalogueDrawer';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { RosSystemView } from './views/RosSystemView';
 import { RosComponentView, createNewComponentNode } from './views/RosComponentView';
 import { RosCommObjectsView, addNewCommObjectSpec } from './views/RosCommObjectsView';
@@ -478,13 +479,15 @@ export function RosStudioApp() {
       </header>
 
       {/* Mode View Router */}
-      {mode === 'ros' ? (
-        <RosCommObjectsView />
-      ) : mode === 'component' ? (
-        <RosComponentView />
-      ) : (
-        <RosSystemView />
-      )}
+      <ErrorBoundary>
+        {mode === 'ros' ? (
+          <RosCommObjectsView />
+        ) : mode === 'component' ? (
+          <RosComponentView />
+        ) : (
+          <RosSystemView />
+        )}
+      </ErrorBoundary>
 
       <CatalogueDrawer />
 

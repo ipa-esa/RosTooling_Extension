@@ -803,16 +803,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if (targetLabel) {
           const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
           if (sepIdx > 0) {
-            const nodePart = targetLabel.slice(0, sepIdx).replace(/::/g, '.');
+            const rawNodePart = targetLabel.slice(0, sepIdx).trim();
+            const nodePart = rawNodePart.replace(/::/g, '.');
             const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
             const n = project.nodes.find(
               (cand) =>
+                cand.label === rawNodePart ||
                 cand.label === nodePart ||
+                cand.id === rawNodePart ||
                 cand.id === nodePart ||
-                cand.id === `n_${nodePart}` ||
+                cand.id === `n_${rawNodePart}` ||
+                cand.id === `n_${nodePart.replace(/\./g, '_')}` ||
                 (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
-                (cand.subRef && cand.label === nodePart) ||
-                (cand.subRef && cand.id === `n_${cand.subRef}_${nodePart}`)
+                (cand.subRef && `${cand.subRef}::${cand.label}` === rawNodePart) ||
+                (cand.subRef && cand.label === rawNodePart) ||
+                (cand.subRef && cand.id === `n_${cand.subRef}_${rawNodePart}`)
             );
             if (n) {
               const matchIface = n.ifaces?.find(
@@ -889,16 +894,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if (targetLabel) {
           const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
           if (sepIdx > 0) {
-            const nodePart = targetLabel.slice(0, sepIdx).replace(/::/g, '.');
+            const rawNodePart = targetLabel.slice(0, sepIdx).trim();
+            const nodePart = rawNodePart.replace(/::/g, '.');
             const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
             const n = project.nodes.find(
               (cand) =>
+                cand.label === rawNodePart ||
                 cand.label === nodePart ||
+                cand.id === rawNodePart ||
                 cand.id === nodePart ||
-                cand.id === `n_${nodePart}` ||
+                cand.id === `n_${rawNodePart}` ||
+                cand.id === `n_${nodePart.replace(/\./g, '_')}` ||
                 (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
-                (cand.subRef && cand.label === nodePart) ||
-                (cand.subRef && cand.id === `n_${cand.subRef}_${nodePart}`)
+                (cand.subRef && `${cand.subRef}::${cand.label}` === rawNodePart) ||
+                (cand.subRef && cand.label === rawNodePart) ||
+                (cand.subRef && cand.id === `n_${cand.subRef}_${rawNodePart}`)
             );
             if (n) {
               const matchIface = n.ifaces?.find(
@@ -1033,7 +1043,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             (n) =>
               n.id === end.n ||
               n.label === end.n ||
-              (n.subRef && (n.id === `n_${n.subRef}_${end.n}` || `${n.subRef}.${n.label}` === end.n))
+              (n.subRef &&
+                (n.id === `n_${n.subRef}_${end.n}` ||
+                  `${n.subRef}.${n.label}` === end.n ||
+                  `${n.subRef}::${n.label}` === end.n ||
+                  n.label === end.n))
           );
           if (node && end.i) {
             iface = node.ifaces?.find((f) => f.id === end.i || f.label === end.i || f.name === end.i);
@@ -1043,16 +1057,21 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         if ((!node || !iface) && raw) {
           const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
           if (sepIdx > 0) {
-            const nodePart = raw.slice(0, sepIdx).trim();
+            const rawNodePart = raw.slice(0, sepIdx).trim();
+            const normNodePart = rawNodePart.replace(/::/g, '.');
             const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
             node = project.nodes.find(
               (n) =>
-                n.label === nodePart ||
-                n.id === nodePart ||
-                n.id === `n_${nodePart}` ||
-                (n.subRef && `${n.subRef}.${n.label}` === nodePart) ||
-                (n.subRef && n.label === nodePart) ||
-                (n.subRef && n.id === `n_${n.subRef}_${nodePart}`)
+                n.label === rawNodePart ||
+                n.label === normNodePart ||
+                n.id === rawNodePart ||
+                n.id === normNodePart ||
+                n.id === `n_${rawNodePart}` ||
+                n.id === `n_${normNodePart.replace(/\./g, '_')}` ||
+                (n.subRef && `${n.subRef}.${n.label}` === normNodePart) ||
+                (n.subRef && `${n.subRef}::${n.label}` === rawNodePart) ||
+                (n.subRef && n.label === rawNodePart) ||
+                (n.subRef && n.id === `n_${n.subRef}_${rawNodePart}`)
             );
             if (node) {
               iface = node.ifaces?.find((f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart);
@@ -1855,11 +1874,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             const newContent = RosModelEmitter.emit(updatedProject, document.fileName);
 
             const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              document.uri,
-              new vscode.Range(0, 0, document.lineCount + 5, 0),
-              newContent
-            );
+            const fullRange = document.validateRange(new vscode.Range(0, 0, document.lineCount + 5, 0));
+            edit.replace(document.uri, fullRange, newContent);
             await vscode.workspace.applyEdit(edit);
 
             // Sync type changes back to backing companion models (.ros2 / .ros1 / .ros)
@@ -2033,7 +2049,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             const newText = RosModelEmitter.emitRosSystem(freshProject);
             if (newText !== document.getText()) {
               const edit = new vscode.WorkspaceEdit();
-              edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount + 5, 0), newText);
+              const fullRange = document.validateRange(new vscode.Range(0, 0, document.lineCount + 5, 0));
+              edit.replace(document.uri, fullRange, newText);
               await vscode.workspace.applyEdit(edit);
               await document.save();
             }

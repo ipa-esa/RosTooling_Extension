@@ -20,7 +20,17 @@ export function JumpOrthogonalEdge({
   const isReadOnly = Boolean(data?.isReadOnly);
   const midX = data?.midX;
   const midY = data?.midY;
-  const waypoints = data?.waypoints || [];
+  const waypoints = Array.isArray(data?.waypoints) ? data.waypoints : [];
+
+  const hasValidCoords =
+    sourceX != null &&
+    sourceY != null &&
+    targetX != null &&
+    targetY != null &&
+    !isNaN(sourceX) &&
+    !isNaN(sourceY) &&
+    !isNaN(targetX) &&
+    !isNaN(targetY);
 
   const {
     pathD,
@@ -29,6 +39,9 @@ export function JumpOrthogonalEdge({
     handleH,
     handleWaypoints,
   } = useMemo(() => {
+    if (!hasValidCoords) {
+      return { pathD: '', pts: [], handleV: null, handleH: null, handleWaypoints: [] };
+    }
     return computeLiveOrthogonalEdge({
       id,
       sourceX,
@@ -39,7 +52,7 @@ export function JumpOrthogonalEdge({
       midY,
       waypoints,
     });
-  }, [id, sourceX, sourceY, targetX, targetY, midX, midY, waypoints]);
+  }, [id, hasValidCoords, sourceX, sourceY, targetX, targetY, midX, midY, waypoints]);
 
   useEffect(() => {
     return () => {
@@ -47,12 +60,16 @@ export function JumpOrthogonalEdge({
     };
   }, [id]);
 
+  if (!hasValidCoords) {
+    return <BaseEdge id={id} path="" style={style} />;
+  }
+
   // Label position: placed along a horizontal segment away from drag handles (handleV, handleH, waypoints)
   let labelX = (sourceX + targetX) / 2;
   let labelY = (sourceY + targetY) / 2;
 
   if (pts && pts.length >= 2) {
-    const handles = [handleV, handleH, ...(handleWaypoints || [])].filter(Boolean);
+    const handles = [handleV, handleH, ...(handleWaypoints || [])].filter((h) => h && !isNaN(h.x) && !isNaN(h.y));
 
     const distToHandles = (x, y) => {
       if (handles.length === 0) return 999;
@@ -237,7 +254,7 @@ export function JumpOrthogonalEdge({
       {!isReadOnly && (
         <g className="rt-edge-handles-group" style={{ pointerEvents: 'auto' }}>
           {/* Vertical corridor handle (midX) */}
-          {handleV && (
+          {handleV && !isNaN(handleV.x) && !isNaN(handleV.y) && (
             <circle
               cx={handleV.x}
               cy={handleV.y}
@@ -249,7 +266,7 @@ export function JumpOrthogonalEdge({
           )}
 
           {/* Horizontal wrap-around corridor handle (midY) */}
-          {handleH && (
+          {handleH && !isNaN(handleH.x) && !isNaN(handleH.y) && (
             <circle
               cx={handleH.x}
               cy={handleH.y}
@@ -261,7 +278,7 @@ export function JumpOrthogonalEdge({
           )}
 
           {/* Custom bend waypoints */}
-          {handleWaypoints.map((wp) => (
+          {(handleWaypoints || []).filter((wp) => wp && !isNaN(wp.x) && !isNaN(wp.y)).map((wp) => (
             <circle
               key={`wp-${wp.idx}`}
               cx={wp.x}

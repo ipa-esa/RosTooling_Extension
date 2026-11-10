@@ -285,6 +285,30 @@ export const RosModelEmitter = {
           }
         }
 
+        // Count occurrences of each node label across project.nodes and subsystems to identify duplicates
+        const nodeLabelCounts: Record<string, number> = {};
+        const seenScopedNodes = new Set<string>();
+        for (const n of project.nodes || []) {
+          const lbl = n.label || n.id;
+          if (!lbl) continue;
+          const scopeKey = `${n.subRef || ''}::${lbl}`;
+          if (!seenScopedNodes.has(scopeKey)) {
+            seenScopedNodes.add(scopeKey);
+            nodeLabelCounts[lbl] = (nodeLabelCounts[lbl] || 0) + 1;
+          }
+        }
+        for (const sub of project.subSystems || []) {
+          for (const sn of sub.graph?.nodes || []) {
+            const lbl = sn.label;
+            if (!lbl) continue;
+            const scopeKey = `${sub.ref || ''}::${lbl}`;
+            if (!seenScopedNodes.has(scopeKey)) {
+              seenScopedNodes.add(scopeKey);
+              nodeLabelCounts[lbl] = (nodeLabelCounts[lbl] || 0) + 1;
+            }
+          }
+        }
+
         for (const conn of project.connections || []) {
           for (const raw of [conn.rawFrom, conn.rawTo]) {
             if (raw) {
@@ -292,11 +316,26 @@ export const RosModelEmitter = {
               if (sepIdx > 0) {
                 const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
                 const nodePart = raw.slice(0, sepIdx).trim();
+                const normNodePart = nodePart.replace(/::/g, '.');
                 const alreadyCountedNode = (project.nodes || []).some(
-                  (n) => n.label === nodePart || n.id === nodePart || (n.subRef && `${n.subRef}.${n.label}` === nodePart)
+                  (n) =>
+                    n.label === nodePart ||
+                    n.id === nodePart ||
+                    (n.subRef && `${n.subRef}.${n.label}` === normNodePart) ||
+                    (n.subRef && `${n.subRef}::${n.label}` === nodePart)
                 );
                 if (!alreadyCountedNode && ifacePart) {
                   ifaceCounts[ifacePart] = (ifaceCounts[ifacePart] || 0) + 1;
+                }
+                if (nodePart.includes('::')) {
+                  const subSep = nodePart.lastIndexOf('::');
+                  const sRef = nodePart.slice(0, subSep);
+                  const nLbl = nodePart.slice(subSep + 2);
+                  const scopeKey = `${sRef}::${nLbl}`;
+                  if (!seenScopedNodes.has(scopeKey)) {
+                    seenScopedNodes.add(scopeKey);
+                    nodeLabelCounts[nLbl] = (nodeLabelCounts[nLbl] || 0) + 1;
+                  }
                 }
               }
             }
@@ -320,8 +359,19 @@ export const RosModelEmitter = {
           let fromName = '';
           if (fromIface && fromNode) {
             const rawName = fromIface.label || fromIface.name;
-            if (ifaceCounts[rawName] > 1) {
-              fromName = `${fromNode.label || fromNode.id}::${rawName}`;
+            const fromNodeKey = fromNode.label || fromNode.id;
+            const needsSubPrefix = Boolean(
+              fromNode.subRef &&
+                ((nodeLabelCounts[fromNodeKey] || 0) > 1 ||
+                  !conn.rawFrom ||
+                  (conn.rawFrom &&
+                    (conn.rawFrom.startsWith(`${fromNode.subRef}::`) ||
+                      conn.rawFrom.startsWith(`${fromNode.subRef}.`))))
+            );
+            if (needsSubPrefix) {
+              fromName = `${fromNode.subRef}::${fromNodeKey}::${rawName}`;
+            } else if (ifaceCounts[rawName] > 1) {
+              fromName = `${fromNodeKey}::${rawName}`;
             } else {
               fromName = rawName;
             }
@@ -332,8 +382,19 @@ export const RosModelEmitter = {
           let toName = '';
           if (toIface && toNode) {
             const rawName = toIface.label || toIface.name;
-            if (ifaceCounts[rawName] > 1) {
-              toName = `${toNode.label || toNode.id}::${rawName}`;
+            const toNodeKey = toNode.label || toNode.id;
+            const needsSubPrefix = Boolean(
+              toNode.subRef &&
+                ((nodeLabelCounts[toNodeKey] || 0) > 1 ||
+                  !conn.rawTo ||
+                  (conn.rawTo &&
+                    (conn.rawTo.startsWith(`${toNode.subRef}::`) ||
+                      conn.rawTo.startsWith(`${toNode.subRef}.`))))
+            );
+            if (needsSubPrefix) {
+              toName = `${toNode.subRef}::${toNodeKey}::${rawName}`;
+            } else if (ifaceCounts[rawName] > 1) {
+              toName = `${toNodeKey}::${rawName}`;
             } else {
               toName = rawName;
             }

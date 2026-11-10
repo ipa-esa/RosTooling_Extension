@@ -40,6 +40,7 @@ import { RosNodeCard } from '../components/RosNodeCard';
 import { ProcessGroupNode } from '../components/ProcessGroupNode';
 import { SubsystemNodeCard } from '../components/SubsystemNodeCard';
 import { JumpOrthogonalEdge } from '../components/JumpOrthogonalEdge';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { insertWaypointIntoConnection } from '../state/orthogonalRouter';
 
 const NODE_TYPES = {
@@ -443,13 +444,14 @@ function SystemCanvasInner() {
 
     const rfEdges = [];
     for (const conn of project.connections || []) {
-      const fromNode = (project.nodes || []).find((n) => n.id === conn.from.n);
-      const toNode = (project.nodes || []).find((n) => n.id === conn.to.n);
+      if (!conn || !conn.from || !conn.to) continue;
+      const fromNode = (project.nodes || []).find((n) => n.id === conn.from?.n);
+      const toNode = (project.nodes || []).find((n) => n.id === conn.to?.n);
       const fromIface = (fromNode?.ifaces || []).find(
-        (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
+        (f) => f.id === conn.from?.i || f.label === conn.from?.i || f.name === conn.from?.i
       );
       const toIface = (toNode?.ifaces || []).find(
-        (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
+        (f) => f.id === conn.to?.i || f.label === conn.to?.i || f.name === conn.to?.i
       );
 
       if (!fromNode || !toNode || !fromIface || !toIface) continue;
@@ -837,17 +839,37 @@ function SystemCanvasInner() {
         return;
       }
 
-      const newConnId = `c_${res.normalizedFrom.i}_${res.normalizedTo.i}_${Date.now().toString(36)}`;
+      const isSourceFrom = SRC_SIDE[src.iface?.kind] !== false;
+      const fromNode = isSourceFrom ? src.node : tgt.node;
+      const fromIface = isSourceFrom ? src.iface : tgt.iface;
+      const toNode = isSourceFrom ? tgt.node : src.node;
+      const toIface = isSourceFrom ? tgt.iface : src.iface;
+
+      const rawFrom = fromNode?.subRef
+        ? `${fromNode.subRef}::${fromNode.label}::${fromIface?.label || fromIface?.name}`
+        : (fromIface?.label || fromIface?.name);
+
+      const rawTo = toNode?.subRef
+        ? `${toNode.subRef}::${toNode.label}::${toIface?.label || toIface?.name}`
+        : (toIface?.label || toIface?.name);
+
+      const newConnId = `c_${rawFrom || res.normalizedFrom.i}_${rawTo || res.normalizedTo.i}`;
       mutateProject((proj) => {
         if (!proj.connections) proj.connections = [];
-        // Prune any existing connection into the same input target port to prevent dead/duplicate connections
-        proj.connections = proj.connections.filter(
-          (c) => !(c.to?.n === res.normalizedTo.n && c.to?.i === res.normalizedTo.i)
+        const isDuplicate = proj.connections.some(
+          (c) =>
+            c.from?.n === res.normalizedFrom.n &&
+            c.from?.i === res.normalizedFrom.i &&
+            c.to?.n === res.normalizedTo.n &&
+            c.to?.i === res.normalizedTo.i
         );
+        if (isDuplicate) return;
         proj.connections.push({
           id: newConnId,
           from: { n: res.normalizedFrom.n, i: res.normalizedFrom.i },
           to: { n: res.normalizedTo.n, i: res.normalizedTo.i },
+          rawFrom,
+          rawTo,
         });
       }, true);
       setUIState({
@@ -874,15 +896,17 @@ function SystemCanvasInner() {
           connectionState.toHandle.id,
           project
         );
-        const res = validatePortConnection(
-          src.node,
-          src.iface,
-          tgt.node,
-          tgt.iface,
-          project.connections || []
-        );
-        if (!res.valid && res.reason) {
-          showToast(res.reason, true);
+        if (src.node && src.iface && tgt.node && tgt.iface) {
+          const res = validatePortConnection(
+            src.node,
+            src.iface,
+            tgt.node,
+            tgt.iface,
+            project.connections || []
+          );
+          if (!res.valid && res.reason) {
+            showToast(res.reason, true);
+          }
         }
       }
     },
@@ -1154,13 +1178,13 @@ function SystemInspector() {
 
   // 1. Connection Inspector
   if (selectedEdge) {
-    const fromNode = (project.nodes || []).find((n) => n.id === selectedEdge.from.n);
-    const toNode = (project.nodes || []).find((n) => n.id === selectedEdge.to.n);
+    const fromNode = (project.nodes || []).find((n) => n.id === selectedEdge.from?.n);
+    const toNode = (project.nodes || []).find((n) => n.id === selectedEdge.to?.n);
     const fromIface = (fromNode?.ifaces || []).find(
-      (f) => f.id === selectedEdge.from.i || f.label === selectedEdge.from.i || f.name === selectedEdge.from.i
+      (f) => f.id === selectedEdge.from?.i || f.label === selectedEdge.from?.i || f.name === selectedEdge.from?.i
     );
     const toIface = (toNode?.ifaces || []).find(
-      (f) => f.id === selectedEdge.to.i || f.label === selectedEdge.to.i || f.name === selectedEdge.to.i
+      (f) => f.id === selectedEdge.to?.i || f.label === selectedEdge.to?.i || f.name === selectedEdge.to?.i
     );
     const resolvedType = fromIface?.type || toIface?.type || 'Unspecified';
 
@@ -1179,16 +1203,20 @@ function SystemInspector() {
               marginBottom: 14,
             }}
           >
-            <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fromNode?.label || selectedEdge.from.n}</div>
+            <div style={{ fontWeight: 700, fontSize: 12.5 }}>
+              {fromNode?.label || selectedEdge.from?.n || selectedEdge.rawFrom || 'Source Port'}
+            </div>
             <div style={{ fontSize: 11.5, color: 'var(--k-pub)', fontFamily: 'var(--rt-mono)' }}>
-              {fromIface?.label || fromIface?.name || selectedEdge.from.i} ({fromIface?.kind || 'src'})
+              {fromIface?.label || fromIface?.name || selectedEdge.from?.i || selectedEdge.rawFrom || 'src'} ({fromIface?.kind || 'src'})
             </div>
             <div style={{ margin: '8px 0', color: 'var(--rt-muted)' }}>
               <ArrowRight size={15} />
             </div>
-            <div style={{ fontWeight: 700, fontSize: 12.5 }}>{toNode?.label || selectedEdge.to.n}</div>
+            <div style={{ fontWeight: 700, fontSize: 12.5 }}>
+              {toNode?.label || selectedEdge.to?.n || selectedEdge.rawTo || 'Target Port'}
+            </div>
             <div style={{ fontSize: 11.5, color: 'var(--k-sub)', fontFamily: 'var(--rt-mono)' }}>
-              {toIface?.label || toIface?.name || selectedEdge.to.i} ({toIface?.kind || 'dst'})
+              {toIface?.label || toIface?.name || selectedEdge.to?.i || selectedEdge.rawTo || 'dst'} ({toIface?.kind || 'dst'})
             </div>
           </div>
 
@@ -1198,7 +1226,7 @@ function SystemInspector() {
           </div>
 
           <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-            {fromNode && (
+            {fromNode?.id && (
               <button
                 type="button"
                 className="rt-btn"
@@ -1207,7 +1235,7 @@ function SystemInspector() {
                 Inspect Source
               </button>
             )}
-            {toNode && (
+            {toNode?.id && (
               <button
                 type="button"
                 className="rt-btn"
@@ -1225,8 +1253,8 @@ function SystemInspector() {
               style={{ width: '100%' }}
               onClick={() => {
                 mutateProject((proj) => {
-                  proj.connections = (proj.connections || []).filter((c) => c.id !== selectedEdge.id);
-                });
+                  proj.connections = (proj.connections || []).filter((c) => c && c.id !== selectedEdge.id);
+                }, true);
                 setUIState({ selectedEdgeId: null });
               }}
             >
@@ -1918,8 +1946,12 @@ export function RosSystemView() {
   return (
     <div className="rt-workbench">
       <ReactFlowProvider>
-        <SystemCanvasInner />
-        <SystemInspector />
+        <ErrorBoundary>
+          <SystemCanvasInner />
+        </ErrorBoundary>
+        <ErrorBoundary>
+          <SystemInspector />
+        </ErrorBoundary>
       </ReactFlowProvider>
     </div>
   );

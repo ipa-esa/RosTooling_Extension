@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import '@xyflow/react/dist/style.css';
 import './studio.css';
 import { RosStudioApp } from './RosStudioApp';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { RosSystemView, estimateCardHeight, estimateCardWidth } from './views/RosSystemView';
 import { RosComponentView } from './views/RosComponentView';
 import { RosCommObjectsView } from './views/RosCommObjectsView';
@@ -48,7 +49,11 @@ function mountStudio() {
   const rootEl = document.getElementById('root');
   if (!rootEl) return;
   const root = createRoot(rootEl);
-  root.render(<RosStudioApp />);
+  root.render(
+    <ErrorBoundary>
+      <RosStudioApp />
+    </ErrorBoundary>
+  );
 }
 
 mountStudio();

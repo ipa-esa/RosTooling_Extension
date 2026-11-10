@@ -568,14 +568,20 @@ export const RosModelParser = {
             // 1. Qualified name: node.interface or node::interface or sub.node.interface
             const sepIdx = clean.includes('::') ? clean.lastIndexOf('::') : clean.lastIndexOf('.');
             if (sepIdx > 0) {
-              const nodePart = clean.slice(0, sepIdx).replace(/::/g, '.');
+              const rawNodePart = clean.slice(0, sepIdx).trim();
+              const nodePart = rawNodePart.replace(/::/g, '.');
               const ifacePart = clean.slice(sepIdx + (clean.includes('::') ? 2 : 1));
               const node = proj.nodes.find(
                 (n) =>
+                  n.label === rawNodePart ||
                   n.label === nodePart ||
+                  n.id === rawNodePart ||
                   n.id === nodePart ||
+                  n.id === `n_${rawNodePart}` ||
+                  n.id === `n_${nodePart.replace(/\./g, '_')}` ||
                   (n.subRef && `${n.subRef}.${n.label}` === nodePart) ||
-                  (n.subRef && n.label === nodePart)
+                  (n.subRef && `${n.subRef}::${n.label}` === rawNodePart) ||
+                  (n.subRef && n.label === rawNodePart)
               );
               if (node) {
                 const iface = node.ifaces.find(

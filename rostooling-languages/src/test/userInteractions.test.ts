@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import * as vm from 'vm';
 import * as vscode from 'vscode';
 import { RosModelParser } from '../model/RosModelParser';
@@ -120,7 +121,18 @@ suite('User Interactions & Visual Studio Lifecycle Test Suite', () => {
       searchQuery?: string
     ) => { system: string }[];
     ReadOnlyBanner: unknown;
-    validatePortConnection: (project: RosProject, srcNodeId: string, srcIfaceId: string, dstNodeId: string, dstIfaceId: string) => { valid: boolean; reason?: string };
+    validatePortConnection: (
+      srcNode: unknown,
+      srcIface: unknown,
+      tgtNode: unknown,
+      tgtIface: unknown,
+      existingConnections?: unknown[]
+    ) => {
+      valid: boolean;
+      reason?: string;
+      normalizedFrom?: { n: string; i: string; kind?: string };
+      normalizedTo?: { n: string; i: string; kind?: string };
+    };
     updateNodeLabel: (nodeId: string, newLabel: string) => void;
     updateNodePackageAndArtifact: (node: { id: string }, pkgVal?: string, artVal?: string) => void;
     runDagreAutoLayout: () => void;
@@ -3036,6 +3048,148 @@ inspection_system:
         freshProject.connections.length,
         0,
         'Manually removed connection must NOT be resurrected by restoreCachedLayout'
+      );
+    });
+
+    test('JumpOrthogonalEdge safely handles undefined, null, and NaN coordinates without throwing', async () => {
+      // Import computeLiveOrthogonalEdge from the frontend state module via ESM dynamic import
+      const routerUrl = pathToFileURL(path.resolve(__dirname, '../../src/webview/frontend/src/state/orthogonalRouter.js')).href;
+      const { computeLiveOrthogonalEdge } = await import(routerUrl);
+
+      // Test with undefined coords
+      const resUndef = computeLiveOrthogonalEdge({
+        id: 'test_undef',
+        sourceX: undefined,
+        sourceY: undefined,
+        targetX: undefined,
+        targetY: undefined,
+        waypoints: undefined,
+      });
+      assert.strictEqual(resUndef.pathD, '', 'pathD must be empty string on undefined coordinates');
+      assert.strictEqual(resUndef.pts.length, 0, 'pts must be empty on undefined coordinates');
+      assert.strictEqual(resUndef.handleV, null, 'handleV must be null on undefined coordinates');
+      assert.strictEqual(resUndef.handleH, null, 'handleH must be null on undefined coordinates');
+
+      // Test with NaN coords
+      const resNaN = computeLiveOrthogonalEdge({
+        id: 'test_nan',
+        sourceX: NaN,
+        sourceY: NaN,
+        targetX: NaN,
+        targetY: NaN,
+        waypoints: [{ x: 10, y: 20 }],
+      });
+      assert.strictEqual(resNaN.pathD, '', 'pathD must be empty string on NaN coordinates');
+      assert.strictEqual(resNaN.pts.length, 0, 'pts must be empty on NaN coordinates');
+    });
+
+    test('Multi-subsystem model connection creation preserves existing connections and emits fully-qualified endpoints', () => {
+      const mockUri = vscode.Uri.file('/mock');
+      const mockWebview = {} as vscode.Webview;
+
+      // Create a system referencing 2 subsystems and direct nodes
+      const testModel: RosProject = {
+        formatVersion: 4,
+        isRosSystem: true,
+        system: { name: 'fruit_pick_place_test' },
+        subSystems: [
+          { ref: 'simple_ur_cell_real', state: 'collapsed' },
+          { ref: 'simple_ur_cell_sim', state: 'collapsed' },
+        ],
+        nodes: [
+          {
+            id: 'n_sam3_object_locator_node',
+            label: 'sam3_object_locator_node',
+            ifaces: [
+              { id: 'i_sam3_debug', name: 'debug_image', label: '/sam3_object_locator/debug_image', kind: 'pub', exposed: true },
+              { id: 'i_sam3_cam', name: 'camera_image', label: 'camera_image', kind: 'sub', exposed: true },
+            ],
+            params: [],
+          },
+          {
+            id: 'n_motion_plan_requester',
+            label: 'motion_plan_requester',
+            ifaces: [
+              { id: 'i_req_tf', name: 'requester_tf', label: 'requester_tf', kind: 'sub', exposed: true, type: 'tf2_msgs/msg/TFMessage' },
+            ],
+            params: [],
+          },
+          // Subsystem 1 internal node
+          {
+            id: 'n_simple_ur_cell_real_robot_state_publisher',
+            label: 'robot_state_publisher',
+            subRef: 'simple_ur_cell_real',
+            backing: 'sub',
+            ifaces: [
+              { id: 'i_robot_state_publisher_/tf', name: 'tf', label: '/tf', kind: 'pub', exposed: true, type: 'tf2_msgs/msg/TFMessage' },
+            ],
+            params: [],
+          },
+          // Subsystem 2 internal node (same node label and same interface name!)
+          {
+            id: 'n_simple_ur_cell_sim_robot_state_publisher',
+            label: 'robot_state_publisher',
+            subRef: 'simple_ur_cell_sim',
+            backing: 'sub',
+            ifaces: [
+              { id: 'i_robot_state_publisher_/tf', name: 'tf', label: '/tf', kind: 'pub', exposed: true, type: 'tf2_msgs/msg/TFMessage' },
+            ],
+            params: [],
+          },
+        ],
+        connections: [
+          {
+            id: 'c_existing_real_tf',
+            from: { n: 'n_simple_ur_cell_real_robot_state_publisher', i: 'i_robot_state_publisher_/tf' },
+            to: { n: 'n_motion_plan_requester', i: 'i_req_tf' },
+            rawFrom: 'simple_ur_cell_real::robot_state_publisher::/tf',
+            rawTo: 'requester_tf',
+          },
+        ],
+        packages: {},
+        types: {},
+      };
+
+      const html = getStudioHtml(testModel, mockUri, mockWebview, {}, {}, 'fruit_pick_place_test.rossystem');
+      const { studioApi } = runStudioBundleInVm(html);
+
+      // Verify validatePortConnection allows connecting sim robot_state_publisher /tf to motion_plan_requester requester_tf
+      const simNode = testModel.nodes.find((n) => n.id === 'n_simple_ur_cell_sim_robot_state_publisher');
+      const simIface = simNode?.ifaces?.find((f) => f.label === '/tf');
+      const reqNode = testModel.nodes.find((n) => n.id === 'n_motion_plan_requester');
+      const reqIface = reqNode?.ifaces?.find((f) => f.label === 'requester_tf');
+
+      assert.ok(simNode && simIface && reqNode && reqIface);
+      const valRes = studioApi.validatePortConnection(simNode, simIface, reqNode, reqIface, testModel.connections);
+      assert.strictEqual(valRes.valid, true, 'Connecting sim tf to requester_tf must be valid');
+
+      assert.ok(valRes.normalizedFrom && valRes.normalizedTo);
+      const normFrom = valRes.normalizedFrom;
+      const normTo = valRes.normalizedTo;
+
+      // Now add the new connection to testModel.connections
+      const rawFrom = `${simNode.subRef}::${simNode.label}::${simIface.label || simIface.name}`;
+      const rawTo = reqIface.label || reqIface.name;
+      testModel.connections.push({
+        id: `c_${rawFrom}_${rawTo}`,
+        from: { n: normFrom.n, i: normFrom.i },
+        to: { n: normTo.n, i: normTo.i },
+        rawFrom,
+        rawTo,
+      });
+
+      // Verify that BOTH connections remain in the project (existing real tf connection NOT deleted)
+      assert.strictEqual(testModel.connections.length, 2, 'Existing connection must NOT be deleted when new connection is added');
+
+      // Now verify RosModelEmitter emits both connections with unambiguous scoped references
+      const emitted = RosModelEmitter.emitRosSystem(testModel);
+      assert.ok(
+        emitted.includes('simple_ur_cell_real::robot_state_publisher::/tf'),
+        'Emitted text must include simple_ur_cell_real connection'
+      );
+      assert.ok(
+        emitted.includes('simple_ur_cell_sim::robot_state_publisher::/tf'),
+        'Emitted text must include simple_ur_cell_sim connection'
       );
     });
   });

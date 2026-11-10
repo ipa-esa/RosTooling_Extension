@@ -778,5 +778,95 @@ suite('RosModelParser & Emitter Test Suite', () => {
     assert.ok(emitted.includes('# project-local, see models/...'));
     assert.ok(emitted.includes('# inline connection comment'));
   });
+
+  test('Subsystem nodes with colliding labels are disambiguated with subRef::node::iface and multi-connections to same target port are preserved', () => {
+    const projectWithCollidingSubsystems: RosProject = {
+      formatVersion: 2,
+      system: { name: 'demo_app' },
+      isRosSystem: true,
+      subSystems: [
+        { ref: 'simple_ur_cell_real' },
+        { ref: 'simple_ur_cell_sim' },
+      ],
+      packages: {},
+      types: {},
+      nodes: [
+        {
+          id: 'n_real_rsp',
+          label: 'robot_state_publisher',
+          subRef: 'simple_ur_cell_real',
+          ifaces: [
+            { id: 'i_real_tf', name: '/tf', label: '/tf', kind: 'pub', exposed: true },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_sim_rsp',
+          label: 'robot_state_publisher',
+          subRef: 'simple_ur_cell_sim',
+          ifaces: [
+            { id: 'i_sim_tf', name: '/tf', label: '/tf', kind: 'pub', exposed: true },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_localizer',
+          label: 'fruit_localizer',
+          ifaces: [
+            { id: 'i_localizer_tf', name: 'localizer_tf', label: 'localizer_tf', kind: 'sub', exposed: true },
+          ],
+          params: [],
+        },
+        {
+          id: 'n_requester',
+          label: 'motion_plan_requester',
+          ifaces: [
+            { id: 'i_requester_tf', name: 'requester_tf', label: 'requester_tf', kind: 'sub', exposed: true },
+          ],
+          params: [],
+        },
+      ],
+      connections: [
+        {
+          id: 'c1',
+          from: { n: 'n_real_rsp', i: 'i_real_tf' },
+          to: { n: 'n_localizer', i: 'i_localizer_tf' },
+        },
+        {
+          id: 'c2',
+          from: { n: 'n_sim_rsp', i: 'i_sim_tf' },
+          to: { n: 'n_localizer', i: 'i_localizer_tf' }, // Both connect into localizer_tf
+        },
+        {
+          id: 'c3',
+          from: { n: 'n_sim_rsp', i: 'i_sim_tf' },
+          to: { n: 'n_requester', i: 'i_requester_tf' },
+        },
+      ],
+    };
+
+    const emitted = RosModelEmitter.emitRosSystem(projectWithCollidingSubsystems);
+
+    // Verify 3-part fully qualified names are emitted for colliding subsystem nodes
+    assert.ok(
+      emitted.includes('["simple_ur_cell_real::robot_state_publisher::/tf", "localizer_tf"]'),
+      'Should emit 3-part qualified name for real subsystem robot_state_publisher'
+    );
+    assert.ok(
+      emitted.includes('["simple_ur_cell_sim::robot_state_publisher::/tf", "localizer_tf"]'),
+      'Should emit 3-part qualified name for sim subsystem robot_state_publisher into localizer_tf'
+    );
+    assert.ok(
+      emitted.includes('["simple_ur_cell_sim::robot_state_publisher::/tf", "requester_tf"]'),
+      'Should emit 3-part qualified name for sim subsystem robot_state_publisher into requester_tf'
+    );
+
+    // Round-trip parse: verify all 3 connections are parsed and preserve 3-part rawFrom
+    const parsed = RosModelParser.parseRosSystem(emitted, 'demo_app.rossystem');
+    assert.strictEqual(parsed.connections.length, 3, 'All 3 connections should be retained without deduplication loss');
+    assert.strictEqual(parsed.connections[0].rawFrom, 'simple_ur_cell_real::robot_state_publisher::/tf');
+    assert.strictEqual(parsed.connections[1].rawFrom, 'simple_ur_cell_sim::robot_state_publisher::/tf');
+    assert.strictEqual(parsed.connections[2].rawFrom, 'simple_ur_cell_sim::robot_state_publisher::/tf');
+  });
 });
 
