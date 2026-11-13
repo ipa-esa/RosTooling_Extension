@@ -2,7 +2,7 @@
   "name": "rostooling-languages",
   "displayName": "Rostooling Languages",
   "description": "Plugin to support Rostooling languages",
-  "version": "2.3.5",
+  "version": "2.4.0",
   "publisher": "RosTooling",
   "icon": "images/RosTooling_Logo.png",
   "license": "Apache-2.0",

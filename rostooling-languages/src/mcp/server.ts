@@ -111,7 +111,7 @@ async function openCompanionFiles(client: HeadlessLspClient, modelDir: string): 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
-    version: '2.3.5',
+    version: '2.4.0',
   });
 
   // Tool 1: generate_ros2_wrappers

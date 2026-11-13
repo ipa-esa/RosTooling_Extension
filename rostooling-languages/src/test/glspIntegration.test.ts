@@ -16,7 +16,7 @@ import { layoutFromGGraph, renderDiagramSvg } from '../glsp/GGraphSvgRenderer';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE = path.resolve(EXT_ROOT, '..', 'demo', 'test_ws', 'src', 'mock_robot_system');
-const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.3.5.jar');
+const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.4.0.jar');
 
 function applyEdits(base: string, result: RosTextEditsResult): string {
   let out = '';

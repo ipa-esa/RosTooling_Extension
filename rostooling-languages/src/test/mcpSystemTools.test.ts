@@ -14,7 +14,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
  */
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..');
-const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.3.5.jar');
+const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.4.0.jar');
 const BIN = path.join(EXT_ROOT, 'bin', 'rostooling-mcp.js');
 
 const MSGS = `warehouse_msgs:
