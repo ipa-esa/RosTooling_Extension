@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "jsx": "react",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "esModuleInterop": true,
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": ["src"]
+}

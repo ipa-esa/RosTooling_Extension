@@ -13,7 +13,9 @@ import {
   scanExistingFiles,
   cleanOppositeLanguageFiles,
 } from './PostProcessor.js';
-import { RosModelParser } from '../model/RosModelParser.js';
+import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
+import { registerSystemTools } from './systemTools.js';
+import { registerPackageTools } from './packageTools.js';
 
 class LspSessionManager {
   private activeClient: HeadlessLspClient | null = null;
@@ -52,10 +54,12 @@ const sessionManager = new LspSessionManager();
 // Graceful cleanup on process exit
 process.on('SIGINT', async () => {
   await sessionManager.closeAll();
+  await GlspClientBridge.getInstance().dispose().catch(() => undefined);
   process.exit(0);
 });
 process.on('SIGTERM', async () => {
   await sessionManager.closeAll();
+  await GlspClientBridge.getInstance().dispose().catch(() => undefined);
   process.exit(0);
 });
 
@@ -107,7 +111,7 @@ async function openCompanionFiles(client: HeadlessLspClient, modelDir: string): 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
-    version: '2.3.1',
+    version: '2.4.0',
   });
 
   // Tool 1: generate_ros2_wrappers
@@ -163,13 +167,14 @@ export function createMcpServer(): McpServer {
       const srcGenDir = path.join(rootDir, 'src-gen');
       await fsp.mkdir(srcGenDir, { recursive: true });
 
-      // Parse model to discover package name and nodes
+      // Discover package name and nodes via the Java/Xtext GLSP server (no TypeScript DSL parsing)
       const docText = await fsp.readFile(absModelPath, 'utf-8');
-      const parsed = RosModelParser.parseRos2(docText, absModelPath);
-      const pkgName = parsed.system?.name || path.basename(absModelPath, '.ros2');
-      const allNodesInFile = (parsed.nodes || []).map(n => ({
-        artifactName: n.artifact || n.label,
-        nodeName: n.label,
+      const [described] = await GlspClientBridge.getInstance().requestRosIndex([absModelPath]);
+      const pkg = described?.packages?.[0];
+      const pkgName = pkg?.name || path.basename(absModelPath, '.ros2');
+      const allNodesInFile = (pkg?.artifacts || []).map(a => ({
+        artifactName: a.artifact,
+        nodeName: a.node,
       }));
 
       const nodesToProcess =
@@ -423,6 +428,14 @@ export function createMcpServer(): McpServer {
       };
     }
   );
+
+  // Semantic, coordinate-free .rossystem and .ros2 tools backed by the Java GLSP server:
+  // .rossystem: ros_add_node, ros_connect_interfaces, ros_set_parameter, ros_add_process,
+  //   ros_remove_element, export_system_diagram.
+  // .ros2: ros2_add_artifact, ros2_add_interface, ros2_add_parameter, ros2_set_qos,
+  //   ros2_set_property, ros2_remove_element.
+  registerSystemTools(server);
+  registerPackageTools(server);
 
   // Tool 4: build_ros2_package
   server.tool(

@@ -3,7 +3,6 @@ import {
   Plus,
   Layers,
   Cpu,
-  LayoutGrid,
   Code2,
   RefreshCw,
   Undo2,
@@ -18,23 +17,20 @@ import {
 import {
   useStudio,
   setUIState,
-  mutateProject,
-  mutateLayout,
-  syncPackagesFromNodes,
-  updateModelName,
+  renameModel,
+  editProperty,
+  createProcess,
   getDisplayModelName,
-  runDagreAutoLayout,
-  undoEdit,
-  redoEdit,
   KIND_META,
   showToast,
 } from './state/studioStore';
+import { CommitInput } from './components/CommitInput';
 import { hostBridge } from './state/vscodeBridge';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner';
 import { CatalogueDrawer } from './components/CatalogueDrawer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { RosSystemView } from './views/RosSystemView';
-import { RosComponentView, createNewComponentNode } from './views/RosComponentView';
+import { RosComponentView } from './views/RosComponentView';
 import { RosCommObjectsView, addNewCommObjectSpec } from './views/RosCommObjectsView';
 
 export function RosStudioApp() {
@@ -49,8 +45,6 @@ export function RosStudioApp() {
     interfaceFilter,
     typeCategoryFilter,
     toast,
-    past,
-    future,
   } = studio;
 
   useEffect(() => {
@@ -60,15 +54,17 @@ export function RosStudioApp() {
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) {
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      // Undo/redo is VS Code's document history (model edits are WorkspaceEdits). In the
+      // .rossystem diagram the GLSP client's own Ctrl+Z binding is routed there by the host.
+      if (mode !== 'system' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        if (e.shiftKey) redoEdit();
-        else undoEdit();
+        if (e.shiftKey) hostBridge.redo();
+        else hostBridge.undo();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isReadOnly]);
+  }, [isReadOnly, mode]);
 
   const displayModelName = getDisplayModelName(project, mode, docFileName);
   const diags = project.diagnostics || [];
@@ -82,8 +78,7 @@ export function RosStudioApp() {
       ? 'Component (.ros2)'
       : 'System (.rossystem)';
 
-  const connectorMode = project.view?.connectorMode || 'orthogonal';
-
+  
   return (
     <div className={`rt-app mode-${mode}`}>
       <ReadOnlyBanner isReadOnly={isReadOnly} docFileName={docFileName} />
@@ -97,13 +92,12 @@ export function RosStudioApp() {
         {/* Editable System / Package Name */}
         <div className="rt-name-group">
           <label htmlFor="sysNameInput">{mode === 'system' ? 'System:' : 'Package:'}</label>
-          <input
-            id="sysNameInput"
+          <CommitInput
             className="rt-sysname-input"
             disabled={isReadOnly}
             placeholder={mode === 'system' ? 'ros_system' : 'Enter package name...'}
             value={displayModelName}
-            onChange={(e) => updateModelName(e.target.value)}
+            onCommit={(v) => renameModel(v)}
           />
         </div>
 
@@ -135,56 +129,18 @@ export function RosStudioApp() {
                     id="btnAddProcess"
                     type="button"
                     className="rt-btn"
+                    title="Add a process (composable node container)"
                     onClick={() => {
-                      let createdName = 'container_1';
-                      mutateProject((proj) => {
-                        if (!proj.processes) proj.processes = [];
-                        let idx = proj.processes.length + 1;
-                        createdName = `container_${idx}`;
-                        while (proj.processes.some((p) => p.name === createdName)) {
-                          idx += 1;
-                          createdName = `container_${idx}`;
-                        }
-                        proj.processes.push({ name: createdName, nodes: [], threads: 2 });
-                      });
-                      setUIState({
-                        selectedProcessName: createdName,
-                        selectedNodeId: null,
-                        selectedEdgeId: null,
-                        selectedSubsystemRef: null,
-                      });
+                      const taken = new Set((project.processes || []).map((p) => p.name));
+                      let i = taken.size + 1;
+                      while (taken.has(`container_${i}`)) i += 1;
+                      createProcess({ processName: `container_${i}`, threads: 1 });
                     }}
                   >
                     <Cpu size={13} /> + Add Process
                   </button>
-                  <button
-                    type="button"
-                    className="rt-btn"
-                    title="Arrange system nodes left-to-right with Dagre"
-                    onClick={runDagreAutoLayout}
-                  >
-                    <LayoutGrid size={13} /> Auto Layout
-                  </button>
                 </>
               )}
-
-              <select
-                className="rt-select"
-                title="Edge routing style"
-                disabled={isReadOnly}
-                value={connectorMode}
-                onChange={(e) => {
-                  const nextStyle = e.target.value;
-                  mutateLayout((proj) => {
-                    if (!proj.view) proj.view = {};
-                    proj.view.connectorMode = nextStyle;
-                  });
-                }}
-              >
-                <option value="orthogonal">Orthogonal (SmoothStep)</option>
-                <option value="spline">Spline (Bézier)</option>
-                <option value="linear">Linear (Straight)</option>
-              </select>
 
               <span id="filterInterfaceSection">
                 <select
@@ -221,15 +177,12 @@ export function RosStudioApp() {
                   type="button"
                   className="rt-btn primary"
                   onClick={() => {
-                    let newId = null;
-                    mutateProject((proj) => {
-                      const created = createNewComponentNode(proj, docFileName);
-                      newId = created.id;
-                      if (!proj.nodes) proj.nodes = [];
-                      proj.nodes.push(created);
-                      syncPackagesFromNodes(proj);
-                    });
-                    if (newId) setUIState({ selectedNodeId: newId });
+                    const pkg = Object.values(project.packages || {})[0];
+                    if (!pkg?.id) return;
+                    const taken = new Set((project.nodes || []).map((n) => n.artifact || n.label));
+                    let i = taken.size + 1;
+                    while (taken.has(`node_${i}`)) i += 1;
+                    editProperty(pkg.id, 'addArtifact', `node_${i}`, { key: `node_${i}` });
                   }}
                 >
                   <Plus size={13} /> + Add New Node
@@ -324,18 +277,16 @@ export function RosStudioApp() {
               <button
                 type="button"
                 className="rt-btn icon-only subtle"
-                disabled={past.length === 0}
                 title="Undo (Ctrl+Z)"
-                onClick={undoEdit}
+                onClick={() => hostBridge.undo()}
               >
                 <Undo2 size={14} />
               </button>
               <button
                 type="button"
                 className="rt-btn icon-only subtle"
-                disabled={future.length === 0}
                 title="Redo (Ctrl+Shift+Z)"
-                onClick={redoEdit}
+                onClick={() => hostBridge.redo()}
               >
                 <Redo2 size={14} />
               </button>

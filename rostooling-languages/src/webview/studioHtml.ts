@@ -18,7 +18,9 @@ export function getStudioHtml(
   nodeIndex: unknown,
   typeIndex: unknown,
   docFileName?: string,
-  isReadOnly?: boolean
+  isReadOnly?: boolean,
+  gGraph?: unknown,
+  glspMarkers?: unknown
 ): string {
   const nonce = getNonce();
   const mode = project.isRos ? 'ros' : project.isRosSystem !== false ? 'system' : 'component';
@@ -27,6 +29,8 @@ export function getStudioHtml(
   const cspSource = webview?.cspSource || 'vscode-webview-resource:';
   const initialData = JSON.stringify({
     project,
+    gGraph: gGraph || null,
+    glspMarkers: glspMarkers || [],
     mode,
     isReadOnly: Boolean(isReadOnly),
     docFileName: docFileName || '',

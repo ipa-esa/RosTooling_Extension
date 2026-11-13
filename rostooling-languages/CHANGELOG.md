@@ -5,6 +5,26 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-11-13
+
+### Added
+- **Java GLSP Server Integration & Sprotty Webview (`GlspClientBridge`, `WebviewGlspServer`, `rosDiagram.ts`, `rosViews.tsx`)**:
+  - Hosted `de.fraunhofer.ipa.ros.glsp` inside the language server fat JAR (`build.gradle`) and routed logs cleanly via `log4j2.xml` to keep LSP/GLSP `stdout` protocol-only.
+  - Migrated `.rossystem`, `.ros2`, and `.ros` webviews (`RosSystemView.jsx`, `RosComponentView.jsx`, `RosCommObjectsView.jsx`) to render server GGraph models and dispatch GLSP operations.
+  - Added orthogonal wire line-jump rendering, collapsed subsystem boundary ports, and headless server-layouted SVG export (`GGraphSvgRenderer.ts`).
+- **Coordinate-Free Semantic MCP Authoring Tools (`mcp/systemTools.ts`, `mcp/packageTools.ts`, `mcp/mcpGlspSession.ts`)**:
+  - Added `.rossystem` tools: `ros_add_node` (with `from_file`), `ros_add_subsystem`, `ros_set_system_property`, `ros_connect_interfaces`, `ros_set_parameter`, `ros_add_process`, `ros_remove_element`, and `export_system_diagram`.
+  - Added `.ros2` and `.ros` tools: `ros2_add_artifact`, `ros2_add_interface`, `ros2_add_parameter`, `ros2_set_qos`, `ros2_set_property`, `ros2_remove_element`, and `ros_add_spec`.
+  - Added end-to-end integration tests (`glspIntegration.test.ts`, `mcpSystemTools.test.ts`, `mcpPackageTools.test.ts`).
+
+### Fixed
+- **Canvas Panning & Selection Drag Behaviour**:
+  - Suppressed sub-pixel/pan-triggered drags in `ChangeBoundsListener` so panning the canvas with a selected node no longer moves or pins it.
+
+### Removed
+- **Legacy TypeScript DSL & React Flow Pipeline**:
+  - Removed `RosModelParser.ts`, `RosModelEmitter.ts`, `RosLayoutManager.ts`, `ConnectionValidator.ts`, `orthogonalRouter.js`, and duplicate Java validator/scoping/QNP overrides in favor of the authoritative Java GLSP/Xtext server.
+
 ## [2.3.5] - 2026-11-10
 
 ### Added
