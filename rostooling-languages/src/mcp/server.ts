@@ -14,6 +14,7 @@ import {
   cleanOppositeLanguageFiles,
 } from './PostProcessor.js';
 import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
+import { registerSystemTools } from './systemTools.js';
 
 class LspSessionManager {
   private activeClient: HeadlessLspClient | null = null;
@@ -52,10 +53,12 @@ const sessionManager = new LspSessionManager();
 // Graceful cleanup on process exit
 process.on('SIGINT', async () => {
   await sessionManager.closeAll();
+  await GlspClientBridge.getInstance().dispose().catch(() => undefined);
   process.exit(0);
 });
 process.on('SIGTERM', async () => {
   await sessionManager.closeAll();
+  await GlspClientBridge.getInstance().dispose().catch(() => undefined);
   process.exit(0);
 });
 
@@ -107,7 +110,7 @@ async function openCompanionFiles(client: HeadlessLspClient, modelDir: string): 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
-    version: '2.3.1',
+    version: '2.3.5',
   });
 
   // Tool 1: generate_ros2_wrappers
@@ -424,6 +427,11 @@ export function createMcpServer(): McpServer {
       };
     }
   );
+
+  // Semantic, coordinate-free .rossystem tools backed by the Java GLSP server:
+  // ros_add_node, ros_connect_interfaces, ros_set_parameter, ros_add_process,
+  // ros_remove_element, export_system_diagram.
+  registerSystemTools(server);
 
   // Tool 4: build_ros2_package
   server.tool(

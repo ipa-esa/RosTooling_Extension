@@ -149,7 +149,7 @@ suite('GLSP Integration (Block 4 gate)', function () {
     });
     res = await bridge.requestTextEdits('it_sys');
     text = applyEdits(text, res);
-    assert.ok(/- \[ defect_report_pub , defect_sub \]/.test(text), text);
+    assert.ok(text.includes('- [ "detector_b::defect_report_pub" , "mission_exec::defect_sub" ]'), text);
     assert.ok(text.startsWith('# inspection system header\n'));
     assert.ok(text.includes('safety_mgr: # safety supervisor instance'));
 

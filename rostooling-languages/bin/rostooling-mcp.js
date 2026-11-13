@@ -7,7 +7,7 @@ const pkg = require(path.join(__dirname, '..', 'package.json'));
 const HELP_TEXT = `Usage: rostooling-mcp [options]
 
 Headless Model Context Protocol (MCP) server for Fraunhofer IPA RosTooling
-(.ros, .ros2, and .rossystem DSL validation, code generation, and ROS 2 builds).
+(.ros, .ros2, and .rossystem validation, semantic system editing, code generation,\nand ROS 2 builds).
 Communicates over stdio using JSON-RPC 2.0.
 
 Options:
@@ -25,6 +25,15 @@ Exposed MCP Tools:
   generate_ros2_wrappers      Generate C++, Python, or Hybrid ROS 2 node wrappers into src-gen/
   generate_rossystem_code     Generate ROS 2 launch, parameter YAML, and composition packages into src-gen/
   build_ros2_package          Build generated packages with colcon build
+  ros_add_node                Add a node instance ("<package>.<node>") to a .rossystem (creates the file)
+  ros_connect_interfaces      Connect "<node>.<interface>" -> "<node>.<interface>"
+  ros_set_parameter           Set a declared parameter's value on a node instance
+  ros_add_process             Group node instances into a process (composable container)
+  ros_remove_element          Remove a node, process, subsystem or connection
+  export_system_diagram       Write the auto-laid-out system diagram as SVG + structural summary
+
+  The ros_* and export tools are coordinate-free: they dispatch GLSP operations to the
+  Java/Xtext server, which applies them to the Ecore model and edits the file surgically.
 `;
 
 const args = process.argv.slice(2);
