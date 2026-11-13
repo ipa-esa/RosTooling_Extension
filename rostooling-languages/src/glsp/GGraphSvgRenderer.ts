@@ -398,7 +398,9 @@ export function renderDiagramSvg(
       `<rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}" rx="8" fill="${c.card}" stroke="${hasError ? '#ef4444' : c.border}" stroke-width="${hasError ? 2 : 1.2}"/>`
     );
     out.push(`<path d="M ${fmt(n.x)} ${fmt(n.y + 8)} a 8 8 0 0 1 8 -8 h ${fmt(n.w - 16)} a 8 8 0 0 1 8 8 v 44 h ${fmt(-n.w)} z" fill="${c.head}"/>`);
-    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 22)}" font-size="13" font-weight="700" fill="${c.text}">${escapeXml(truncate(ns ? `${ns.replace(/\/$/, '')}/${name}` : name, 34))}</text>`);
+    const title = ns ? `${ns.replace(/\/$/, '')}/${name}` : name;
+    // Long names are truncated on the card; the full name stays available as the hover title.
+    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 22)}" font-size="13" font-weight="700" fill="${c.text}"><title>${escapeXml(`${title}${from ? ` (${from})` : ''}`)}</title>${escapeXml(truncate(title, 34))}</text>`);
     out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 40)}" font-size="10.5" fill="${c.muted}">${escapeXml(truncate(from, 44))}</text>`);
     const badges: string[] = [];
     if (a.isLifecycle) badges.push('LC');

@@ -11,6 +11,7 @@ import {
   GEdge,
   GModelElement,
   IView,
+  IViewArgs,
   Point,
   setClass,
 } from '@eclipse-glsp/client';
@@ -143,8 +144,10 @@ export class RosProcessView extends ShapeView {
  */
 @injectable()
 export class RosConnectionView extends JumpingPolylineEdgeView {
-  render(edge: Readonly<GEdge>, context: RenderingContext): VNode | undefined {
-    const vnode = super.render(edge, context);
+  // `args` carries the graph-wide edge routing; the intersection post-processor stores the line
+  // crossings in it. Dropping it makes every wire route alone, so no jumps are drawn.
+  render(edge: Readonly<GEdge>, context: RenderingContext, args?: IViewArgs): VNode | undefined {
+    const vnode = super.render(edge, context, args);
     if (vnode) {
       const kind = String(argsOf(edge).connectionKind || 'topic');
       setClass(vnode, 'ros-edge', true);
