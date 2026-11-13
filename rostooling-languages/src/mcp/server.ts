@@ -15,6 +15,7 @@ import {
 } from './PostProcessor.js';
 import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
 import { registerSystemTools } from './systemTools.js';
+import { registerPackageTools } from './packageTools.js';
 
 class LspSessionManager {
   private activeClient: HeadlessLspClient | null = null;
@@ -428,10 +429,13 @@ export function createMcpServer(): McpServer {
     }
   );
 
-  // Semantic, coordinate-free .rossystem tools backed by the Java GLSP server:
-  // ros_add_node, ros_connect_interfaces, ros_set_parameter, ros_add_process,
-  // ros_remove_element, export_system_diagram.
+  // Semantic, coordinate-free .rossystem and .ros2 tools backed by the Java GLSP server:
+  // .rossystem: ros_add_node, ros_connect_interfaces, ros_set_parameter, ros_add_process,
+  //   ros_remove_element, export_system_diagram.
+  // .ros2: ros2_add_artifact, ros2_add_interface, ros2_add_parameter, ros2_set_qos,
+  //   ros2_set_property, ros2_remove_element.
   registerSystemTools(server);
+  registerPackageTools(server);
 
   // Tool 4: build_ros2_package
   server.tool(

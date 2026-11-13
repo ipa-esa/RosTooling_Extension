@@ -1,11 +1,22 @@
-import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { GlspAction, GlspClientBridge, GGraph, GlspMarker, GModelElement } from '../glsp/GlspClientBridge.js';
+import { GGraph, GModelElement, GlspClientBridge } from '../glsp/GlspClientBridge.js';
 import { renderDiagramSvg } from '../glsp/GGraphSvgRenderer.js';
+import {
+  Bridge,
+  ModelSession,
+  ToolOutcome,
+  asMcpResult as asResult,
+  commitModel as commit,
+  failOutcome as fail,
+  runOperation,
+  summarizeMarkers,
+  walkGModel as walk,
+  withModel,
+} from './mcpGlspSession.js';
 
 // ============================================================================
 // Coordinate-free, semantic MCP tools for .rossystem compositions.
@@ -18,36 +29,8 @@ import { renderDiagramSvg } from '../glsp/GGraphSvgRenderer.js';
 // .layout sidecars are involved: placement is ELK auto-layout on the server.
 // ============================================================================
 
-type Bridge = GlspClientBridge;
-
-export interface ToolOutcome {
-  success: boolean;
-  file: string;
-  created?: boolean;
-  changed?: boolean;
-  error?: string;
-  errors: string[];
-  warnings: string[];
-  [key: string]: unknown;
-}
-
-interface SystemSession {
-  clientId: string;
-  file: string;
-  diskText: string;
-  existed: boolean;
-  graph: GGraph;
-}
-
-let sessionCounter = 0;
-
-function walk(el: GModelElement | undefined, pred: (e: GModelElement) => boolean, acc: GModelElement[] = []): GModelElement[] {
-  for (const c of el?.children || []) {
-    if (pred(c)) acc.push(c);
-    walk(c, pred, acc);
-  }
-  return acc;
-}
+export type { ToolOutcome };
+type SystemSession = ModelSession;
 
 const PORT_KIND: Record<string, string> = {
   'port:pub': 'publisher',
@@ -131,86 +114,13 @@ function processes(graph: GGraph): { id: string; name: string; threads: unknown;
   });
 }
 
-function summarizeMarkers(markers: GlspMarker[]): { errors: string[]; warnings: string[] } {
-  const fmt = (m: GlspMarker) => `${m.elementId ? `[${m.elementId}] ` : ''}${m.description || m.label}`;
-  return {
-    errors: markers.filter((m) => m.kind === 'error').map(fmt),
-    warnings: markers.filter((m) => m.kind === 'warning').map(fmt),
-  };
-}
-
-function resolveSystemPath(systemPath: string): string {
-  const abs = path.resolve(systemPath);
-  if (!abs.endsWith('.rossystem')) {
-    throw new Error(`Not a .rossystem file: ${abs}`);
-  }
-  return abs;
-}
-
-async function openSystem(bridge: Bridge, systemPath: string, mustExist: boolean): Promise<SystemSession> {
-  const file = resolveSystemPath(systemPath);
-  const existed = fs.existsSync(file);
-  if (mustExist && !existed) {
-    throw new Error(`System file not found: ${file}`);
-  }
-  if (!existed) {
-    await fsp.mkdir(path.dirname(file), { recursive: true });
-  }
-  const diskText = existed ? await fsp.readFile(file, 'utf-8') : '';
-  const clientId = `mcp_system_${process.pid}_${++sessionCounter}`;
-  const { graph } = await bridge.openSession(clientId, file);
-  return { clientId, file, diskText, existed, graph };
-}
-
-/**
- * Commits the server's pending AST mutations: the server returns the surgical edits and the
- * resulting text, which is written (headless use) and re-parsed for verification + markers.
- */
-async function commit(bridge: Bridge, s: SystemSession): Promise<{ changed: boolean; graph: GGraph; markers: GlspMarker[] }> {
-  const res = await bridge.requestTextEdits(s.clientId);
-  if (res.baseText !== s.diskText) {
-    throw new Error(`${path.basename(s.file)} changed on disk while it was being edited; retry the call.`);
-  }
-  const changed = res.newText !== res.baseText;
-  if (changed) {
-    await fsp.writeFile(s.file, res.newText, 'utf-8');
-    s.diskText = res.newText;
-  }
-  const graph = await bridge.reloadModel(s.clientId, s.file, s.diskText);
-  const markers = await bridge.requestMarkers(s.clientId);
-  s.graph = graph;
-  return { changed, graph, markers };
-}
-
-async function runOperation(bridge: Bridge, s: SystemSession, action: GlspAction): Promise<void> {
-  await bridge.dispatchAction(s.clientId, { ...action, isOperation: true });
-}
-
-async function withSystem(
+function withSystem(
   bridge: Bridge,
   systemPath: string,
   mustExist: boolean,
   body: (s: SystemSession) => Promise<ToolOutcome>
 ): Promise<ToolOutcome> {
-  let s: SystemSession | undefined;
-  try {
-    s = await openSystem(bridge, systemPath, mustExist);
-    return await body(s);
-  } catch (err) {
-    return {
-      success: false,
-      file: s?.file || path.resolve(systemPath),
-      error: err instanceof Error ? err.message : String(err),
-      errors: [],
-      warnings: [],
-    };
-  } finally {
-    if (s) await bridge.disposeSession(s.clientId);
-  }
-}
-
-function fail(s: SystemSession, error: string, extra: Record<string, unknown> = {}): ToolOutcome {
-  return { success: false, file: s.file, error, errors: [], warnings: [], ...extra };
+  return withModel(bridge, systemPath, ['.rossystem'], mustExist, 'mcp_system', body);
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +129,14 @@ function fail(s: SystemSession, error: string, extra: Record<string, unknown> = 
 
 export async function addNode(
   bridge: Bridge,
-  p: { system_path: string; node_name: string; from: string; namespace?: string; system_name?: string }
+  p: {
+    system_path: string;
+    node_name: string;
+    from: string;
+    namespace?: string;
+    system_name?: string;
+    from_file?: string;
+  }
 ): Promise<ToolOutcome> {
   return withSystem(bridge, p.system_path, false, async (s) => {
     const existing = findNode(s.graph, p.node_name);
@@ -228,6 +145,9 @@ export async function addNode(
     }
     if (p.system_name) {
       await runOperation(bridge, s, { kind: 'editRosProperty', elementId: 'root', property: 'name', value: p.system_name });
+    }
+    if (p.from_file) {
+      await runOperation(bridge, s, { kind: 'editRosProperty', elementId: 'root', property: 'fromFile', value: p.from_file });
     }
     const args: Record<string, string> = { nodeName: p.node_name, from: p.from };
     if (p.namespace) args.namespace = p.namespace;
@@ -239,6 +159,73 @@ export async function addNode(
     }
     const m = summarizeMarkers(markers);
     return { success: m.errors.length === 0, file: s.file, created: !s.existed, changed, node: describeNode(node), ...m };
+  });
+}
+
+export async function addSubSystem(
+  bridge: Bridge,
+  p: { system_path: string; subsystem_name: string; system_name?: string; from_file?: string }
+): Promise<ToolOutcome> {
+  return withSystem(bridge, p.system_path, false, async (s) => {
+    const existing = walk(
+      s.graph,
+      (e) => e.type === 'node:subsystem' && e.args?.subSystemName === p.subsystem_name
+    )[0];
+    if (existing) {
+      return fail(s, `Subsystem '${p.subsystem_name}' already exists in ${path.basename(s.file)}.`);
+    }
+    if (p.system_name) {
+      await runOperation(bridge, s, { kind: 'editRosProperty', elementId: 'root', property: 'name', value: p.system_name });
+    }
+    if (p.from_file) {
+      await runOperation(bridge, s, { kind: 'editRosProperty', elementId: 'root', property: 'fromFile', value: p.from_file });
+    }
+    await runOperation(bridge, s, {
+      kind: 'createNode',
+      elementTypeId: 'node:subsystem',
+      args: { subSystemName: p.subsystem_name },
+    });
+    const { changed, graph, markers } = await commit(bridge, s);
+    const createdSub = walk(
+      graph,
+      (e) => e.type === 'node:subsystem' && e.args?.subSystemName === p.subsystem_name
+    )[0];
+    const m = summarizeMarkers(markers);
+    if (!createdSub) {
+      return fail(s, `Subsystem '${p.subsystem_name}' was not created.`, m);
+    }
+    return {
+      success: m.errors.length === 0,
+      file: s.file,
+      created: !s.existed,
+      changed,
+      subsystem: { name: p.subsystem_name, id: createdSub.id },
+      ...m,
+    };
+  });
+}
+
+export async function setSystemProperty(
+  bridge: Bridge,
+  p: { system_path: string; property: 'name' | 'fromFile'; value: string }
+): Promise<ToolOutcome> {
+  return withSystem(bridge, p.system_path, true, async (s) => {
+    await runOperation(bridge, s, {
+      kind: 'editRosProperty',
+      elementId: 'root',
+      property: p.property,
+      value: p.value,
+    });
+    const { changed, markers } = await commit(bridge, s);
+    const m = summarizeMarkers(markers);
+    return {
+      success: m.errors.length === 0,
+      file: s.file,
+      changed,
+      property: p.property,
+      value: p.value,
+      ...m,
+    };
   });
 }
 
@@ -390,13 +377,6 @@ export async function exportSystemDiagram(
 // MCP registration
 // ---------------------------------------------------------------------------
 
-function asResult(outcome: ToolOutcome) {
-  return {
-    ...(outcome.success ? {} : { isError: true }),
-    content: [{ type: 'text' as const, text: JSON.stringify(outcome, null, 2) }],
-  };
-}
-
 export function registerSystemTools(server: McpServer, getBridge: () => Bridge = () => GlspClientBridge.getInstance()): void {
   const systemPath = z.string().describe('Path to the .rossystem file. ros_add_node creates it when it does not exist.');
 
@@ -409,8 +389,32 @@ export function registerSystemTools(server: McpServer, getBridge: () => Bridge =
       from: z.string().describe('Node type as "<package>.<node>", e.g. "nav_pkg.lidar_node" (package and node names from the .ros2 model).'),
       namespace: z.string().optional().describe('Optional ROS namespace for this instance.'),
       system_name: z.string().optional().describe('Optional system name (defaults to the file name for a new file).'),
+      from_file: z.string().optional().describe('Optional launch file path for `fromFile:` (recommended for valid Xtext models, e.g. "my_bringup/launch/app.launch.py").'),
     },
     async (p) => asResult(await addNode(getBridge(), p))
+  );
+
+  server.tool(
+    'ros_add_subsystem',
+    'Adds a subSystems: entry referencing an existing .rossystem composition in the workspace (creating the parent .rossystem if needed). Runs through the Java GLSP/Xtext server.',
+    {
+      system_path: systemPath,
+      subsystem_name: z.string().describe('Declared system name of the referenced .rossystem model.'),
+      system_name: z.string().optional().describe('Optional parent system name (when creating a new .rossystem).'),
+      from_file: z.string().optional().describe('Optional launch file path for `fromFile:`.'),
+    },
+    async (p) => asResult(await addSubSystem(getBridge(), p))
+  );
+
+  server.tool(
+    'ros_set_system_property',
+    'Sets a top-level .rossystem property (`name` or `fromFile`) via the Java GLSP/Xtext server.',
+    {
+      system_path: systemPath,
+      property: z.enum(['name', 'fromFile']).describe('Top-level system property to update.'),
+      value: z.string().describe('New value (for `fromFile`, a quoted path containing at least one `/`).'),
+    },
+    async (p) => asResult(await setSystemProperty(getBridge(), p))
   );
 
   server.tool(
