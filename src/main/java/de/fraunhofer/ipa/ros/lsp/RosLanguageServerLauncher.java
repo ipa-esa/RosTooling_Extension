@@ -9,11 +9,13 @@ import org.eclipse.glsp.server.launch.GLSPServerLauncher;
 import org.eclipse.glsp.server.launch.SocketGLSPServerLauncher;
 import org.eclipse.xtext.ide.server.IMultiRootWorkspaceConfigFactory;
 import org.eclipse.xtext.ide.server.IProjectDescriptionFactory;
+import org.eclipse.xtext.ide.server.LaunchArgs;
 import org.eclipse.xtext.ide.server.ServerLauncher;
 import org.eclipse.xtext.ide.server.ServerModule;
 import org.eclipse.xtext.util.IFileSystemScanner;
 
 import com.google.inject.AbstractModule;
+import com.google.inject.Guice;
 import com.google.inject.Module;
 import com.google.inject.util.Modules;
 
@@ -53,6 +55,13 @@ public class RosLanguageServerLauncher {
     }
 
     public static void main(String[] args) {
+        // In LSP mode stdout carries the JSON-RPC stream and nothing else may write to it. Keep the
+        // real stdout for the language server only and send every other System.out write (log4j's
+        // status logger, which captures System.out when it initializes, the co-hosted GLSP server,
+        // libraries) to stderr for the lifetime of the JVM.
+        final PrintStream protocolOut = System.out;
+        System.setOut(System.err);
+
         registerMetamodelsAndLanguages();
 
         boolean glspStandalone = false;
@@ -108,14 +117,10 @@ public class RosLanguageServerLauncher {
             final String host = glspHost;
             final int port = glspPort;
             SocketGLSPServerLauncher glspLauncher = createGlspServerLauncher();
-            PrintStream originalOut = System.out;
             try {
-                System.setOut(System.err);
                 glspLauncher.asyncRun(host, port);
             } catch (Exception e) {
                 System.err.println("[GLSP-Server] Failed to start co-hosted GLSP server on " + host + ":" + port + " - " + e.getMessage());
-            } finally {
-                System.setOut(originalOut);
             }
         }
 
@@ -128,6 +133,9 @@ public class RosLanguageServerLauncher {
             }
         });
 
-        ServerLauncher.launch("RosTooling", lspArgs.toArray(new String[0]), serverModule);
+        // Same as ServerLauncher.launch(...), but the protocol goes to the real stdout captured above.
+        LaunchArgs launchArgs = ServerLauncher.createLaunchArgs("RosTooling", lspArgs.toArray(new String[0]));
+        launchArgs.setOut(protocolOut);
+        Guice.createInjector(serverModule).getInstance(ServerLauncher.class).start(launchArgs);
     }
 }

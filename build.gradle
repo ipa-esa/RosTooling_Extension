@@ -71,7 +71,10 @@ shadowJar {
     mergeServiceFiles()
     append 'plugin.properties'
 	manifest {
-        attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher'
+        attributes 'Main-Class': 'de.fraunhofer.ipa.ros.lsp.RosLanguageServerLauncher',
+                // Bundled log4j/GLSP ship META-INF/versions classes; without this log4j warns on
+                // first use ("does not support multi-release JARs").
+                'Multi-Release': 'true'
     }
     doLast {
         def serverDir = file("${projectDir}/rostooling-languages/server")
