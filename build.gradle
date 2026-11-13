@@ -13,7 +13,7 @@ plugins {
 apply plugin: 'net.researchgate.release'
 
 ext {
-    xtextVersion = '2.39.0'
+    xtextVersion = '2.42.0'
     group = 'de.fraunhofer.ipa.ros'
     version = '3.3.3-SNAPSHOT'
 }
@@ -61,6 +61,9 @@ dependencies {
     implementation "${project.ext.group}:${project.ext.group}system:${project.ext.version}"
     implementation "${project.ext.group}:${project.ext.group}system.xtext:${project.ext.version}"
     implementation "${project.ext.group}:${project.ext.group}system.xtext.ide:${project.ext.version}"
+
+    // Eclipse GLSP server for RosTooling
+    implementation "${project.ext.group}:${project.ext.group}.glsp:${project.ext.version}"
 }
 
 shadowJar {
