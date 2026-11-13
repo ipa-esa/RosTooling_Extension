@@ -9,6 +9,8 @@ export interface RosInterface {
   type?: string;
   activeStates?: RosLifecycleState[];
   qos?: Record<string, string>;
+  /** `ns:` namespace expression (e.g. "GlobalNamespace"), .ros2 interfaces only. */
+  ns?: string;
   label?: string;
   exposed?: boolean;
   artifact?: string;
@@ -34,6 +36,8 @@ export interface RosSystemParameter {
 export interface RosParameter {
   id?: string;
   name: string;
+  /** `ns:` namespace expression, .ros2 parameters only. */
+  ns?: string;
   ptype?: string;
   value?: unknown;
   label?: string;
@@ -51,6 +55,8 @@ export interface RosParameter {
 
 export interface RosNode {
   id: string;
+  /** GLSP element id of the owning .ros2 Artifact (package models only). */
+  artifactId?: string;
   label: string;
   pkg?: string;
   artifact?: string;
@@ -126,6 +132,8 @@ export interface RosSubSystem {
 }
 
 export interface RosField {
+  /** GLSP element id of the message field (MessagePart). */
+  id?: string;
   type: string;
   name: string;
   constant?: boolean;
@@ -136,6 +144,8 @@ export interface RosField {
 }
 
 export interface RosTypeSpec {
+  /** GLSP element id of the spec. */
+  id?: string;
   name: string;
   category: 'msg' | 'srv' | 'action';
   pkg: string;
@@ -145,6 +155,8 @@ export interface RosTypeSpec {
 }
 
 export interface RosPackage {
+  /** GLSP element id of the package. */
+  id?: string;
   name: string;
   fromGitRepo?: string;
   artifacts: {
@@ -159,6 +171,8 @@ export interface RosPackage {
 }
 
 export interface RosProcess {
+  /** GLSP element id of the process. */
+  id?: string;
   name: string;
   nodes: string[];
   threads?: number;

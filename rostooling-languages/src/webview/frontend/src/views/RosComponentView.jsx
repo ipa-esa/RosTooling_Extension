@@ -1,253 +1,128 @@
 import React, { useMemo } from 'react';
-import {
-  Box,
-  Plus,
-  Trash2,
-  Copy,
-  Activity,
-  Sliders,
-  Settings2,
-  RotateCcw,
-  Braces,
-  FileCode2,
-} from 'lucide-react';
+import { Box, Plus, Trash2, Copy, Activity, Sliders, Settings2, Braces, FileCode2 } from 'lucide-react';
 import {
   useStudio,
   setUIState,
-  mutateProject,
-  syncPackagesFromNodes,
+  editProperty,
+  deleteElements,
   getDisplayModelName,
-  KIND_ORDER,
+  markersFor,
   KIND_META,
   SRC_SIDE,
-  LIFECYCLE_STATES,
-  PARAM_TYPES,
-  QOS_PROFILES,
+  orderedInterfaceKinds,
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
+import { CommitInput } from '../components/CommitInput';
 
-export function createNewComponentNode(project, docFileName) {
-  const pkgName = getDisplayModelName(project, 'component', docFileName);
-  let idx = (project.nodes || []).length + 1;
-  let label = `node_${idx}`;
-  while ((project.nodes || []).some((n) => n.label === label)) {
-    idx += 1;
-    label = `node_${idx}`;
-  }
-  return {
-    id: `n_${label}_${Date.now().toString(36)}`,
-    label,
-    pkg: pkgName,
-    artifact: label,
-    from: `${pkgName}.${label}`,
-    isLifecycle: false,
-    backing: 'local',
-    ifaces: [],
-    params: [],
-  };
+// ============================================================================
+// .ros2 component contracts: React form over the server GGraph (node:ros-package).
+// Every control dispatches a GLSP editRosProperty / deleteElement operation; the Java
+// server edits the Xtext AST and returns field-granular text edits (comments survive).
+// ============================================================================
+
+function packageOf(project) {
+  return Object.values(project.packages || {})[0] || null;
+}
+
+function uniqueName(existing, prefix) {
+  const taken = new Set(existing);
+  let i = existing.length + 1;
+  while (taken.has(`${prefix}_${i}`)) i += 1;
+  return `${prefix}_${i}`;
+}
+
+function familyOf(kind) {
+  return KIND_META[kind]?.family || 'Topic';
+}
+
+function ErrorText({ ids }) {
+  const list = ids.flatMap((id) => markersFor(id)).filter((m) => m.kind === 'error');
+  if (list.length === 0) return null;
+  return (
+    <div className="rt-diag-item err" style={{ fontSize: 11.5 }}>
+      {list.map((m, i) => <div key={i}>{m.description || m.label}</div>)}
+    </div>
+  );
 }
 
 export function RosComponentView() {
   const studio = useStudio();
-  const { project, isReadOnly, docFileName, selectedNodeId, interfaceFilter, typeIndex } = studio;
+  const { project, isReadOnly, docFileName, selectedNodeId, interfaceFilter, typeIndex, pending } = studio;
 
   const nodes = (project.nodes || []).filter((n) => n.backing !== 'type');
   const activeNode = nodes.find((n) => n.id === selectedNodeId) || nodes[0] || null;
+  const pkg = packageOf(project);
   const pkgName = getDisplayModelName(project, 'component', docFileName);
-  const pkgObj =
-    project.packages?.[pkgName] || Object.values(project.packages || {})[0] || { name: pkgName };
+  const busy = isReadOnly || pending > 0;
 
-  // Build categorized type lists from typeIndex + project.types for fast autocomplete
   const typesByFamily = useMemo(() => {
     const map = { Topic: [], Service: [], Action: [] };
-    const raw = typeIndex?.types || {};
-    for (const [k, info] of Object.entries(raw)) {
-      const cat = info?.category || info?.kind || (k.includes('/srv/') ? 'srv' : k.includes('/action/') ? 'action' : 'msg');
+    for (const [k, info] of Object.entries(typeIndex?.types || {})) {
+      const cat = info?.category || (k.includes('/srv/') ? 'srv' : k.includes('/action/') ? 'action' : 'msg');
       if (cat === 'srv') map.Service.push(k);
       else if (cat === 'action') map.Action.push(k);
       else map.Topic.push(k);
     }
-    for (const spec of Object.values(project.types || {})) {
-      if (!spec?.name) continue;
-      const full = `${spec.pkg || pkgName}/${spec.category || 'msg'}/${spec.name}`;
-      if (spec.category === 'srv') map.Service.push(full);
-      else if (spec.category === 'action') map.Action.push(full);
-      else map.Topic.push(full);
-    }
     return map;
-  }, [typeIndex, project.types, pkgName]);
+  }, [typeIndex]);
 
-  const handleAddNode = () => {
-    if (isReadOnly) return;
-    let newId = null;
-    mutateProject((proj) => {
-      const created = createNewComponentNode(proj, docFileName);
-      newId = created.id;
-      if (!proj.nodes) proj.nodes = [];
-      proj.nodes.push(created);
-      syncPackagesFromNodes(proj, pkgName);
-    });
-    if (newId) setUIState({ selectedNodeId: newId });
-  };
-
-  const handleAddInterface = (kind) => {
-    if (isReadOnly || !activeNode) return;
-    mutateProject((proj) => {
-      const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-      if (!n) return;
-      if (!n.ifaces) n.ifaces = [];
-      let idx = n.ifaces.length + 1;
-      const prefix = kind === 'pub' || kind === 'sub' ? 'topic' : kind === 'ss' || kind === 'sc' ? 'service' : 'action';
-      let name = `${prefix}_${idx}`;
-      while (n.ifaces.some((f) => f.name === name)) {
-        idx += 1;
-        name = `${prefix}_${idx}`;
-      }
-      const defaultType =
-        kind === 'pub' || kind === 'sub'
-          ? 'std_msgs/msg/String'
-          : kind === 'ss' || kind === 'sc'
-          ? 'std_srvs/srv/Trigger'
-          : 'action_tutorials_interfaces/action/Fibonacci';
-
-      n.ifaces.push({
-        id: `i_${n.artifact || n.label}_${name}_${Date.now().toString(36)}`,
-        name,
-        label: name,
-        kind,
-        type: defaultType,
-        exposed: true,
-      });
-      syncPackagesFromNodes(proj);
-    });
-  };
-
-  const handleAddParameter = () => {
-    if (isReadOnly || !activeNode) return;
-    mutateProject((proj) => {
-      const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-      if (!n) return;
-      if (!n.params) n.params = [];
-      let idx = n.params.length + 1;
-      let pName = `param_${idx}`;
-      while (n.params.some((p) => p.name === pName)) {
-        idx += 1;
-        pName = `param_${idx}`;
-      }
-      n.params.push({
-        id: `p_${n.artifact || n.label}_${pName}_${Date.now().toString(36)}`,
-        name: pName,
-        label: pName,
-        ptype: 'String',
-        value: '',
-        exposed: true,
-      });
-      syncPackagesFromNodes(proj);
-    });
+  const addNode = () => {
+    if (!pkg?.id) return;
+    const name = uniqueName(nodes.map((n) => n.artifact || n.label), 'node');
+    editProperty(pkg.id, 'addArtifact', name, { key: name });
   };
 
   return (
     <div className="rt-comp-layout">
-      {/* Left Sidebar: Package Metadata + Artifacts List */}
       <aside className="rt-sidebar-left">
         <div className="rt-panel-pad">
           <div className="rt-section-hdr">
             <h2>Package Metadata</h2>
           </div>
-
           <div className="rt-field">
             <label>Ament Package Name</label>
-            <input
-              className="rt-input"
-              disabled={isReadOnly}
-              value={pkgName}
-              onChange={(e) => {
-                const nextPkg = e.target.value;
-                mutateProject((proj) => {
-                  syncPackagesFromNodes(proj, nextPkg);
-                });
-              }}
-            />
+            <CommitInput value={pkgName} disabled={busy || !pkg?.id}
+              onCommit={(v) => v.trim() && editProperty(pkg.id, 'name', v.trim())} />
           </div>
-
           <div className="rt-field">
             <label>Git Repository (`fromGitRepo`)</label>
-            <input
-              className="rt-input"
-              disabled={isReadOnly}
-              placeholder="https://github.com/org/repo.git"
-              value={pkgObj.fromGitRepo || ''}
-              onChange={(e) => {
-                const repoUrl = e.target.value;
-                mutateProject((proj) => {
-                  syncPackagesFromNodes(proj, pkgName);
-                  const p = proj.packages?.[pkgName] || Object.values(proj.packages || {})[0];
-                  if (p) {
-                    if (repoUrl.trim()) p.fromGitRepo = repoUrl.trim();
-                    else delete p.fromGitRepo;
-                  }
-                });
-              }}
-            />
+            <CommitInput value={pkg?.fromGitRepo || ''} placeholder="https://github.com/org/repo.git" disabled={busy || !pkg?.id}
+              onCommit={(v) => editProperty(pkg.id, 'fromGitRepo', v.trim())} />
           </div>
 
           <div className="rt-section-hdr">
             <h3>Component Nodes ({nodes.length})</h3>
             {!isReadOnly && (
-              <button
-                type="button"
-                className="rt-btn primary"
-                onClick={handleAddNode}
-              >
+              <button type="button" className="rt-btn primary" disabled={busy || !pkg?.id} onClick={addNode}>
                 <Plus size={12} /> New
               </button>
             )}
           </div>
-
           {nodes.length === 0 ? (
-            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
-              No artifacts defined in this `.ros2` package yet.
-            </p>
+            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>No artifacts defined in this `.ros2` package yet.</p>
           ) : (
-            nodes.map((n) => {
-              const isSelected = activeNode?.id === n.id;
-              return (
-                <button
-                  key={n.id}
-                  type="button"
-                  className={`rt-node-list-item ${isSelected ? 'active' : ''}`}
-                  onClick={() => setUIState({ selectedNodeId: n.id })}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <strong style={{ display: 'block', fontSize: 12.5 }}>{n.label}</strong>
-                    <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>
-                      exec: {n.artifact || n.label} · {(n.ifaces || []).length} ports
-                    </small>
-                  </div>
-                  {n.isLifecycle && (
-                    <span className="rt-badge lifecycle" title="LifecycleNode">
-                      LC
-                    </span>
-                  )}
-                </button>
-              );
-            })
+            nodes.map((n) => (
+              <button key={n.id} type="button" className={`rt-node-list-item ${activeNode?.id === n.id ? 'active' : ''}`}
+                onClick={() => setUIState({ selectedNodeId: n.id })}>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block', fontSize: 12.5 }}>{n.label}</strong>
+                  <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>
+                    exec: {n.artifact || n.label} · {(n.ifaces || []).length} ports
+                  </small>
+                </div>
+                {n.isLifecycle && <span className="rt-badge lifecycle" title="LifecycleNode">LC</span>}
+              </button>
+            ))
           )}
-
           {nodes.length > 0 && (
-            <button
-              type="button"
-              className="rt-btn"
-              style={{ width: '100%', marginTop: 12 }}
-              onClick={() => hostBridge.generateWrappers(nodes.map((n) => n.label))}
-            >
+            <button type="button" className="rt-btn" style={{ width: '100%', marginTop: 12 }}
+              onClick={() => hostBridge.generateWrappers(nodes.map((n) => n.label))}>
               <FileCode2 size={14} /> Generate ROS 2 Wrappers
             </button>
           )}
         </div>
       </aside>
 
-      {/* Main Contract Authoring Area */}
       <main className="rt-comp-main">
         <div className="rt-comp-container">
           {!activeNode ? (
@@ -258,791 +133,287 @@ export function RosComponentView() {
                 Define executables, publishers, subscribers, services, actions, QoS policies, lifecycle states, and parameters.
               </p>
               {!isReadOnly && (
-                <button type="button" className="rt-btn primary" onClick={handleAddNode}>
-                  <Plus size={14} /> Add New Node
+                <button type="button" className="rt-btn primary" disabled={busy || !pkg?.id} onClick={addNode}>
+                  <Plus size={14} /> Add Node
                 </button>
               )}
             </div>
           ) : (
-            <>
-              {/* Visual Contract Schematic Preview */}
-              <div className="rt-card" style={{ background: 'var(--rt-surface-2)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Box size={20} style={{ color: '#34d399' }} />
-                    <div>
-                      <h2 style={{ margin: 0, fontSize: 16 }}>
-                        {pkgName}.{activeNode.label}
-                      </h2>
-                      <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
-                        artifact: {activeNode.artifact || activeNode.label}
-                        {activeNode.namespace ? ` · ns: ${activeNode.namespace}` : ''}
-                      </small>
-                    </div>
-                    {activeNode.isLifecycle && (
-                      <span className="rt-badge lifecycle">
-                        <Activity size={11} /> LifecycleNode
-                      </span>
-                    )}
-                  </div>
-
-                  {!isReadOnly && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        type="button"
-                        className="rt-btn"
-                        title="Duplicate Node Contract"
-                        onClick={() => {
-                          let dupId = null;
-                          mutateProject((proj) => {
-                            const copy = JSON.parse(JSON.stringify(activeNode));
-                            copy.id = `n_${copy.label}_copy_${Date.now().toString(36)}`;
-                            copy.label = `${copy.label}_copy`;
-                            copy.artifact = `${copy.artifact || activeNode.label}_copy`;
-                            dupId = copy.id;
-                            proj.nodes.push(copy);
-                            syncPackagesFromNodes(proj, pkgName);
-                          });
-                          if (dupId) setUIState({ selectedNodeId: dupId });
-                        }}
-                      >
-                        <Copy size={13} /> Duplicate
-                      </button>
-                      <button
-                        type="button"
-                        className="rt-btn danger"
-                        title="Delete Node Contract"
-                        onClick={() => {
-                          mutateProject((proj) => {
-                            proj.nodes = (proj.nodes || []).filter((n) => n.id !== activeNode.id);
-                            syncPackagesFromNodes(proj, pkgName);
-                          });
-                          setUIState({ selectedNodeId: null });
-                        }}
-                      >
-                        <Trash2 size={13} /> Delete Node
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Live Two-Column Port Diagram */}
-                <div className="rt-grid-2">
-                  <div style={{ padding: 10, borderRadius: 6, background: 'var(--rt-surface)', border: '1px solid var(--rt-border)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--rt-muted)', marginBottom: 6 }}>
-                      INPUT PORTS (SUB / SC / AC)
-                    </div>
-                    {(activeNode.ifaces || []).filter((f) => SRC_SIDE[f.kind] === false).length === 0 ? (
-                      <small style={{ color: 'var(--rt-dim)' }}>No input ports</small>
-                    ) : (
-                      (activeNode.ifaces || [])
-                        .filter((f) => SRC_SIDE[f.kind] === false)
-                        .map((f) => (
-                          <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12 }}>
-                            <span className={`rt-port-kind ${f.kind}`}>{KIND_META[f.kind]?.short || f.kind}</span>
-                            <strong style={{ fontWeight: 600 }}>{f.name}</strong>
-                            <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', marginLeft: 'auto' }}>
-                              {(f.type || '').split('/').pop() || 'untyped'}
-                            </small>
-                          </div>
-                        ))
-                    )}
-                  </div>
-                  <div style={{ padding: 10, borderRadius: 6, background: 'var(--rt-surface)', border: '1px solid var(--rt-border)' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--rt-muted)', marginBottom: 6 }}>
-                      OUTPUT PORTS (PUB / SS / AS)
-                    </div>
-                    {(activeNode.ifaces || []).filter((f) => SRC_SIDE[f.kind] === true).length === 0 ? (
-                      <small style={{ color: 'var(--rt-dim)' }}>No output ports</small>
-                    ) : (
-                      (activeNode.ifaces || [])
-                        .filter((f) => SRC_SIDE[f.kind] === true)
-                        .map((f) => (
-                          <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12 }}>
-                            <span className={`rt-port-kind ${f.kind}`}>{KIND_META[f.kind]?.short || f.kind}</span>
-                            <strong style={{ fontWeight: 600 }}>{f.name}</strong>
-                            <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', marginLeft: 'auto' }}>
-                              {(f.type || '').split('/').pop() || 'untyped'}
-                            </small>
-                          </div>
-                        ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* 1. Node Identity & Lifecycle Configuration */}
-              <div className="rt-card">
-                <div className="rt-section-hdr">
-                  <h3>Node Identity & Lifecycle</h3>
-                </div>
-                <div className="rt-grid-2">
-                  <div className="rt-field">
-                    <label>ROS Node Name (`node`)</label>
-                    <input
-                      className="rt-input"
-                      disabled={isReadOnly}
-                      value={activeNode.label}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        mutateProject((proj) => {
-                          const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                          if (n) {
-                            const prevLabel = n.label;
-                            n.label = val;
-                            if (!n.artifact || n.artifact === prevLabel) {
-                              n.artifact = val;
-                            }
-                            syncPackagesFromNodes(proj, pkgName);
-                          }
-                        });
-                      }}
-                    />
-                  </div>
-                  <div className="rt-field">
-                    <label>Artifact / Executable Name (`artifacts`)</label>
-                    <input
-                      className="rt-input"
-                      disabled={isReadOnly}
-                      value={activeNode.artifact || activeNode.label}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        mutateProject((proj) => {
-                          const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                          if (n) {
-                            n.artifact = val;
-                            syncPackagesFromNodes(proj, pkgName);
-                          }
-                        });
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="rt-grid-2" style={{ alignItems: 'center' }}>
-                  <div className="rt-field" style={{ marginBottom: 0 }}>
-                    <label>Default Namespace (Optional)</label>
-                    <input
-                      className="rt-input"
-                      disabled={isReadOnly}
-                      placeholder="/sensor_ns"
-                      value={activeNode.namespace || ''}
-                      onChange={(e) => {
-                        const ns = e.target.value;
-                        mutateProject((proj) => {
-                          const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                          if (n) n.namespace = ns || undefined;
-                        });
-                      }}
-                    />
-                  </div>
-
-                  <div style={{ paddingTop: 14 }}>
-                    <label className="rt-checkbox-row" style={{ fontWeight: 600 }}>
-                      <input
-                        type="checkbox"
-                        disabled={isReadOnly}
-                        checked={Boolean(activeNode.isLifecycle)}
-                        onChange={(e) => {
-                          const lc = e.target.checked;
-                          mutateProject((proj) => {
-                            const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                            if (n) {
-                              n.isLifecycle = lc;
-                              if (!lc) {
-                                for (const f of n.ifaces || []) {
-                                  delete f.activeStates;
-                                }
-                              }
-                              syncPackagesFromNodes(proj, pkgName);
-                            }
-                          });
-                        }}
-                      />
-                      <Activity size={14} style={{ color: 'var(--rt-lifecycle)' }} />
-                      <span>Managed ROS 2 `LifecycleNode` (`lifecycle: true`)</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Interfaces Contract Editor */}
-              <div className="rt-card">
-                <div className="rt-section-hdr">
-                  <h3>
-                    Interfaces ({(activeNode.ifaces || []).length})
-                  </h3>
-                  <button
-                    type="button"
-                    className="rt-btn subtle"
-                    onClick={() => setUIState({ catalogueOpen: true, catalogueTab: 'types' })}
-                  >
-                    <Braces size={13} /> Browse ROS Types
-                  </button>
-                </div>
-
-                {!isReadOnly && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                    {KIND_ORDER.map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        className="rt-btn"
-                        onClick={() => handleAddInterface(k)}
-                      >
-                        <Plus size={12} style={{ color: KIND_META[k].color }} /> {KIND_META[k].label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {['Topic', 'Service', 'Action'].map((fam) => (
-                  <datalist key={fam} id={`rt-types-${fam}`}>
-                    {(typesByFamily[fam] || []).map((t) => (
-                      <option key={t} value={t} />
-                    ))}
-                  </datalist>
-                ))}
-
-                {(activeNode.ifaces || [])
-                  .filter((f) => interfaceFilter === 'all' || f.kind === interfaceFilter)
-                  .map((iface) => {
-                    const meta = KIND_META[iface.kind] || KIND_META.pub;
-                    const qos = iface.qos || {};
-                    const hasQos = Object.values(qos).some((v) => v != null && String(v).trim() !== '');
-                    const activeStates = iface.activeStates || [];
-
-                    return (
-                      <div key={iface.id} className="rt-iface-card">
-                        <div className="rt-iface-top">
-                          <select
-                            className="rt-select"
-                            disabled={isReadOnly}
-                            value={iface.kind}
-                            onChange={(e) => {
-                              const nextKind = e.target.value;
-                              mutateProject((proj) => {
-                                const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                if (f) {
-                                  f.kind = nextKind;
-                                  syncPackagesFromNodes(proj, pkgName);
-                                }
-                              });
-                            }}
-                          >
-                            {KIND_ORDER.map((k) => (
-                              <option key={k} value={k}>
-                                {KIND_META[k].short} — {KIND_META[k].label}
-                              </option>
-                            ))}
-                          </select>
-
-                          <input
-                            className="rt-input"
-                            disabled={isReadOnly}
-                            placeholder="Interface name (e.g. cmd_vel)"
-                            value={iface.name}
-                            onChange={(e) => {
-                              const nextName = e.target.value;
-                              mutateProject((proj) => {
-                                const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                if (f) {
-                                  f.name = nextName;
-                                  f.label = nextName;
-                                  syncPackagesFromNodes(proj, pkgName);
-                                }
-                              });
-                            }}
-                          />
-
-                          <input
-                            className="rt-input"
-                            disabled={isReadOnly}
-                            list={`rt-types-${meta.family}`}
-                            placeholder={
-                              meta.family === 'Service'
-                                ? 'pkg/srv/ServiceType'
-                                : meta.family === 'Action'
-                                ? 'pkg/action/ActionType'
-                                : 'pkg/msg/MessageType'
-                            }
-                            value={iface.type || ''}
-                            onChange={(e) => {
-                              const nextType = e.target.value;
-                              mutateProject((proj) => {
-                                const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                if (f) {
-                                  f.type = nextType;
-                                  syncPackagesFromNodes(proj, pkgName);
-                                }
-                              });
-                            }}
-                          />
-
-                          {!isReadOnly && (
-                            <button
-                              type="button"
-                              className="rt-btn danger icon-only"
-                              title="Delete Interface"
-                              onClick={() => {
-                                mutateProject((proj) => {
-                                  const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                  if (n) {
-                                    n.ifaces = (n.ifaces || []).filter((x) => x.id !== iface.id);
-                                    syncPackagesFromNodes(proj, pkgName);
-                                  }
-                                });
-                              }}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Per-interface Lifecycle activeStates */}
-                        {activeNode.isLifecycle && (
-                          <div className="rt-lifecycle-states">
-                            <strong style={{ color: 'var(--rt-lifecycle)' }}>Active Lifecycle States:</strong>
-                            {LIFECYCLE_STATES.map((st) => {
-                              const checked = activeStates.includes(st);
-                              return (
-                                <label key={st} className="rt-checkbox-row">
-                                  <input
-                                    type="checkbox"
-                                    disabled={isReadOnly}
-                                    checked={checked}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      mutateProject((proj) => {
-                                        const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                        const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                        if (f) {
-                                          const set = new Set(f.activeStates || []);
-                                          if (on) set.add(st);
-                                          else set.delete(st);
-                                          f.activeStates = LIFECYCLE_STATES.filter((s) => set.has(s));
-                                          syncPackagesFromNodes(proj, pkgName);
-                                        }
-                                      });
-                                    }}
-                                  />
-                                  <span>{st}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Collapsible Quality of Service (QoS) Panel */}
-                        <details className="qos-details">
-                          <summary>
-                            <Settings2 size={13} />
-                            <span>
-                              Quality of Service (QoS)
-                              {hasQos ? ` — ${qos.profile || qos.reliability || 'configured'}` : ' (default)'}
-                            </span>
-                          </summary>
-                          <div className="qos-grid">
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Profile</label>
-                              <select
-                                className="rt-select"
-                                data-qos-key="profile"
-                                disabled={isReadOnly}
-                                value={qos.profile || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), profile: v };
-                                      if (!v) delete f.qos.profile;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <option value="">— None —</option>
-                                {QOS_PROFILES.map((p) => (
-                                  <option key={p} value={p}>
-                                    {p}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Reliability</label>
-                              <select
-                                className="rt-select"
-                                data-qos-key="reliability"
-                                disabled={isReadOnly}
-                                value={qos.reliability || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), reliability: v };
-                                      if (!v) delete f.qos.reliability;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <option value="">— Default —</option>
-                                <option value="reliable">reliable</option>
-                                <option value="best_effort">best_effort</option>
-                                <option value="system_default">system_default</option>
-                              </select>
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Durability</label>
-                              <select
-                                className="rt-select"
-                                data-qos-key="durability"
-                                disabled={isReadOnly}
-                                value={qos.durability || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), durability: v };
-                                      if (!v) delete f.qos.durability;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <option value="">— Default —</option>
-                                <option value="volatile">volatile</option>
-                                <option value="transient_local">transient_local</option>
-                                <option value="system_default">system_default</option>
-                              </select>
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>History</label>
-                              <select
-                                className="rt-select"
-                                data-qos-key="history"
-                                disabled={isReadOnly}
-                                value={qos.history || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), history: v };
-                                      if (!v) delete f.qos.history;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <option value="">— Default —</option>
-                                <option value="keep_last">keep_last</option>
-                                <option value="keep_all">keep_all</option>
-                                <option value="system_default">system_default</option>
-                              </select>
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Depth</label>
-                              <input
-                                type="number"
-                                min="1"
-                                className="rt-input"
-                                data-qos-key="depth"
-                                disabled={isReadOnly}
-                                placeholder="10"
-                                value={qos.depth || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), depth: v };
-                                      if (!v) delete f.qos.depth;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              />
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Liveliness</label>
-                              <select
-                                className="rt-select"
-                                data-qos-key="liveliness"
-                                disabled={isReadOnly}
-                                value={qos.liveliness || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), liveliness: v };
-                                      if (!v) delete f.qos.liveliness;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <option value="">— Default —</option>
-                                <option value="automatic">automatic</option>
-                                <option value="manual_by_topic">manual_by_topic</option>
-                                <option value="system_default">system_default</option>
-                              </select>
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Deadline</label>
-                              <input
-                                className="rt-input"
-                                data-qos-key="deadline"
-                                disabled={isReadOnly}
-                                placeholder="e.g. 100"
-                                value={qos.deadline || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), deadline: v };
-                                      if (!v) delete f.qos.deadline;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              />
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Lifespan</label>
-                              <input
-                                className="rt-input"
-                                data-qos-key="lifespan"
-                                disabled={isReadOnly}
-                                placeholder="e.g. infinite"
-                                value={qos.lifespan || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), lifespan: v };
-                                      if (!v) delete f.qos.lifespan;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              />
-                            </div>
-
-                            <div className="rt-field" style={{ marginBottom: 0 }}>
-                              <label>Lease Duration</label>
-                              <input
-                                className="rt-input"
-                                data-qos-key="lease_duration"
-                                disabled={isReadOnly}
-                                placeholder="e.g. infinite"
-                                value={qos.lease_duration || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      f.qos = { ...(f.qos || {}), lease_duration: v };
-                                      if (!v) delete f.qos.lease_duration;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              />
-                            </div>
-                          </div>
-
-                          {!isReadOnly && hasQos && (
-                            <div style={{ marginTop: 8 }}>
-                              <button
-                                type="button"
-                                className="rt-btn subtle btn-clear-qos"
-                                onClick={() => {
-                                  mutateProject((proj) => {
-                                    const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                                    const f = (n?.ifaces || []).find((x) => x.id === iface.id);
-                                    if (f) {
-                                      delete f.qos;
-                                      syncPackagesFromNodes(proj, pkgName);
-                                    }
-                                  });
-                                }}
-                              >
-                                <RotateCcw size={12} /> Reset QoS to Default
-                              </button>
-                            </div>
-                          )}
-                        </details>
-                      </div>
-                    );
-                  })}
-              </div>
-
-              {/* 3. Parameters Contract Editor */}
-              <div className="rt-card">
-                <div className="rt-section-hdr">
-                  <h3>
-                    <Sliders size={15} /> Parameters ({(activeNode.params || []).length})
-                  </h3>
-                  {!isReadOnly && (
-                    <button type="button" className="rt-btn primary" onClick={handleAddParameter}>
-                      <Plus size={12} /> Add Parameter
-                    </button>
-                  )}
-                </div>
-
-                {(activeNode.params || []).length === 0 ? (
-                  <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
-                    No ROS parameters declared on this component yet.
-                  </p>
-                ) : (
-                  (activeNode.params || []).map((param, pIdx) => (
-                    <div
-                      key={param.id || `${param.name}_${pIdx}`}
-                      className="rt-iface-card"
-                      style={{ display: 'grid', gridTemplateColumns: '1.2fr 150px 1.2fr auto', gap: 8, alignItems: 'center' }}
-                    >
-                      <input
-                        className="rt-input"
-                        disabled={isReadOnly}
-                        placeholder="Parameter name"
-                        value={param.name}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          mutateProject((proj) => {
-                            const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                            const p = (n?.params || [])[pIdx];
-                            if (p) {
-                              p.name = val;
-                              p.label = val;
-                              syncPackagesFromNodes(proj, pkgName);
-                            }
-                          });
-                        }}
-                      />
-
-                      <select
-                        className="rt-select"
-                        disabled={isReadOnly}
-                        value={param.ptype || 'String'}
-                        onChange={(e) => {
-                          const nextPtype = e.target.value;
-                          mutateProject((proj) => {
-                            const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                            const p = (n?.params || [])[pIdx];
-                            if (p) {
-                              p.ptype = nextPtype;
-                              syncPackagesFromNodes(proj, pkgName);
-                            }
-                          });
-                        }}
-                      >
-                        {PARAM_TYPES.map((pt) => (
-                          <option key={pt} value={pt}>
-                            {pt}
-                          </option>
-                        ))}
-                      </select>
-
-                      {param.ptype === 'Boolean' ? (
-                        <select
-                          className="rt-select"
-                          disabled={isReadOnly}
-                          value={param.value === undefined || param.value === '' ? '' : String(param.value)}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            mutateProject((proj) => {
-                              const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                              const p = (n?.params || [])[pIdx];
-                              if (p) {
-                                p.value = v === '' ? undefined : v;
-                                syncPackagesFromNodes(proj, pkgName);
-                              }
-                            });
-                          }}
-                        >
-                          <option value="">No default</option>
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      ) : (
-                        <input
-                          className="rt-input"
-                          disabled={isReadOnly}
-                          placeholder={
-                            param.ptype === 'Double'
-                              ? 'Default (e.g. 1.0)'
-                              : param.ptype === 'Integer'
-                              ? 'Default (e.g. 10)'
-                              : 'Default value (optional)'
-                          }
-                          value={param.value !== undefined && param.value !== null ? String(param.value) : ''}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            mutateProject((proj) => {
-                              const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                              const p = (n?.params || [])[pIdx];
-                              if (p) {
-                                p.value = v;
-                                syncPackagesFromNodes(proj, pkgName);
-                              }
-                            });
-                          }}
-                        />
-                      )}
-
-                      {!isReadOnly && (
-                        <button
-                          type="button"
-                          className="rt-btn danger icon-only"
-                          title="Delete Parameter"
-                          onClick={() => {
-                            mutateProject((proj) => {
-                              const n = (proj.nodes || []).find((x) => x.id === activeNode.id);
-                              if (n) {
-                                n.params = (n.params || []).filter((_, i) => i !== pIdx);
-                                syncPackagesFromNodes(proj, pkgName);
-                              }
-                            });
-                          }}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </>
+            <NodeEditor node={activeNode} pkg={pkg} busy={busy} isReadOnly={isReadOnly} interfaceFilter={interfaceFilter}
+              typesByFamily={typesByFamily} />
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamily }) {
+  const { vocabulary } = useStudio();
+  const ifaces = node.ifaces || [];
+  const params = node.params || [];
+  const artifactId = node.artifactId || node.id;
+
+  return (
+    <>
+      <div className="rt-card">
+        <div className="rt-section-hdr">
+          <div>
+            <h2 style={{ margin: 0, fontSize: 16 }}>{node.label}</h2>
+            <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
+              {node.pkg}.{node.label} · executable `{node.artifact}`
+            </small>
+          </div>
+          {node.isLifecycle && <span className="rt-badge lifecycle"><Activity size={11} /> LifecycleNode</span>}
+          {!isReadOnly && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" className="rt-btn" disabled={busy || !pkg?.id} title="Duplicate Node Contract"
+                onClick={() => editProperty(pkg.id, 'duplicateArtifact', `${node.artifact}_copy`, { key: artifactId })}>
+                <Copy size={13} /> Duplicate
+              </button>
+              <button type="button" className="rt-btn danger" disabled={busy} title="Delete Node Contract"
+                onClick={() => {
+                  deleteElements([artifactId]);
+                  setUIState({ selectedNodeId: null });
+                }}>
+                <Trash2 size={13} /> Delete Node
+              </button>
+            </div>
+          )}
+        </div>
+        <ErrorText ids={[node.id, artifactId]} />
+
+        <div className="rt-grid-2">
+          {[false, true].map((outputs) => (
+            <div key={String(outputs)} style={{ padding: 10, borderRadius: 6, background: 'var(--rt-surface)', border: '1px solid var(--rt-border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--rt-muted)', marginBottom: 6 }}>
+                {outputs ? 'OUTPUT PORTS (PUB / SS / AS)' : 'INPUT PORTS (SUB / SC / AC)'}
+              </div>
+              {ifaces.filter((f) => SRC_SIDE[f.kind] === outputs).length === 0 ? (
+                <small style={{ color: 'var(--rt-dim)' }}>{outputs ? 'No output ports' : 'No input ports'}</small>
+              ) : (
+                ifaces.filter((f) => SRC_SIDE[f.kind] === outputs).map((f) => (
+                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 12 }}>
+                    <span className={`rt-port-kind ${f.kind}`}>{KIND_META[f.kind]?.short || f.kind}</span>
+                    <strong style={{ fontWeight: 600 }}>{f.name}</strong>
+                    <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', marginLeft: 'auto' }}>
+                      {(f.type || '').split('/').pop() || 'untyped'}
+                    </small>
+                  </div>
+                ))
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rt-card">
+        <div className="rt-section-hdr"><h3>Node Identity & Lifecycle</h3></div>
+        <div className="rt-grid-2">
+          <div className="rt-field">
+            <label>ROS Node Name (`node`)</label>
+            <CommitInput value={node.label} disabled={busy} onCommit={(v) => v.trim() && editProperty(node.id, 'name', v.trim())} />
+          </div>
+          <div className="rt-field">
+            <label>Artifact / Executable Name (`artifacts`)</label>
+            <CommitInput value={node.artifact || node.label} disabled={busy}
+              onCommit={(v) => v.trim() && editProperty(artifactId, 'artifactName', v.trim())} />
+          </div>
+        </div>
+        <label className="rt-checkbox-row" style={{ fontWeight: 600 }}>
+          <input type="checkbox" disabled={busy} checked={Boolean(node.isLifecycle)}
+            onChange={(e) => editProperty(node.id, 'isLifecycle', e.target.checked)} />
+          <Activity size={14} style={{ color: 'var(--rt-lifecycle)' }} />
+          <span>Managed ROS 2 `LifecycleNode` (`lifecycle: true`)</span>
+        </label>
+      </div>
+
+      <div className="rt-card">
+        <div className="rt-section-hdr">
+          <h3>Interfaces ({ifaces.length})</h3>
+          <button type="button" className="rt-btn subtle" onClick={() => setUIState({ catalogueOpen: true, catalogueTab: 'types' })}>
+            <Braces size={13} /> Browse ROS Types
+          </button>
+        </div>
+        {!isReadOnly && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {orderedInterfaceKinds(vocabulary).map((k) => (
+              <button key={k} type="button" className="rt-btn" disabled={busy}
+                onClick={() => {
+                  const prefix = familyOf(k) === 'Topic' ? 'topic' : familyOf(k) === 'Service' ? 'service' : 'action';
+                  editProperty(node.id, 'addInterface', '', { key: uniqueName(ifaces.map((f) => f.name), prefix), valueType: k });
+                }}>
+                <Plus size={12} style={{ color: KIND_META[k].color }} /> {KIND_META[k].label}
+              </button>
+            ))}
+          </div>
+        )}
+        {['Topic', 'Service', 'Action'].map((fam) => (
+          <datalist key={fam} id={`rt-types-${fam}`}>
+            {(typesByFamily[fam] || []).map((t) => <option key={t} value={t} />)}
+          </datalist>
+        ))}
+        {ifaces
+          .filter((f) => interfaceFilter === 'all' || f.kind === interfaceFilter)
+          .map((iface) => (
+            <InterfaceCard key={iface.id} iface={iface} busy={busy} isReadOnly={isReadOnly} lifecycle={Boolean(node.isLifecycle)} />
+          ))}
+      </div>
+
+      <div className="rt-card">
+        <div className="rt-section-hdr">
+          <h3><Sliders size={14} /> Parameters ({params.length})</h3>
+          {!isReadOnly && (
+            <button type="button" className="rt-btn" disabled={busy}
+              onClick={() => editProperty(node.id, 'addParameter', '', { key: uniqueName(params.map((p) => p.name), 'param'), valueType: 'String' })}>
+              <Plus size={12} /> Add Parameter
+            </button>
+          )}
+        </div>
+        {params.length === 0 ? (
+          <small style={{ color: 'var(--rt-dim)' }}>No parameters declared.</small>
+        ) : (
+          params.map((p) => (
+            <div key={p.id} className="rt-field-row">
+              <CommitInput value={p.name} disabled={busy} placeholder="name" style={{ fontFamily: 'var(--rt-mono)' }}
+                onCommit={(v) => v.trim() && editProperty(p.id, 'name', v.trim())} />
+              <select className="rt-select" disabled={busy} value={vocabulary.parameterTypes.includes(p.ptype) ? p.ptype : ''}
+                onChange={(e) => editProperty(p.id, 'type', e.target.value)}>
+                {!vocabulary.parameterTypes.includes(p.ptype) && <option value="">{p.ptype || '—'}</option>}
+                {vocabulary.parameterTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              {p.ptype === 'Boolean' ? (
+                <select className="rt-select" disabled={busy} value={p.value === undefined ? '' : String(p.value)}
+                  onChange={(e) => editProperty(p.id, 'default', e.target.value)}>
+                  <option value="">— no default —</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : (
+                <CommitInput value={p.value === undefined ? '' : String(p.value)} disabled={busy || p.ptype === 'Array'}
+                  placeholder="default" style={{ fontFamily: 'var(--rt-mono)' }}
+                  onCommit={(v) => editProperty(p.id, 'default', v)} />
+              )}
+              <NamespaceSelect elementId={p.id} value={p.ns} busy={busy} />
+              {!isReadOnly && (
+                <button type="button" className="rt-btn danger icon-only" disabled={busy} title="Delete parameter"
+                  onClick={() => deleteElements([p.id])}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+              <ErrorText ids={[p.id]} />
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+function InterfaceCard({ iface, busy, isReadOnly, lifecycle }) {
+  const { vocabulary } = useStudio();
+  const meta = KIND_META[iface.kind] || KIND_META.pub;
+  const qos = iface.qos || {};
+  const activeStates = iface.activeStates || [];
+  const hasQos = Object.values(qos).some((v) => v != null && String(v).trim() !== '');
+  const setQos = (key, value) => editProperty(iface.id, 'qos', value, { key });
+
+  return (
+    <div className="rt-iface-card">
+      <div className="rt-iface-top">
+        <select className="rt-select" disabled={busy} value={iface.kind} onChange={(e) => editProperty(iface.id, 'kind', e.target.value)}>
+          {orderedInterfaceKinds(vocabulary).map((k) => <option key={k} value={k}>{KIND_META[k].short} — {KIND_META[k].label}</option>)}
+        </select>
+        <CommitInput value={iface.name} disabled={busy} placeholder="Interface name (e.g. cmd_vel)"
+          onCommit={(v) => v.trim() && editProperty(iface.id, 'name', v.trim())} />
+        <CommitInput value={iface.type || ''} disabled={busy} list={`rt-types-${meta.family}`}
+          placeholder={meta.family === 'Service' ? 'pkg/srv/ServiceType' : meta.family === 'Action' ? 'pkg/action/ActionType' : 'pkg/msg/MessageType'}
+          onCommit={(v) => v.trim() && editProperty(iface.id, 'type', v.trim())} />
+        <NamespaceSelect elementId={iface.id} value={iface.ns} busy={busy} />
+        {!isReadOnly && (
+          <button type="button" className="rt-btn danger icon-only" disabled={busy} title="Delete Interface"
+            onClick={() => deleteElements([iface.id])}>
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+      <ErrorText ids={[iface.id]} />
+
+      {lifecycle && (
+        <div className="rt-lifecycle-states">
+          <strong style={{ color: 'var(--rt-lifecycle)' }}>Active Lifecycle States:</strong>
+          {vocabulary.lifecycleStates.map((st) => (
+            <label key={st} className="rt-checkbox-row">
+              <input type="checkbox" disabled={busy} checked={activeStates.includes(st)}
+                onChange={(e) => {
+                  const set = new Set(activeStates);
+                  if (e.target.checked) set.add(st);
+                  else set.delete(st);
+                  editProperty(iface.id, 'activeStates', vocabulary.lifecycleStates.filter((s) => set.has(s)).join(','));
+                }} />
+              <span>{st}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <details className="qos-details">
+        <summary>
+          <Settings2 size={13} />
+          <span>Quality of Service (QoS){hasQos ? ` — ${qos.profile || qos.reliability || 'configured'}` : ' (default)'}</span>
+        </summary>
+        <div className="qos-grid">
+          {Object.entries(vocabulary.qos || {}).map(([key, field]) =>
+            field.freeText ? (
+              <QosText key={key} label={qosLabel(key)} value={qos[key]} busy={busy}
+                placeholder={(field.values || []).join(' | ') || (key === 'depth' ? '10' : '')}
+                onCommit={(v) => setQos(key, v)} />
+            ) : (
+              <QosSelect key={key} label={qosLabel(key)} value={qos[key]} options={field.values || []} busy={busy}
+                onChange={(v) => setQos(key, v)} />
+            )
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** `ns:` of an interface/parameter: the Ecore Namespace kind (Basics.xtext spelling). */
+function NamespaceSelect({ elementId, value, busy }) {
+  const { vocabulary } = useStudio();
+  const kind = String(value || '').split(/\s+/)[0];
+  return (
+    <select className="rt-select" disabled={busy} value={vocabulary.namespaceKinds.includes(kind) ? kind : ''}
+      title="ns: namespace of this element" onChange={(e) => editProperty(elementId, 'namespace', e.target.value)}>
+      <option value="">— no ns —</option>
+      {vocabulary.namespaceKinds.map((k) => <option key={k} value={k}>{k}</option>)}
+    </select>
+  );
+}
+
+/** "lease_duration" -> "Lease Duration" (keys come from the grammar's QualityOfService rule). */
+function qosLabel(key) {
+  return key.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+function QosSelect({ label, value, options, busy, onChange }) {
+  return (
+    <div className="rt-field" style={{ marginBottom: 0 }}>
+      <label>{label}</label>
+      <select className="rt-select" disabled={busy} value={value || ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">— Default —</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function QosText({ label, value, placeholder, busy, onCommit }) {
+  return (
+    <div className="rt-field" style={{ marginBottom: 0 }}>
+      <label>{label}</label>
+      <CommitInput value={value || ''} placeholder={placeholder} disabled={busy} onCommit={(v) => onCommit(v.trim())} />
     </div>
   );
 }

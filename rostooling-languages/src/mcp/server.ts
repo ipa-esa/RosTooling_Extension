@@ -13,7 +13,7 @@ import {
   scanExistingFiles,
   cleanOppositeLanguageFiles,
 } from './PostProcessor.js';
-import { RosModelParser } from '../model/RosModelParser.js';
+import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
 
 class LspSessionManager {
   private activeClient: HeadlessLspClient | null = null;
@@ -163,13 +163,14 @@ export function createMcpServer(): McpServer {
       const srcGenDir = path.join(rootDir, 'src-gen');
       await fsp.mkdir(srcGenDir, { recursive: true });
 
-      // Parse model to discover package name and nodes
+      // Discover package name and nodes via the Java/Xtext GLSP server (no TypeScript DSL parsing)
       const docText = await fsp.readFile(absModelPath, 'utf-8');
-      const parsed = RosModelParser.parseRos2(docText, absModelPath);
-      const pkgName = parsed.system?.name || path.basename(absModelPath, '.ros2');
-      const allNodesInFile = (parsed.nodes || []).map(n => ({
-        artifactName: n.artifact || n.label,
-        nodeName: n.label,
+      const [described] = await GlspClientBridge.getInstance().requestRosIndex([absModelPath]);
+      const pkg = described?.packages?.[0];
+      const pkgName = pkg?.name || path.basename(absModelPath, '.ros2');
+      const allNodesInFile = (pkg?.artifacts || []).map(a => ({
+        artifactName: a.artifact,
+        nodeName: a.node,
       }));
 
       const nodesToProcess =

@@ -42,6 +42,8 @@ export function getInitialData() {
 
   return {
     project,
+    gGraph: raw.gGraph || null,
+    glspMarkers: raw.glspMarkers || [],
     mode,
     isReadOnly: Boolean(raw.isReadOnly),
     docFileName: raw.docFileName || '',
@@ -58,14 +60,9 @@ export function registerHostMessageListener(handlers) {
     const msg = event && event.data;
     if (!msg || typeof msg !== 'object') return;
     switch (msg.type) {
-      case 'updateModel':
-        if (handlers.onUpdateModel && msg.project) {
-          handlers.onUpdateModel(msg.project);
-        }
-        break;
-      case 'updateDiagnostics':
-        if (handlers.onUpdateDiagnostics) {
-          handlers.onUpdateDiagnostics(msg.diagnostics || []);
+      case 'updateGlspModel':
+        if (handlers.onUpdateGlspModel) {
+          handlers.onUpdateGlspModel(msg.gGraph || null, msg.markers || [], msg.project || null);
         }
         break;
       case 'updateCatalogue':
@@ -82,11 +79,21 @@ export function registerHostMessageListener(handlers) {
 }
 
 export const hostBridge = {
-  applyEdit(project) {
-    getVsCodeApi().postMessage({ type: 'applyEdit', project });
+  /** Sends a GLSP Operation/Action to the Java server via the extension host. */
+  glspOperation(operation) {
+    getVsCodeApi().postMessage({ type: 'glspOperation', operation });
   },
-  saveLayout(project) {
-    getVsCodeApi().postMessage({ type: 'saveLayout', project });
+  exportSvg(svg) {
+    getVsCodeApi().postMessage({ type: 'exportSvg', svg });
+  },
+  requestModelRefresh() {
+    getVsCodeApi().postMessage({ type: 'requestModelRefresh' });
+  },
+  undo() {
+    getVsCodeApi().postMessage({ type: 'undo' });
+  },
+  redo() {
+    getVsCodeApi().postMessage({ type: 'redo' });
   },
   openComponentRos2({ from, pkg, artifact, label }) {
     getVsCodeApi().postMessage({ type: 'openComponentRos2', from, pkg, artifact, label });

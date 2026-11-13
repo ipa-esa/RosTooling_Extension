@@ -1227,3 +1227,77 @@ details.qos-details > summary {
     min-width: 250px;
   }
 }
+
+/* ============================================================================
+   .rossystem — Eclipse GLSP / Sprotty diagram (server GModel + ELK layout)
+   ============================================================================ */
+.rt-sys-layout { display: flex; flex: 1; min-height: 0; height: 100%; }
+.rt-sys-canvas-wrap { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--rt-bg); }
+.rt-sys-toolbar { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 6px; align-items: center;
+  padding: 4px; border-radius: var(--rt-radius); background: var(--rt-surface); border: 1px solid var(--rt-border); box-shadow: var(--rt-shadow); }
+.rt-sys-pending { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--rt-muted); padding: 0 6px; }
+.rt-spin { animation: rt-spin 1s linear infinite; }
+@keyframes rt-spin { to { transform: rotate(360deg); } }
+.rt-sprotty-host { flex: 1; min-height: 0; position: relative; }
+.rt-sprotty-host > svg, .rt-sprotty-host svg.sprotty-graph { width: 100%; height: 100%; outline: none; }
+.rt-sprotty-hidden { position: absolute; width: 0; height: 0; overflow: hidden; visibility: hidden; }
+.rt-sys-kv { display: flex; gap: 8px; align-items: baseline; font-size: 12px; margin: 4px 0; }
+.rt-sys-kv span { color: var(--rt-muted); min-width: 40px; }
+.rt-sys-code, .rt-sys-kv code { font-family: var(--rt-mono); font-size: 11.5px; word-break: break-all; }
+.rt-sys-markers { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.rt-input.invalid { border-color: var(--rt-err); }
+
+/* ROS node cards */
+.sprotty-graph .ros-node .ros-node-card { fill: var(--rt-surface); stroke: var(--rt-border); stroke-width: 1.2; }
+.sprotty-graph .ros-node .ros-node-head { fill: var(--rt-hover); }
+.sprotty-graph .ros-node.selected .ros-node-card { stroke: var(--rt-border-strong); stroke-width: 2; }
+.sprotty-graph .ros-node.mouseover .ros-node-card { stroke: var(--rt-accent); }
+.sprotty-graph .ros-node-title { fill: var(--rt-ink); font: 700 13px var(--rt-font); }
+.sprotty-graph .ros-node-sub { fill: var(--rt-muted); font: 10.5px var(--rt-mono); }
+.sprotty-graph .ros-badge rect { fill: var(--rt-border); }
+.sprotty-graph .ros-badge text { fill: var(--rt-ink); font: 700 9.5px var(--rt-font); text-anchor: middle; }
+.sprotty-graph .ros-badge.lc rect { fill: var(--rt-lifecycle); }
+.sprotty-graph .ros-badge.lc text { fill: #ffffff; }
+
+/* Ports (west: sub/sc/ac, east: pub/ss/as) */
+.sprotty-graph .ros-port { cursor: crosshair; }
+.sprotty-graph .ros-port .ros-port-hit { fill: transparent; }
+.sprotty-graph .ros-port .ros-port-box { stroke: var(--rt-surface); stroke-width: 1; }
+.sprotty-graph .ros-port.inherited .ros-port-box { stroke-dasharray: 2 1.5; stroke: var(--rt-muted); }
+.sprotty-graph .ros-port-pub .ros-port-box { fill: #2ec49b; }
+.sprotty-graph .ros-port-sub .ros-port-box { fill: #4c9aff; }
+.sprotty-graph .ros-port-ss .ros-port-box { fill: #f59e0b; }
+.sprotty-graph .ros-port-sc .ros-port-box { fill: #f97316; }
+.sprotty-graph .ros-port-as .ros-port-box { fill: #a855f7; }
+.sprotty-graph .ros-port-ac .ros-port-box { fill: #ec4899; }
+.sprotty-graph .ros-port.mouseover .ros-port-box, .sprotty-graph .ros-port.ros-port-drop .ros-port-box { stroke: var(--rt-border-strong); stroke-width: 2.5; }
+.sprotty-graph .ros-port-label { fill: var(--rt-ink); font: 10.5px var(--rt-font); pointer-events: none; }
+
+/* Subsystems & processes */
+.sprotty-graph .ros-subsystem .ros-frame { fill: var(--rt-hover); stroke: var(--rt-muted); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.sprotty-graph .ros-process .ros-frame { fill: transparent; stroke: var(--rt-muted); stroke-width: 1.2; }
+.sprotty-graph .ros-subsystem.selected .ros-frame, .sprotty-graph .ros-process.selected .ros-frame { stroke: var(--rt-border-strong); stroke-width: 2; }
+.sprotty-graph .ros-frame-title { fill: var(--rt-ink); font: 700 12px var(--rt-font); }
+.sprotty-graph .ros-toggle { cursor: pointer; }
+.sprotty-graph .ros-toggle rect { fill: var(--rt-surface); stroke: var(--rt-border); }
+.sprotty-graph .ros-toggle text { fill: var(--rt-ink); font: 700 13px var(--rt-font); text-anchor: middle; }
+
+/* Connections (ELK orthogonal routes, Sprotty line jumps) */
+.sprotty-graph .ros-edge .ros-edge-line { fill: none; stroke-width: 1.8; }
+.sprotty-graph .ros-edge-topic .ros-edge-line { stroke: #2ec49b; }
+.sprotty-graph .ros-edge-service .ros-edge-line { stroke: #f59e0b; }
+.sprotty-graph .ros-edge-action .ros-edge-line { stroke: #a855f7; }
+.sprotty-graph .ros-edge .ros-edge-arrow { stroke: none; }
+.sprotty-graph .ros-edge-topic .ros-edge-arrow { fill: #2ec49b; }
+.sprotty-graph .ros-edge-service .ros-edge-arrow { fill: #f59e0b; }
+.sprotty-graph .ros-edge-action .ros-edge-arrow { fill: #a855f7; }
+.sprotty-graph .ros-edge.selected .ros-edge-line { stroke-width: 3; }
+
+/* GLSP's stylesheet centres all text; ROS cards are laid out left-aligned. */
+.sprotty-graph .ros-node text, .sprotty-graph .ros-subsystem text, .sprotty-graph .ros-process text { text-anchor: start; }
+.sprotty-graph .ros-port-label.east { text-anchor: end; }
+.sprotty-graph .ros-badge text, .sprotty-graph .ros-toggle text { text-anchor: middle; }
+
+/* Drag-to-connect rubber band */
+.ros-wire-overlay { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 1000; }
+.ros-wire-overlay path { fill: none; stroke: var(--rt-border-strong); stroke-width: 2; stroke-dasharray: 6 4; }

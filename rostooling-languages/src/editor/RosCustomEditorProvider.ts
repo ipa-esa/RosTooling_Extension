@@ -2,23 +2,21 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { RosModelParser } from '../model/RosModelParser';
-import { RosModelEmitter } from '../model/RosModelEmitter';
 import { getStudioHtml } from '../webview/studioHtml';
-import { RosProject, RosNode, RosInterface, RosParameter, RosLayoutSchematic, RosModelDiagnostic, RosConnection } from '../model/RosModelTypes';
-import { RosLayoutManager } from '../model/RosLayoutManager';
+import { RosProject } from '../model/RosModelTypes';
 import { RosCatalogueManager } from '../model/RosCatalogueManager';
-import { SRC_SIDE } from '../model/ConnectionValidator';
+import { GlspClientBridge, GGraph, GlspMarker, GlspAction, RosIndexFile } from '../glsp/GlspClientBridge';
 
-interface DeclaredArtifact {
-  filePath: string;
-  pkg: string;
-  name: string;
-  node: string;
-  ifaces: RosInterface[];
-  params: RosParameter[];
-}
-
+/**
+ * Hybrid RosTooling custom editor.
+ *
+ * The Java GLSP/Xtext server (`de.fraunhofer.ipa.ros.glsp`) is the single source of truth:
+ *  - it parses, links, validates and lays out (ELK) the model and returns a GGraph + markers;
+ *  - every webview edit is a GLSP operation, executed as an EMF command and written back by the
+ *    surgical, comment-preserving RosAstNodeModelSerializer (`saveModel`).
+ * This provider only relays GLSP actions between the webview and the server. It never parses or
+ * emits DSL text and never rewrites files.
+ */
 export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = 'rostooling.visualStudio';
   public static activeCustomDocument?: vscode.TextDocument;
@@ -26,32 +24,39 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
   private catalogueManager: RosCatalogueManager | null = null;
   private nodeIndex: Record<string, unknown> | null = null;
   private typeIndex: Record<string, unknown> | null = null;
-  private projectCache = new Map<string, RosProject>();
-  private companionCache = new Map<
-    string,
-    {
-      timestamp: number;
-      artifactMap: Map<string, DeclaredArtifact>;
-      subsystemMap: Map<string, string>;
-    }
-  >();
-
-  public invalidateCompanionCache(): void {
-    this.companionCache.clear();
-  }
+  private catalogueLoad: Promise<void> | null = null;
+  /** Server-side descriptions of workspace model files, keyed by path (invalidated by mtime). */
+  private companionIndex = new Map<string, { mtimeMs: number; entry: RosIndexFile }>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    this.loadCatalogues();
-    if (this.context && this.context.subscriptions) {
-      this.context.subscriptions.push(
-        vscode.workspace.onDidSaveTextDocument((savedDoc) => {
-          const savedPath = savedDoc.fileName || savedDoc.uri.fsPath;
-          if (savedPath && savedPath.endsWith('.rossystem')) {
-            this.invalidateCompanionCache();
-            void this.syncParentSystemsOnSubsystemSave(savedPath);
+    this.initCatalogueManager();
+  }
+
+  public invalidateCompanionCache(): void {
+    this.companionIndex.clear();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Catalogue (component nodes + communication types), indexed by the Java server
+  // ------------------------------------------------------------------------------------------
+
+  private initCatalogueManager(): void {
+    try {
+      const storageDir = this.context?.globalStorageUri
+        ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
+        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
+      this.catalogueManager = RosCatalogueManager.getInstance(storageDir);
+      const isTestEnv =
+        this.context?.extensionMode === vscode.ExtensionMode.Test || process.env.VSCODE_TEST_RUN === '1';
+      if (!isTestEnv) {
+        void this.catalogueManager.syncRepositories(false).then((res) => {
+          if (res.updated.length > 0) {
+            void this.refreshCatalogues();
           }
-        })
-      );
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to initialise RosTooling catalogue manager:', e);
     }
   }
 
@@ -60,17 +65,16 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     for (const ws of vscode.workspace.workspaceFolders || []) {
       roots.add(ws.uri.fsPath);
       const parent = path.dirname(ws.uri.fsPath);
-      const sibModels = path.join(parent, 'RosModelsCatalog');
-      if (fs.existsSync(sibModels)) roots.add(sibModels);
-      const sibCommon = path.join(parent, 'RosCommonObjects');
-      if (fs.existsSync(sibCommon)) roots.add(sibCommon);
+      for (const sib of ['RosModelsCatalog', 'RosCommonObjects']) {
+        const p = path.join(parent, sib);
+        if (fs.existsSync(p)) roots.add(p);
+      }
     }
     const defaultUserPath = path.join(os.homedir(), '.rostooling', 'catalogue_repos');
     for (const repo of RosCatalogueManager.DEFAULT_REPOSITORIES) {
       const p = path.join(defaultUserPath, repo.name);
       if (fs.existsSync(p)) roots.add(p);
     }
-
     const targetDoc = docFilePath || vscode.window.activeTextEditor?.document.fileName;
     if (targetDoc) {
       let curDir = path.dirname(targetDoc);
@@ -85,90 +89,51 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         } catch {
           // ignore
         }
-        const sibModels = path.join(curDir, 'RosModelsCatalog');
-        if (fs.existsSync(sibModels)) roots.add(sibModels);
-        const sibCommon = path.join(curDir, 'RosCommonObjects');
-        if (fs.existsSync(sibCommon)) roots.add(sibCommon);
+        for (const sib of ['RosModelsCatalog', 'RosCommonObjects']) {
+          const p = path.join(curDir, sib);
+          if (fs.existsSync(p)) roots.add(p);
+        }
         const parent = path.dirname(curDir);
         if (parent === curDir) break;
         curDir = parent;
       }
-      if (foundWsRoot) {
-        roots.add(foundWsRoot);
-      }
+      if (foundWsRoot) roots.add(foundWsRoot);
       const dirOfFile = path.dirname(targetDoc);
       if (fs.existsSync(dirOfFile)) roots.add(dirOfFile);
-      const parentOfFile = path.dirname(dirOfFile);
-      if (fs.existsSync(parentOfFile) && parentOfFile !== '/') roots.add(parentOfFile);
     }
     return Array.from(roots);
   }
 
-  private loadCatalogues(docFilePath?: string) {
-    try {
-      const storageDir = this.context.globalStorageUri
-        ? path.join(this.context.globalStorageUri.fsPath, 'catalogue_repos')
-        : path.join(os.homedir(), '.rostooling', 'catalogue_repos');
-      this.catalogueManager = RosCatalogueManager.getInstance(storageDir);
-
-      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
-      const hasNodes = Object.keys(catIndex.nodes).length > 0;
-      const hasTypes = Object.keys(catIndex.types).length > 0;
-
-      if (hasNodes || hasTypes) {
+  /** (Re)builds the catalogue index through the Java server and caches it for new editors. */
+  public async refreshCatalogues(
+    docFilePath?: string
+  ): Promise<{ nodeIndex: Record<string, unknown>; typeIndex: Record<string, unknown> }> {
+    if (!this.catalogueManager) {
+      this.initCatalogueManager();
+    }
+    if (this.catalogueManager) {
+      try {
+        this.catalogueManager.invalidateCache();
+        const catIndex = await this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
         this.nodeIndex = {
           nodes: catIndex.nodes,
           _systems: catIndex.systems,
           sources: catIndex.sources,
           lastSync: catIndex.lastSync,
         };
-        this.typeIndex = {
-          types: catIndex.types,
-          sources: catIndex.sources,
-        };
-      } else {
-        const nodeIndexPath = path.join(this.context.extensionPath, 'assets', 'node_index.json');
-        if (fs.existsSync(nodeIndexPath)) {
-          this.nodeIndex = JSON.parse(fs.readFileSync(nodeIndexPath, 'utf-8'));
-        }
-        const typeIndexPath = path.join(this.context.extensionPath, 'assets', 'type_index.json');
-        if (fs.existsSync(typeIndexPath)) {
-          this.typeIndex = JSON.parse(fs.readFileSync(typeIndexPath, 'utf-8'));
-        }
+        this.typeIndex = { types: catIndex.types, sources: catIndex.sources };
+      } catch (e) {
+        console.warn('Failed to index RosTooling catalogue via GLSP server:', e);
       }
-
-      // Check 24-hour sync in background (skip in test mode to avoid uncoordinated git processes)
-      const isTestEnv = this.context.extensionMode === vscode.ExtensionMode.Test || process.env.VSCODE_TEST_RUN === '1';
-      if (!isTestEnv) {
-        this.catalogueManager.syncRepositories(false).then((res) => {
-          if (res.updated.length > 0) {
-            this.refreshCatalogues();
-          }
-        });
-      }
-    } catch (e) {
-      console.warn('Failed to load dynamic catalogue:', e);
-    }
-  }
-
-  public refreshCatalogues(docFilePath?: string): { nodeIndex: Record<string, unknown>; typeIndex: Record<string, unknown> } {
-    if (!this.catalogueManager) {
-      this.loadCatalogues(docFilePath);
-    } else {
-      this.catalogueManager.invalidateCache();
-      const catIndex = this.catalogueManager.buildCatalogueIndex(this.getSearchRoots(docFilePath));
-      this.nodeIndex = {
-        nodes: catIndex.nodes,
-        _systems: catIndex.systems,
-        sources: catIndex.sources,
-        lastSync: catIndex.lastSync,
-      };
-      this.typeIndex = {
-        types: catIndex.types,
-        sources: catIndex.sources,
-      };
     }
     return { nodeIndex: this.nodeIndex || {}, typeIndex: this.typeIndex || {} };
+  }
+
+  private ensureCatalogues(docFilePath?: string): Promise<void> {
+    if (!this.catalogueLoad) {
+      this.catalogueLoad = this.refreshCatalogues(docFilePath).then(() => undefined);
+    }
+    return this.catalogueLoad;
   }
 
   public isCoreCatalogue(filePath?: string): boolean {
@@ -191,121 +156,19 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     return false;
   }
 
-  public resolveComponentFilePath(
-    from?: string,
-    pkg?: string,
-    artifact?: string,
-    label?: string,
-    docFilePath?: string
-  ): string | undefined {
-    const { artifactMap } = this.loadCompanionArtifacts(docFilePath || '');
-    const keys = [
-      from,
-      (pkg && artifact) ? `${pkg}.${artifact}` : undefined,
-      (pkg && label) ? `${pkg}.${label}` : undefined,
-      artifact,
-      label
-    ].filter(Boolean) as string[];
-
-    for (const k of keys) {
-      const art = artifactMap.get(k);
-      if (art && art.filePath && fs.existsSync(art.filePath)) {
-        return art.filePath;
-      }
-    }
-    return undefined;
-  }
-
-  public resolveSubsystemFilePath(
-    subRef?: string,
-    fromFile?: string,
-    docFilePath?: string
-  ): string | undefined {
-    if (!subRef && !fromFile) return undefined;
-    const { subsystemMap } = this.loadCompanionArtifacts(docFilePath || '');
-    const keys = [
-      subRef,
-      fromFile,
-      fromFile ? path.basename(fromFile, '.rossystem') : undefined,
-      fromFile ? path.basename(fromFile) : undefined,
-      subRef ? path.basename(subRef, '.rossystem') : undefined,
-      subRef ? subRef.replace(/_\d+$/, '') : undefined,
-    ].filter(Boolean) as string[];
-
-    for (const k of keys) {
-      const match = subsystemMap.get(k);
-      if (match && fs.existsSync(match)) {
-        return match;
-      }
-    }
-
-    // Check catalogue index systems
-    const catSystems = (this.nodeIndex && (this.nodeIndex['_systems'] as {
-      system: string;
-      file?: string;
-      fullPath?: string;
-    }[])) || [];
-
-    for (const sys of catSystems) {
-      if (
-        (subRef && (sys.system === subRef || sys.system === subRef.replace(/_\d+$/, ''))) ||
-        (fromFile && (sys.file === fromFile || (sys.file && path.basename(sys.file) === path.basename(fromFile))))
-      ) {
-        if (sys.fullPath && fs.existsSync(sys.fullPath)) {
-          return sys.fullPath;
-        }
-      }
-    }
-
-    // Check relative to docFilePath
-    if (docFilePath && fromFile) {
-      const resolved = path.resolve(path.dirname(docFilePath), fromFile);
-      if (fs.existsSync(resolved)) return resolved;
-    }
-    if (docFilePath && subRef) {
-      const resolved = path.resolve(
-        path.dirname(docFilePath),
-        subRef.endsWith('.rossystem') ? subRef : `${subRef}.rossystem`
-      );
-      if (fs.existsSync(resolved)) return resolved;
-      const base = subRef.replace(/_\d+$/, '');
-      const resolvedBase = path.resolve(
-        path.dirname(docFilePath),
-        base.endsWith('.rossystem') ? base : `${base}.rossystem`
-      );
-      if (fs.existsSync(resolvedBase)) return resolvedBase;
-    }
-
-    return undefined;
-  }
-
-  private readDocumentOrFile(filePath: string): string {
-    const openDoc = vscode.workspace.textDocuments.find(
-      (d) => d.uri.fsPath === filePath || d.fileName === filePath
-    );
-    if (openDoc) {
-      return openDoc.getText();
-    }
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, 'utf-8');
-    }
-    return '';
-  }
+  // ------------------------------------------------------------------------------------------
+  // Locating companion .ros2 / .rossystem files (described by the Java server)
+  // ------------------------------------------------------------------------------------------
 
   private findModelFilesRecursive(dir: string, exts: string[], maxDepth = 4, curDepth = 0): string[] {
     let results: string[] = [];
     if (curDepth > maxDepth) return results;
     try {
       if (!fs.existsSync(dir)) return results;
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const ent of entries) {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
         if (
           ent.name.startsWith('.') ||
-          ent.name === 'node_modules' ||
-          ent.name === 'build' ||
-          ent.name === 'install' ||
-          ent.name === 'log' ||
-          ent.name === '__pycache__'
+          ['node_modules', 'build', 'install', 'log', '__pycache__'].includes(ent.name)
         ) {
           continue;
         }
@@ -324,68 +187,40 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
 
   private getWorkspaceRoots(docFilePath: string): string[] {
     const rawRoots = new Set<string>();
-    if (vscode.workspace.workspaceFolders) {
-      for (const wf of vscode.workspace.workspaceFolders) {
-        rawRoots.add(wf.uri.fsPath);
-      }
+    for (const wf of vscode.workspace.workspaceFolders || []) {
+      rawRoots.add(wf.uri.fsPath);
     }
-
     if (docFilePath) {
       const fileDir = path.dirname(docFilePath);
       rawRoots.add(fileDir);
-
       let curDir = fileDir;
       const homeDir = os.homedir();
-
-      // Ascend upwards looking for package.xml, ROS workspace root (containing src/), git root, or catalog folders.
-      // STOP at homeDir or root to prevent scanning the entire home directory!
       for (let i = 0; i < 6; i++) {
-        if (!curDir || curDir === '/' || curDir === '.' || curDir === homeDir) {
+        if (!curDir || curDir === '/' || curDir === '.' || curDir === homeDir) break;
+        for (const sib of ['RosModelsCatalog', 'RosCommonObjects']) {
+          const p = path.join(curDir, sib);
+          if (fs.existsSync(p)) rawRoots.add(p);
+        }
+        const srcDir = path.join(curDir, 'src');
+        if (fs.existsSync(srcDir) && fs.statSync(srcDir).isDirectory()) {
+          rawRoots.add(curDir);
           break;
         }
-
-        const sibModels = path.join(curDir, 'RosModelsCatalog');
-        if (fs.existsSync(sibModels)) rawRoots.add(sibModels);
-        const sibCommon = path.join(curDir, 'RosCommonObjects');
-        if (fs.existsSync(sibCommon)) rawRoots.add(sibCommon);
-
-        const srcDir = path.join(curDir, 'src');
-        if (fs.existsSync(srcDir)) {
-          try {
-            if (fs.statSync(srcDir).isDirectory()) {
-              rawRoots.add(curDir);
-              break; // Hit ROS workspace root (containing src/)
-            }
-          } catch {
-            // ignore
-          }
-        }
-
-        const pkgXml = path.join(curDir, 'package.xml');
-        const gitDir = path.join(curDir, '.git');
-        if (fs.existsSync(pkgXml) || fs.existsSync(gitDir)) {
+        if (fs.existsSync(path.join(curDir, 'package.xml')) || fs.existsSync(path.join(curDir, '.git'))) {
           rawRoots.add(curDir);
         }
-
         const parent = path.dirname(curDir);
         if (parent === curDir || parent === homeDir) break;
         curDir = parent;
       }
     }
-
     if (this.catalogueManager) {
       const storageDir = this.catalogueManager.getStorageDir();
-      if (fs.existsSync(storageDir)) {
-        rawRoots.add(storageDir);
-      }
+      if (fs.existsSync(storageDir)) rawRoots.add(storageDir);
       for (const cf of this.catalogueManager.getCustomFolders()) {
-        if (cf.path && fs.existsSync(cf.path)) {
-          rawRoots.add(cf.path);
-        }
+        if (cf.path && fs.existsSync(cf.path)) rawRoots.add(cf.path);
       }
     }
-
-    // Filter out roots that are subdirectories of other roots to prevent redundant duplicate scans
     const sorted = Array.from(rawRoots).sort((a, b) => a.length - b.length);
     const nonRedundant: string[] = [];
     for (const r of sorted) {
@@ -393,1375 +228,93 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         const rel = path.relative(parent, r);
         return !rel.startsWith('..') && !path.isAbsolute(rel);
       });
-      if (!isSub) {
-        nonRedundant.push(r);
-      }
+      if (!isSub) nonRedundant.push(r);
     }
-
     return nonRedundant;
   }
 
-  private loadCompanionArtifacts(docFilePath: string): {
-    artifactMap: Map<string, DeclaredArtifact>;
-    subsystemMap: Map<string, string>;
-  } {
-    const cached = this.companionCache.get(docFilePath);
-    if (cached && Date.now() - cached.timestamp < 3000) {
-      return cached;
+  private async loadCompanionIndex(docFilePath: string): Promise<RosIndexFile[]> {
+    const files: string[] = [];
+    for (const root of this.getWorkspaceRoots(docFilePath)) {
+      files.push(...this.findModelFilesRecursive(root, ['.ros2', '.ros1', '.rossystem']));
     }
-
-    const artifactMap = new Map<string, DeclaredArtifact>();
-    const subsystemMap = new Map<string, string>();
-    const roots = this.getWorkspaceRoots(docFilePath);
-    const seenFiles = new Set<string>();
-
-    for (const root of roots) {
-      const files = this.findModelFilesRecursive(root, ['.ros2', '.ros1', '.ros', '.rossystem'], 4);
-      for (const fullPath of files) {
-        if (seenFiles.has(fullPath)) continue;
-        seenFiles.add(fullPath);
-
-        if (fullPath.endsWith('.rossystem')) {
-          const baseName = path.basename(fullPath, '.rossystem');
-          subsystemMap.set(baseName, fullPath);
-          subsystemMap.set(path.basename(fullPath), fullPath);
-          subsystemMap.set(fullPath, fullPath);
-          const rel = path.relative(root, fullPath);
-          subsystemMap.set(rel, fullPath);
-        } else if (fullPath.endsWith('.ros2') || fullPath.endsWith('.ros1')) {
-          try {
-            const content = this.readDocumentOrFile(fullPath);
-            if (!content) continue;
-            const parsedPkg = RosModelParser.parseRos2(content, fullPath);
-            for (const pkg of Object.values(parsedPkg.packages)) {
-              for (const art of pkg.artifacts || []) {
-                const declared: DeclaredArtifact = {
-                  filePath: fullPath,
-                  pkg: pkg.name,
-                  name: art.name,
-                  node: art.node || art.name,
-                  ifaces: art.ifaces || [],
-                  params: art.params || [],
-                };
-                artifactMap.set(`${pkg.name}.${art.name}`, declared);
-                artifactMap.set(`${pkg.name}.${art.node}`, declared);
-                artifactMap.set(art.name, declared);
-                if (art.node) artifactMap.set(art.node, declared);
-              }
-            }
-          } catch (err) {
-            console.warn(`Error reading companion file ${fullPath}:`, err);
-          }
-        }
-      }
-    }
-
-    const result = { timestamp: Date.now(), artifactMap, subsystemMap };
-    this.companionCache.set(docFilePath, result);
-    return result;
-  }
-
-  private enrichNodeWithDefinitions(
-    node: RosNode,
-    declaredArt?: DeclaredArtifact,
-    catEntry?: { artifact?: string; node?: string; interfaces?: unknown; parameters?: Record<string, unknown> }
-  ): void {
-    if (declaredArt) {
-      if (declaredArt.name) {
-        node.artifact = declaredArt.name;
-      }
-      const declaredIfacesByName = new Map<string, RosInterface>();
-      for (const iface of declaredArt.ifaces || []) {
-        declaredIfacesByName.set(iface.name, iface);
-        if (iface.label) declaredIfacesByName.set(iface.label, iface);
-      }
-
-      const existingIfacesByName = new Set<string>();
-      for (const iface of node.ifaces || []) {
-        const match = declaredIfacesByName.get(iface.name) || (iface.label ? declaredIfacesByName.get(iface.label) : undefined);
-        if (match) {
-          iface.kind = match.kind;
-          iface.type = match.type || iface.type;
-          iface.qos = match.qos || iface.qos;
-        }
-        if (!iface.artifact && declaredArt.name) {
-          iface.artifact = declaredArt.name;
-        }
-        if (iface.name) existingIfacesByName.add(iface.name);
-        if (iface.label) existingIfacesByName.add(iface.label);
-      }
-
-      // Append newly declared interfaces not yet in node.ifaces
-      for (const decF of declaredArt.ifaces || []) {
-        if (!existingIfacesByName.has(decF.name) && (!decF.label || !existingIfacesByName.has(decF.label))) {
-          node.ifaces.push({
-            ...decF,
-            id: `i_${node.id || node.label}_${decF.name || decF.label}`,
-            exposed: true,
-            artifact: declaredArt.name,
-          });
-          existingIfacesByName.add(decF.name);
-          if (decF.label) existingIfacesByName.add(decF.label);
-        }
-      }
-
-      // Merge parameters
-      const existingParamsByName = new Map<string, RosParameter>();
-      for (const p of node.params || []) {
-        if (!p.artifact && declaredArt.name) {
-          p.artifact = declaredArt.name;
-        }
-        existingParamsByName.set(p.name, p);
-        if (p.label) existingParamsByName.set(p.label, p);
-      }
-
-      const mergedParams: RosParameter[] = [];
-      for (const decP of declaredArt.params || []) {
-        const existing = existingParamsByName.get(decP.name) || (decP.label ? existingParamsByName.get(decP.label) : undefined);
-        if (existing) {
-          mergedParams.push({
-            ...decP,
-            id: existing.id || `p_${node.id || node.label}_${decP.name}`,
-            label: existing.label || decP.name,
-            ptype: decP.ptype || existing.ptype || 'String',
-            value: decP.value,
-            sysValue: existing.sysValue,
-            exposed: existing.exposed !== undefined ? existing.exposed : true,
-            artifact: existing.artifact || declaredArt.name,
-          });
-          existingParamsByName.delete(decP.name);
-          if (decP.label) existingParamsByName.delete(decP.label);
-        } else {
-          mergedParams.push({
-            ...decP,
-            id: `p_${node.id || node.label}_${decP.name}`,
-            label: decP.name,
-            ptype: decP.ptype || 'String',
-            value: decP.value,
-            sysValue: undefined,
-            exposed: false,
-            artifact: declaredArt.name,
-          });
-        }
-      }
-      for (const remaining of existingParamsByName.values()) {
-        mergedParams.push(remaining);
-      }
-      node.params = mergedParams;
-    } else if (catEntry) {
-      if (!node.artifact && catEntry.artifact) {
-        node.artifact = catEntry.artifact;
-      }
-      const normalized = this.normalizeInterfaces(catEntry.interfaces);
-      const catIfacesByName = new Map<string, { kind?: string; type?: string }>();
-      for (const f of normalized) {
-        const nm = f.name || f.label || '';
-        if (nm) catIfacesByName.set(nm, f);
-      }
-
-      const existingIfacesByName = new Set<string>();
-      for (const iface of node.ifaces || []) {
-        const match = catIfacesByName.get(iface.name) || (iface.label ? catIfacesByName.get(iface.label) : undefined);
-        if (match && match.kind) {
-          iface.kind = match.kind as RosInterface['kind'];
-          iface.type = match.type || iface.type;
-        }
-        if (!iface.artifact && (catEntry.artifact || node.artifact)) {
-          iface.artifact = catEntry.artifact || node.artifact;
-        }
-        if (iface.name) existingIfacesByName.add(iface.name);
-        if (iface.label) existingIfacesByName.add(iface.label);
-      }
-
-      for (const f of normalized) {
-        const nm = f.name || f.label || '';
-        if (nm && !existingIfacesByName.has(nm) && (!f.label || !existingIfacesByName.has(f.label))) {
-          node.ifaces.push({
-            id: `i_${node.id || node.label}_${nm}`,
-            name: nm,
-            label: f.label || nm,
-            kind: (f.kind as RosInterface['kind']) || 'pub',
-            type: f.type || '',
-            exposed: true,
-            artifact: catEntry.artifact || node.artifact,
-          });
-          existingIfacesByName.add(nm);
-          if (f.label) existingIfacesByName.add(f.label);
-        }
-      }
-
-      if (catEntry.parameters) {
-        const existingParamsByName = new Map<string, RosParameter>();
-        for (const p of node.params || []) {
-          if (!p.artifact && (catEntry.artifact || node.artifact)) {
-            p.artifact = catEntry.artifact || node.artifact;
-          }
-          existingParamsByName.set(p.name, p);
-          if (p.label) existingParamsByName.set(p.label, p);
-        }
-        const mergedParams: RosParameter[] = [];
-        for (const [pName, pDef] of Object.entries(catEntry.parameters)) {
-          const ptype = typeof pDef === 'object' && pDef !== null && 'type' in pDef ? ((pDef as { type?: string }).type as RosParameter['ptype']) : 'String';
-          const val = typeof pDef === 'object' && pDef !== null && 'value' in pDef ? ((pDef as { value?: string | number | boolean }).value) : undefined;
-          const existing = existingParamsByName.get(pName);
-          if (existing) {
-            mergedParams.push({
-              id: existing.id || `p_${node.id || node.label}_${pName}`,
-              name: pName,
-              label: existing.label || pName,
-              ptype: ptype || existing.ptype || 'String',
-              value: val,
-              sysValue: existing.sysValue,
-              exposed: existing.exposed !== undefined ? existing.exposed : true,
-              artifact: existing.artifact || catEntry.artifact || node.artifact,
-            });
-            existingParamsByName.delete(pName);
-            if (existing.label) existingParamsByName.delete(existing.label);
-          } else {
-            mergedParams.push({
-              id: `p_${node.id || node.label}_${pName}`,
-              name: pName,
-              label: pName,
-              ptype: ptype || 'String',
-              value: val,
-              sysValue: undefined,
-              exposed: false,
-              artifact: catEntry.artifact || node.artifact,
-            });
-          }
-        }
-        for (const remaining of existingParamsByName.values()) {
-          mergedParams.push(remaining);
-        }
-        node.params = mergedParams;
-      }
-    }
-  }
-
-  private resolveSystemInterfaces(project: RosProject, docFilePath = ''): boolean {
-    let connectionsModified = false;
-    const { artifactMap, subsystemMap } = this.loadCompanionArtifacts(docFilePath);
-    const catNodes = (this.nodeIndex && (this.nodeIndex['nodes'] as Record<string, {
-      from?: string;
-      pkg?: string;
-      interfaces?: unknown;
-      parameters?: Record<string, unknown>;
-    }>)) || {};
-
-    // 1. Resolve and load subsystems recursively into project.nodes
-    for (const sub of project.subSystems || []) {
-      const subFilePath =
-        this.resolveSubsystemFilePath(sub.ref, sub.fromFile, docFilePath) ||
-        subsystemMap.get(sub.ref) ||
-        (sub.fromFile ? subsystemMap.get(sub.fromFile) : undefined) ||
-        (sub.fromFile ? subsystemMap.get(path.basename(sub.fromFile, '.rossystem')) : undefined) ||
-        (sub.fromFile ? subsystemMap.get(path.basename(sub.fromFile)) : undefined) ||
-        subsystemMap.get(path.basename(sub.ref, '.rossystem')) ||
-        subsystemMap.get(sub.ref.replace(/_\d+$/, ''));
-
-      let loadedNodes = 0;
-      if (subFilePath && fs.existsSync(subFilePath)) {
-        try {
-          const subContent = this.readDocumentOrFile(subFilePath);
-          const subProject = RosModelParser.parseRosSystem(subContent, subFilePath);
-
-          for (const subNode of subProject.nodes) {
-            const existingNode = project.nodes.find(
-              (n) => (n.subRef === sub.ref && n.label === subNode.label) || n.id === `n_${sub.ref}_${subNode.label}`
-            );
-            const targetNode = existingNode || subNode;
-            if (!existingNode) {
-              subNode.id = `n_${sub.ref}_${subNode.label}`;
-              subNode.subRef = sub.ref;
-              subNode.backing = 'sub';
-            } else {
-              existingNode.subRef = sub.ref;
-              existingNode.backing = 'sub';
-              if (!existingNode.id.startsWith(`n_${sub.ref}_`)) {
-                existingNode.id = `n_${sub.ref}_${subNode.label}`;
-              }
-            }
-
-            const fromKey = targetNode.from || '';
-            const declaredArt =
-              artifactMap.get(fromKey) ||
-              artifactMap.get(targetNode.artifact || '') ||
-              artifactMap.get(targetNode.label);
-            const catEntry = catNodes[fromKey] || catNodes[targetNode.label] || catNodes[targetNode.artifact || ''];
-
-            this.enrichNodeWithDefinitions(targetNode, declaredArt, catEntry);
-
-            if (!existingNode) {
-              project.nodes.push(targetNode);
-              loadedNodes++;
-            }
-          }
-        } catch (e) {
-          console.warn(`Failed to resolve subsystem ${sub.ref}:`, e);
-        }
-      }
-
-      // Fallback: If no member nodes loaded from file, resolve from catalogue index _systems
-      if (loadedNodes === 0) {
-        const catSystems = (this.nodeIndex && (this.nodeIndex['_systems'] as {
-          system: string;
-          file?: string;
-          nodes?: Record<string, { from?: string; interfaces?: Record<string, string> }>;
-        }[])) || [];
-        const baseRef = sub.ref.replace(/_\d+$/, '');
-        const matchSys = catSystems.find((s) =>
-          s.system === sub.ref ||
-          s.system === baseRef ||
-          (sub.fromFile && (s.file === sub.fromFile || path.basename(s.file || '') === path.basename(sub.fromFile)))
-        );
-
-        if (matchSys && matchSys.nodes) {
-          for (const [nKey, nDef] of Object.entries(matchSys.nodes)) {
-            let targetNode = project.nodes.find(
-              (n) => (n.subRef === sub.ref && n.label === nKey) || n.id === `n_${sub.ref}_${nKey}`
-            );
-            if (!targetNode) {
-              const fromKey = nDef.from || nKey;
-              targetNode = {
-                id: `n_${sub.ref}_${nKey}`,
-                label: nKey,
-                from: fromKey,
-                subRef: sub.ref,
-                backing: 'sub',
-                ifaces: [],
-                params: [],
-              };
-              if (nDef.interfaces) {
-                for (const [iName, iKind] of Object.entries(nDef.interfaces)) {
-                  targetNode.ifaces.push({
-                    id: `i_${sub.ref}_${nKey}_${iName}`,
-                    name: iName,
-                    label: iName,
-                    kind: (iKind as RosInterface['kind']) || 'pub',
-                    type: '',
-                    exposed: true,
-                  });
-                }
-              }
-              project.nodes.push(targetNode);
-              loadedNodes++;
-            }
-            const fromKey = targetNode.from || nDef.from || nKey;
-            const declaredArt = artifactMap.get(fromKey) || artifactMap.get(nKey);
-            const catEntry = catNodes[fromKey] || catNodes[nKey];
-            this.enrichNodeWithDefinitions(targetNode, declaredArt, catEntry);
-          }
-        }
-      }
-    }
-
-    // 2. Resolve direct nodes
-    for (const node of project.nodes) {
-      if (node.subRef || node.backing === 'sub') {
-        continue;
-      }
-      const fromKey = node.from || '';
-      const declaredArt =
-        artifactMap.get(fromKey) ||
-        artifactMap.get(node.artifact || '') ||
-        artifactMap.get(node.label);
-      const catEntry = catNodes[fromKey] || catNodes[node.label] || catNodes[node.artifact || ''];
-
-      this.enrichNodeWithDefinitions(node, declaredArt, catEntry);
-    }
-
-    const outputKinds = new Set(['pub', 'ss', 'as']);
-    const inputKinds = new Set(['sub', 'sc', 'ac']);
-
-    // 3. Resolve connection endpoints across all nodes (including subsystem nodes)
-    for (const conn of project.connections || []) {
-      const fromLookup = conn.rawFrom || (!conn.from.n ? conn.from.i : undefined);
-      const toLookup = conn.rawTo || (!conn.to.n ? conn.to.i : undefined);
-
-      let fromNode = project.nodes.find((n) => n.id === conn.from.n);
-      let fromIface = fromNode?.ifaces?.find(
-        (f) => f.id === conn.from.i || f.label === conn.from.i || f.name === conn.from.i
-      );
-      // Validate that fromIface is indeed an output port
-      if (fromIface && !outputKinds.has(fromIface.kind)) {
-        fromNode = undefined;
-        fromIface = undefined;
-      }
-
-      let toNode = project.nodes.find((n) => n.id === conn.to.n);
-      let toIface = toNode?.ifaces?.find(
-        (f) => f.id === conn.to.i || f.label === conn.to.i || f.name === conn.to.i
-      );
-      // Validate that toIface is indeed an input port
-      if (toIface && !inputKinds.has(toIface.kind)) {
-        toNode = undefined;
-        toIface = undefined;
-      }
-
-      if (!fromNode || !fromIface) {
-        const targetLabel = fromLookup || conn.from.i;
-        if (targetLabel) {
-          const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
-          if (sepIdx > 0) {
-            const rawNodePart = targetLabel.slice(0, sepIdx).trim();
-            const nodePart = rawNodePart.replace(/::/g, '.');
-            const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
-            const n = project.nodes.find(
-              (cand) =>
-                cand.label === rawNodePart ||
-                cand.label === nodePart ||
-                cand.id === rawNodePart ||
-                cand.id === nodePart ||
-                cand.id === `n_${rawNodePart}` ||
-                cand.id === `n_${nodePart.replace(/\./g, '_')}` ||
-                (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
-                (cand.subRef && `${cand.subRef}::${cand.label}` === rawNodePart) ||
-                (cand.subRef && cand.label === rawNodePart) ||
-                (cand.subRef && cand.id === `n_${cand.subRef}_${rawNodePart}`)
-            );
-            if (n) {
-              const matchIface = n.ifaces?.find(
-                (f) => (f.label === ifacePart || f.name === ifacePart || f.id === ifacePart) && outputKinds.has(f.kind)
-              );
-              if (matchIface) {
-                conn.from.n = n.id;
-                conn.from.i = matchIface.id;
-                fromNode = n;
-                fromIface = matchIface;
-              }
-            }
-          }
-          if (!fromNode || !fromIface) {
-            for (const n of project.nodes) {
-              const matchIface = n.ifaces?.find(
-                (f) => (f.label === targetLabel || f.name === targetLabel || f.id === targetLabel) && outputKinds.has(f.kind)
-              );
-              if (matchIface) {
-                conn.from.n = n.id;
-                conn.from.i = matchIface.id;
-                fromNode = n;
-                fromIface = matchIface;
-                break;
-              }
-            }
-          }
-
-          // Fallback: If remapped in subsystem, match candidate by base interface name, compatible kind and type
-          if (!fromNode || !fromIface) {
-            const cleanTarget = targetLabel.replace(/^['"]|['"]$/g, '').trim();
-            const baseFrom = cleanTarget.includes('::') ? cleanTarget.split('::').pop() || cleanTarget : cleanTarget;
-            let candidateMatch: { node: RosNode; iface: RosInterface } | undefined;
-            for (const n of project.nodes) {
-              for (const f of n.ifaces || []) {
-                if (!outputKinds.has(f.kind)) continue;
-                const matchesBase =
-                  f.name &&
-                  (f.name === baseFrom ||
-                    cleanTarget.endsWith('/' + f.name) ||
-                    cleanTarget.endsWith('::' + f.name) ||
-                    cleanTarget === f.name);
-                if (matchesBase) {
-                  if (toIface && toIface.type && f.type && f.type !== '—' && toIface.type !== '—') {
-                    const cleanFType = f.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
-                    const cleanToType = toIface.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
-                    if (cleanFType !== cleanToType && !cleanFType.endsWith('/' + cleanToType) && !cleanToType.endsWith('/' + cleanFType)) {
-                      continue;
-                    }
-                  }
-                  candidateMatch = { node: n, iface: f };
-                  break;
-                }
-              }
-              if (candidateMatch) break;
-            }
-            if (candidateMatch) {
-              const newRawFrom = candidateMatch.iface.label || candidateMatch.iface.name;
-              if (conn.rawFrom !== newRawFrom) {
-                conn.rawFrom = newRawFrom;
-                connectionsModified = true;
-              }
-              conn.from.n = candidateMatch.node.id;
-              conn.from.i = candidateMatch.iface.id;
-              fromNode = candidateMatch.node;
-              fromIface = candidateMatch.iface;
-            }
-          }
-        }
-      }
-
-      if (!toNode || !toIface) {
-        const targetLabel = toLookup || conn.to.i;
-        if (targetLabel) {
-          const sepIdx = targetLabel.includes('::') ? targetLabel.lastIndexOf('::') : targetLabel.lastIndexOf('.');
-          if (sepIdx > 0) {
-            const rawNodePart = targetLabel.slice(0, sepIdx).trim();
-            const nodePart = rawNodePart.replace(/::/g, '.');
-            const ifacePart = targetLabel.slice(sepIdx + (targetLabel.includes('::') ? 2 : 1)).trim();
-            const n = project.nodes.find(
-              (cand) =>
-                cand.label === rawNodePart ||
-                cand.label === nodePart ||
-                cand.id === rawNodePart ||
-                cand.id === nodePart ||
-                cand.id === `n_${rawNodePart}` ||
-                cand.id === `n_${nodePart.replace(/\./g, '_')}` ||
-                (cand.subRef && `${cand.subRef}.${cand.label}` === nodePart) ||
-                (cand.subRef && `${cand.subRef}::${cand.label}` === rawNodePart) ||
-                (cand.subRef && cand.label === rawNodePart) ||
-                (cand.subRef && cand.id === `n_${cand.subRef}_${rawNodePart}`)
-            );
-            if (n) {
-              const matchIface = n.ifaces?.find(
-                (f) => (f.label === ifacePart || f.name === ifacePart || f.id === ifacePart) && inputKinds.has(f.kind)
-              );
-              if (matchIface) {
-                conn.to.n = n.id;
-                conn.to.i = matchIface.id;
-                toNode = n;
-                toIface = matchIface;
-              }
-            }
-          }
-          if (!toNode || !toIface) {
-            for (const n of project.nodes) {
-              const matchIface = n.ifaces?.find(
-                (f) => (f.label === targetLabel || f.name === targetLabel || f.id === targetLabel) && inputKinds.has(f.kind)
-              );
-              if (matchIface) {
-                conn.to.n = n.id;
-                conn.to.i = matchIface.id;
-                toNode = n;
-                toIface = matchIface;
-                break;
-              }
-            }
-          }
-
-          // Fallback: If remapped in subsystem, match candidate by base interface name, compatible kind and type
-          if (!toNode || !toIface) {
-            const cleanTarget = targetLabel.replace(/^['"]|['"]$/g, '').trim();
-            const baseTo = cleanTarget.includes('::') ? cleanTarget.split('::').pop() || cleanTarget : cleanTarget;
-            let candidateMatch: { node: RosNode; iface: RosInterface } | undefined;
-            for (const n of project.nodes) {
-              for (const f of n.ifaces || []) {
-                if (!inputKinds.has(f.kind)) continue;
-                const matchesBase =
-                  f.name &&
-                  (f.name === baseTo ||
-                    cleanTarget.endsWith('/' + f.name) ||
-                    cleanTarget.endsWith('::' + f.name) ||
-                    cleanTarget === f.name);
-                if (matchesBase) {
-                  if (fromIface && fromIface.type && f.type && f.type !== '—' && fromIface.type !== '—') {
-                    const cleanFType = fromIface.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
-                    const cleanTType = f.type.replace(/^['"]|['"]$/g, '').replace(/\/msg\/|\/srv\/|\/action\//, '/');
-                    if (cleanFType !== cleanTType && !cleanFType.endsWith('/' + cleanTType) && !cleanTType.endsWith('/' + cleanFType)) {
-                      continue;
-                    }
-                  }
-                  candidateMatch = { node: n, iface: f };
-                  break;
-                }
-              }
-              if (candidateMatch) break;
-            }
-            if (candidateMatch) {
-              const newRawTo = candidateMatch.iface.label || candidateMatch.iface.name;
-              if (conn.rawTo !== newRawTo) {
-                conn.rawTo = newRawTo;
-                connectionsModified = true;
-              }
-              conn.to.n = candidateMatch.node.id;
-              conn.to.i = candidateMatch.iface.id;
-              toNode = candidateMatch.node;
-              toIface = candidateMatch.iface;
-            }
-          }
-        }
-      }
-
-      // Canonical orientation check: ensure from is source (pub/ss/as) and to is sink (sub/sc/ac)
-      if (fromIface && toIface) {
-        const srcSideFrom = SRC_SIDE[fromIface.kind];
-        const srcSideTo = SRC_SIDE[toIface.kind];
-        if (srcSideFrom === false && srcSideTo === true) {
-          const tmpEnd = conn.from;
-          conn.from = conn.to;
-          conn.to = tmpEnd;
-          const tmpRaw = conn.rawFrom;
-          conn.rawFrom = conn.rawTo;
-          conn.rawTo = tmpRaw;
-        }
-      }
-    }
-
-    // Prune invalid self-connections where a node connects an interface to itself
-    project.connections = (project.connections || []).filter(
-      (c) => !(c.from?.n && c.to?.n && c.from.n === c.to.n && c.from.i === c.to.i)
-    );
-
-    return connectionsModified;
-  }
-
-  public normalizeInterfaces(rawIfaces: unknown): { name: string; label: string; kind: string; type: string }[] {
-    return RosLayoutManager.normalizeInterfaces(rawIfaces);
-  }
-
-  private async syncCompanionRos2Models(project: RosProject, docFilePath: string) {
-    void project;
-    void docFilePath;
-    // System view must not mutate companion .ros2 / .ros1 component models.
-    // Parameters and interfaces configured in .rossystem are isolated to the system model.
-    return;
-  }
-
-  public async syncSubsystemModels(project: RosProject, docFilePath: string): Promise<boolean> {
-    if (!project.isRosSystem || !project.subSystems || project.subSystems.length === 0) {
-      return false;
-    }
-    if (!project.connections || project.connections.length === 0) {
-      return false;
-    }
-
-    const KIND_ORDER: Record<string, number> = { pub: 1, sub: 2, ss: 3, sc: 4, as: 5, ac: 6 };
-
-    // Group needed interfaces by subRef -> nodeLabel -> Map<ifaceName, RosInterface>
-    const neededBySub = new Map<string, Map<string, Map<string, RosInterface>>>();
-
-    for (const conn of project.connections) {
-      const endpoints = [
-        { end: conn.from, raw: conn.rawFrom },
-        { end: conn.to, raw: conn.rawTo },
-      ];
-
-      for (const { end, raw } of endpoints) {
-        let node: RosNode | undefined;
-        let iface: RosInterface | undefined;
-
-        if (end?.n) {
-          node = project.nodes.find(
-            (n) =>
-              n.id === end.n ||
-              n.label === end.n ||
-              (n.subRef &&
-                (n.id === `n_${n.subRef}_${end.n}` ||
-                  `${n.subRef}.${n.label}` === end.n ||
-                  `${n.subRef}::${n.label}` === end.n ||
-                  n.label === end.n))
-          );
-          if (node && end.i) {
-            iface = node.ifaces?.find((f) => f.id === end.i || f.label === end.i || f.name === end.i);
-          }
-        }
-
-        if ((!node || !iface) && raw) {
-          const sepIdx = raw.includes('::') ? raw.lastIndexOf('::') : raw.lastIndexOf('.');
-          if (sepIdx > 0) {
-            const rawNodePart = raw.slice(0, sepIdx).trim();
-            const normNodePart = rawNodePart.replace(/::/g, '.');
-            const ifacePart = raw.slice(sepIdx + (raw.includes('::') ? 2 : 1)).trim();
-            node = project.nodes.find(
-              (n) =>
-                n.label === rawNodePart ||
-                n.label === normNodePart ||
-                n.id === rawNodePart ||
-                n.id === normNodePart ||
-                n.id === `n_${rawNodePart}` ||
-                n.id === `n_${normNodePart.replace(/\./g, '_')}` ||
-                (n.subRef && `${n.subRef}.${n.label}` === normNodePart) ||
-                (n.subRef && `${n.subRef}::${n.label}` === rawNodePart) ||
-                (n.subRef && n.label === rawNodePart) ||
-                (n.subRef && n.id === `n_${n.subRef}_${rawNodePart}`)
-            );
-            if (node) {
-              iface = node.ifaces?.find((f) => f.label === ifacePart || f.name === ifacePart || f.id === ifacePart);
-            }
-          } else {
-            const candNodes = project.nodes.filter((n) =>
-              n.ifaces?.some((f) => f.label === raw || f.name === raw || f.id === raw)
-            );
-            if (candNodes.length === 1) {
-              node = candNodes[0];
-              iface = node.ifaces?.find((f) => f.label === raw || f.name === raw || f.id === raw);
-            } else if (candNodes.length > 1) {
-              const subCand = candNodes.find((n) => n.subRef || n.backing === 'sub');
-              if (subCand) {
-                node = subCand;
-                iface = node.ifaces?.find((f) => f.label === raw || f.name === raw || f.id === raw);
-              }
-            }
-          }
-        }
-
-        if (node && (node.subRef || node.backing === 'sub') && iface) {
-          const subRef = node.subRef || project.subSystems[0]?.ref;
-          if (!subRef) continue;
-          const nodeLabel = node.label;
-          let subMap = neededBySub.get(subRef);
-          if (!subMap) {
-            subMap = new Map();
-            neededBySub.set(subRef, subMap);
-          }
-          let ifaceMap = subMap.get(nodeLabel);
-          if (!ifaceMap) {
-            ifaceMap = new Map();
-            subMap.set(nodeLabel, ifaceMap);
-          }
-          const key = iface.name || iface.label;
-          if (key && !ifaceMap.has(key)) {
-            ifaceMap.set(key, iface);
-          }
-        }
-      }
-    }
-
-    if (neededBySub.size === 0) {
-      return false;
-    }
-
-    let anyUpdated = false;
-
-    for (const [subRef, nodeMap] of neededBySub.entries()) {
-      const subEntry = project.subSystems.find((s) => s.ref === subRef);
-      const subFilePath = this.resolveSubsystemFilePath(subRef, subEntry?.fromFile, docFilePath);
-      if (!subFilePath || !fs.existsSync(subFilePath)) {
-        continue;
-      }
-      if (this.isCoreCatalogue(subFilePath)) {
-        continue;
-      }
-
+    const stale: string[] = [];
+    for (const f of files) {
       try {
-        const subContent = this.readDocumentOrFile(subFilePath);
-        const subProject = RosModelParser.parseRosSystem(subContent, subFilePath);
-        let subModified = false;
-
-        for (const [nodeLabel, neededIfaces] of nodeMap.entries()) {
-          const subNode = subProject.nodes.find((n) => n.label === nodeLabel);
-          if (!subNode) continue;
-
-          // If the node in the subsystem has an explicit interfaces: block (subNode.ifaces.length > 0),
-          // only explicitly listed interfaces are exposed.
-          // Append any newly connected interfaces so they become part of the subsystem's exposed interfaces.
-          if (subNode.ifaces && subNode.ifaces.length > 0) {
-            for (const needed of neededIfaces.values()) {
-              const neededKey = needed.name || needed.label;
-              const existingIface = subNode.ifaces.find(
-                (f) => f.name === needed.name || f.label === neededKey || (needed.label && f.label === needed.label)
-              );
-              if (existingIface) {
-                // If interface remapped label was updated in main system / connection, keep subsystem in sync
-                if (needed.label && existingIface.label !== needed.label) {
-                  existingIface.label = needed.label;
-                  subModified = true;
-                }
-              } else {
-                const targetArt =
-                  needed.artifact ||
-                  subNode.artifact ||
-                  (subNode.from && subNode.from.includes('.') ? subNode.from.split('.')[1] : undefined);
-                const newIface: RosInterface = {
-                  id: `i_${subNode.label}_${neededKey}`,
-                  name: needed.name,
-                  label: needed.label || needed.name,
-                  kind: needed.kind,
-                  type: needed.type || '',
-                  artifact: targetArt,
-                  exposed: true,
-                };
-
-                // Insert in canonical kind order: pub -> sub -> ss -> sc -> as -> ac
-                const neededOrd = KIND_ORDER[newIface.kind] || 99;
-                let insertIdx = subNode.ifaces.length;
-                for (let k = 0; k < subNode.ifaces.length; k++) {
-                  const currOrd = KIND_ORDER[subNode.ifaces[k].kind] || 99;
-                  if (currOrd > neededOrd) {
-                    insertIdx = k;
-                    break;
-                  }
-                }
-                subNode.ifaces.splice(insertIdx, 0, newIface);
-                subModified = true;
-              }
-            }
-          }
-        }
-
-        if (subModified) {
-          const newSubContent = RosModelEmitter.emitRosSystem(subProject);
-          const openDoc = vscode.workspace.textDocuments.find(
-            (d) => d.uri.fsPath === subFilePath || d.fileName === subFilePath
-          );
-          if (openDoc) {
-            const wsEdit = new vscode.WorkspaceEdit();
-            wsEdit.replace(openDoc.uri, new vscode.Range(0, 0, openDoc.lineCount + 5, 0), newSubContent);
-            await vscode.workspace.applyEdit(wsEdit);
-            await openDoc.save();
-          } else {
-            fs.writeFileSync(subFilePath, newSubContent, 'utf-8');
-          }
-          anyUpdated = true;
-        }
-      } catch (err) {
-        console.warn(`Failed to sync subsystem ${subRef}:`, err);
+        const mtimeMs = fs.statSync(f).mtimeMs;
+        const cached = this.companionIndex.get(f);
+        if (!cached || cached.mtimeMs !== mtimeMs) stale.push(f);
+      } catch {
+        // file vanished
       }
     }
-
-    return anyUpdated;
-  }
-
-  public async syncParentSystemsOnSubsystemSave(subsystemFilePath: string): Promise<boolean> {
-    if (!subsystemFilePath.endsWith('.rossystem')) return false;
-    const subBaseName = path.basename(subsystemFilePath, '.rossystem');
-    const subFileName = path.basename(subsystemFilePath);
-    const roots = this.getWorkspaceRoots(subsystemFilePath);
-    let anyParentUpdated = false;
-
-    for (const root of roots) {
-      const files = this.findModelFilesRecursive(root, ['.rossystem'], 4);
-      for (const parentPath of files) {
-        if (parentPath === subsystemFilePath) continue;
-        if (this.isCoreCatalogue(parentPath)) continue;
-
+    if (stale.length > 0) {
+      const described = await GlspClientBridge.getInstance().requestRosIndex(stale);
+      for (const entry of described) {
         try {
-          const parentContent = this.readDocumentOrFile(parentPath);
-          if (!parentContent.includes(subBaseName) && !parentContent.includes(subFileName)) {
-            continue;
-          }
-
-          const parentProject = RosModelParser.parseRosSystem(parentContent, parentPath);
-          const referencesSub = (parentProject.subSystems || []).some(
-            (s) =>
-              s.ref === subBaseName ||
-              s.ref === subFileName ||
-              (s.fromFile &&
-                (s.fromFile.includes(subBaseName) ||
-                  s.fromFile.includes(subFileName) ||
-                  path.basename(s.fromFile, '.rossystem') === subBaseName))
-          );
-          if (!referencesSub) continue;
-
-          this.invalidateCompanionCache();
-          const connUpdated = this.resolveSystemInterfaces(parentProject, parentPath);
-          if (connUpdated) {
-            const newContent = RosModelEmitter.emitRosSystem(parentProject);
-            if (newContent !== parentContent) {
-              const openDoc = vscode.workspace.textDocuments.find(
-                (d) => d.uri.fsPath === parentPath || d.fileName === parentPath
-              );
-              if (openDoc) {
-                const wsEdit = new vscode.WorkspaceEdit();
-                wsEdit.replace(openDoc.uri, new vscode.Range(0, 0, openDoc.lineCount + 5, 0), newContent);
-                await vscode.workspace.applyEdit(wsEdit);
-                await openDoc.save();
-              } else {
-                fs.writeFileSync(parentPath, newContent, 'utf-8');
-              }
-              anyParentUpdated = true;
-            }
-          }
-        } catch (err) {
-          console.warn(`Error auto-syncing parent system ${parentPath}:`, err);
+          this.companionIndex.set(entry.path, { mtimeMs: fs.statSync(entry.path).mtimeMs, entry });
+        } catch {
+          // ignore
         }
       }
     }
-    return anyParentUpdated;
+    return files.map((f) => this.companionIndex.get(f)?.entry).filter(Boolean) as RosIndexFile[];
   }
 
-  private assignGridPositions(project: RosProject) {
-    let subIdx = 0;
-    for (const sub of project.subSystems || []) {
-      if (!project.view) project.view = {};
-      if (!project.view.subPos) project.view.subPos = {};
-      if (!project.view.subPos[sub.ref]) {
-        project.view.subPos[sub.ref] = { x: 80 + subIdx * 340, y: 380 };
-        subIdx++;
-      }
-    }
-
-    const unpositionedDirect = project.nodes.filter(
-      (n) => !n.subRef && n.backing !== 'sub' && (n.x == null || n.y == null)
+  public async resolveComponentFilePath(
+    from?: string,
+    pkg?: string,
+    artifact?: string,
+    label?: string,
+    docFilePath?: string
+  ): Promise<string | undefined> {
+    const keys = new Set(
+      [from, pkg && artifact ? `${pkg}.${artifact}` : undefined, pkg && label ? `${pkg}.${label}` : undefined, artifact, label]
+        .filter(Boolean) as string[]
     );
-    if (unpositionedDirect.length > 0) {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(unpositionedDirect.length)));
-      unpositionedDirect.forEach((n, idx) => {
-        const c = idx % cols;
-        const r = Math.floor(idx / cols);
-        n.x = 80 + c * 300;
-        n.y = 80 + r * 260;
-      });
+    for (const entry of await this.loadCompanionIndex(docFilePath || '')) {
+      for (const p of entry.packages || []) {
+        for (const a of p.artifacts || []) {
+          const candidates = [`${p.name}.${a.node}`, `${p.name}.${a.artifact}`, `${p.name}.${a.artifact}.${a.node}`, a.artifact, a.node];
+          if (candidates.some((c) => keys.has(c))) {
+            return entry.path;
+          }
+        }
+      }
     }
+    return undefined;
+  }
 
-    const unpositionedSubMembers = project.nodes.filter(
-      (n) => (n.subRef || n.backing === 'sub') && (n.x == null || n.y == null)
+  public async resolveSubsystemFilePath(
+    subRef?: string,
+    fromFile?: string,
+    docFilePath?: string
+  ): Promise<string | undefined> {
+    if (!subRef && !fromFile) return undefined;
+    const names = new Set(
+      [subRef, subRef?.replace(/_\d+$/, ''), fromFile ? path.basename(fromFile, '.rossystem') : undefined].filter(Boolean) as string[]
     );
-    if (unpositionedSubMembers.length > 0) {
-      const bySub = new Map<string, typeof unpositionedSubMembers>();
-      for (const sn of unpositionedSubMembers) {
-        const key = sn.subRef || 'default';
-        const list = bySub.get(key) || [];
-        list.push(sn);
-        bySub.set(key, list);
-      }
-      for (const [subRef, members] of bySub.entries()) {
-        const sPos = project.view?.subPos?.[subRef] || { x: 100, y: 100 };
-        const cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
-        members.forEach((n, idx) => {
-          const c = idx % cols;
-          const r = Math.floor(idx / cols);
-          n.x = sPos.x + 30 + c * 300;
-          n.y = sPos.y + 50 + r * 240;
-        });
+    if (docFilePath && fromFile) {
+      const resolved = path.resolve(path.dirname(docFilePath), fromFile);
+      if (fs.existsSync(resolved)) return resolved;
+    }
+    for (const entry of await this.loadCompanionIndex(docFilePath || '')) {
+      if (entry.kind === 'rossystem' && entry.system && names.has(entry.system.name)) {
+        return entry.path;
       }
     }
+    if (docFilePath && subRef) {
+      for (const base of [subRef, subRef.replace(/_\d+$/, '')]) {
+        const resolved = path.resolve(path.dirname(docFilePath), base.endsWith('.rossystem') ? base : `${base}.rossystem`);
+        if (fs.existsSync(resolved)) return resolved;
+      }
+    }
+    return undefined;
   }
 
-  private restoreCachedLayout(target: RosProject, source: RosProject) {
-    // Preserve member nodes of subsystems from source (e.g. from catalogue or external systems)
-    for (const n of source.nodes) {
-      if (n.subRef || n.backing === 'sub') {
-        const exists = target.nodes.some(
-          (tn) => tn.id === n.id || (tn.subRef === n.subRef && tn.label === n.label)
-        );
-        if (!exists) {
-          target.nodes.push({ ...n });
-        }
-      }
-    }
-
-    // Preserve node coordinates & dimensions keyed strictly by unique ID, with direct node label fallback
-    const nodeDataById = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
-    const directNodeDataByLabel = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
-    for (const n of source.nodes) {
-      nodeDataById.set(n.id, { x: n.x, y: n.y, w: n.w, h: n.h });
-      if (!n.subRef && n.backing !== 'sub') {
-        directNodeDataByLabel.set(n.label, { x: n.x, y: n.y, w: n.w, h: n.h });
-      }
-    }
-
-    for (const n of target.nodes) {
-      const data =
-        nodeDataById.get(n.id) ||
-        (!n.subRef && n.backing !== 'sub' ? directNodeDataByLabel.get(n.label) : undefined);
-      if (data) {
-        if (data.x != null && data.y != null) {
-          n.x = data.x;
-          n.y = data.y;
-        }
-        if (data.w != null) n.w = data.w;
-        if (data.h != null) n.h = data.h;
-      }
-    }
-
-    // Preserve subsystem dimensions
-    const subDataMap = new Map<string, { x?: number; y?: number; w?: number; h?: number }>();
-    for (const s of source.subSystems) {
-      subDataMap.set(s.ref, { x: s.x, y: s.y, w: s.w, h: s.h });
-    }
-    for (const s of target.subSystems) {
-      const data = subDataMap.get(s.ref);
-      if (data) {
-        if (data.x != null && data.y != null) {
-          s.x = data.x;
-          s.y = data.y;
-        }
-        if (data.w != null) s.w = data.w;
-        if (data.h != null) s.h = data.h;
-      }
-    }
-
-    // Preserve connection layout attributes (midX, midY, connectorMode, waypoints)
-    const connMap = new Map<
-      string,
-      { midX?: number; midY?: number; connectorMode?: RosConnection['connectorMode']; waypoints?: { x: number; y: number }[] }
-    >();
-    for (const c of source.connections || []) {
-      const key = `${c.from.n}::${c.from.i}->${c.to.n}::${c.to.i}`;
-      const data = { midX: c.midX, midY: c.midY, connectorMode: c.connectorMode, waypoints: c.waypoints };
-      connMap.set(c.id, data);
-      connMap.set(key, data);
-    }
-    for (const c of target.connections || []) {
-      const key = `${c.from.n}::${c.from.i}->${c.to.n}::${c.to.i}`;
-      const saved = connMap.get(c.id) || connMap.get(key);
-      if (saved) {
-        if (saved.midX != null) c.midX = saved.midX;
-        if (saved.midY != null) c.midY = saved.midY;
-        if (saved.connectorMode) c.connectorMode = saved.connectorMode;
-        if (saved.waypoints) c.waypoints = saved.waypoints;
-      }
-    }
-
-    // Preserve view states
-    if (source.view) {
-      const mergedSubStates = {
-        ...(target.view?.subStates || {}),
-        ...(source.view.subStates || {}),
-      };
-      const mergedSubPos = {
-        ...(target.view?.subPos || {}),
-        ...(source.view.subPos || {}),
-      };
-      const mergedNodeSize = {
-        ...(target.view?.nodeSize || {}),
-        ...(source.view.nodeSize || {}),
-      };
-      const mergedSubSize = {
-        ...(target.view?.subSize || {}),
-        ...(source.view.subSize || {}),
-      };
-      const mergedConnMidX = {
-        ...(target.view?.connMidX || {}),
-        ...(source.view.connMidX || {}),
-      };
-
-      target.view = {
-        ...target.view,
-        ...source.view,
-        subStates: mergedSubStates,
-        subPos: mergedSubPos,
-        nodeSize: mergedNodeSize,
-        subSize: mergedSubSize,
-        connMidX: mergedConnMidX,
-      };
-
-      for (const sub of target.subSystems || []) {
-        if (mergedSubStates[sub.ref]) {
-          sub.state = mergedSubStates[sub.ref];
-        }
-      }
-    }
-  }
-
-  public getLayoutFilePath(docFilePath: string): string {
-    const roots = this.getWorkspaceRoots(docFilePath);
-    const rootDir = roots.length > 0 ? roots[0] : path.dirname(docFilePath);
-    return RosLayoutManager.getLayoutFilePath(docFilePath, rootDir);
-  }
-
-  public loadLayoutSchematic(docFilePath: string): RosLayoutSchematic | null {
-    const roots = this.getWorkspaceRoots(docFilePath);
-    const rootDir = roots.length > 0 ? roots[0] : path.dirname(docFilePath);
-    return RosLayoutManager.loadLayoutSchematic(docFilePath, rootDir);
-  }
-
-  public applyLayoutSchematic(project: RosProject, schematic: RosLayoutSchematic): void {
-    RosLayoutManager.applyLayoutSchematic(project, schematic);
-  }
-
-  public async saveLayoutSchematic(docFilePath: string, project: RosProject): Promise<void> {
-    if (this.isCoreCatalogue(docFilePath)) {
-      return;
-    }
-    const roots = this.getWorkspaceRoots(docFilePath);
-    const rootDir = roots.length > 0 ? roots[0] : path.dirname(docFilePath);
-    if (this.isCoreCatalogue(rootDir)) {
-      return;
-    }
-    await RosLayoutManager.saveLayoutSchematic(docFilePath, project, rootDir);
-  }
-
-  public mapDiagnosticsToElements(
-    diagnostics: readonly vscode.Diagnostic[],
-    project: RosProject,
-    docFilePath: string
-  ): RosModelDiagnostic[] {
-    void docFilePath;
-    const results: RosModelDiagnostic[] = [];
-
-    // 1. Map VS Code / LSP diagnostics (from RosTooling Xtext validator or LSP)
-    for (const diag of diagnostics || []) {
-      const line = diag.range ? diag.range.start.line + 1 : undefined;
-      const msg = diag.message || '';
-      const sev: 'error' | 'warning' | 'info' =
-        diag.severity === vscode.DiagnosticSeverity.Warning
-          ? 'warning'
-          : diag.severity === vscode.DiagnosticSeverity.Information ||
-            diag.severity === vscode.DiagnosticSeverity.Hint
-          ? 'info'
-          : 'error';
-      const source = diag.source || 'RosTooling';
-
-      let matched = false;
-
-      // Try matching interfaces or parameters first (more granular than node)
-      for (const node of project.nodes || []) {
-        for (const iface of node.ifaces || []) {
-          if (
-            (line != null && iface.line === line) ||
-            (iface.name &&
-              (msg.includes(`'${iface.name}'`) ||
-                msg.includes(`"${iface.name}"`) ||
-                msg.includes(`::${iface.name}`) ||
-                msg.includes(`.${iface.name}`) ||
-                msg.includes(` ${iface.name} `)))
-          ) {
-            results.push({
-              elementId: iface.id,
-              elementKind: 'interface',
-              targetName: iface.name,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-        if (matched) break;
-
-        for (const param of node.params || []) {
-          if (
-            (line != null && param.line === line) ||
-            (param.name &&
-              (msg.includes(`'${param.name}'`) ||
-                msg.includes(`"${param.name}"`) ||
-                msg.includes(` ${param.name} `)))
-          ) {
-            results.push({
-              elementId: param.id,
-              elementKind: 'parameter',
-              targetName: param.name,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-        if (matched) break;
-      }
-
-      if (!matched) {
-        // Try matching node
-        for (const node of project.nodes || []) {
-          const lineInRange =
-            (line != null && node.line != null && node.line === line) ||
-            (line != null && node.line != null && node.lineEnd != null && line >= node.line && line <= node.lineEnd);
-          const nameInMsg =
-            node.label &&
-            (msg.includes(`'${node.label}'`) ||
-              msg.includes(`"${node.label}"`) ||
-              msg.includes(`node ${node.label}`) ||
-              msg.includes(`Node ${node.label}`));
-          if (lineInRange || nameInMsg) {
-            results.push({
-              elementId: node.id,
-              elementKind: 'node',
-              targetName: node.label,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched) {
-        // Try matching connections
-        for (const conn of project.connections || []) {
-          if (
-            (line != null && conn.line === line) ||
-            (msg.toLowerCase().includes('connection') &&
-              (msg.includes(conn.from.n) || msg.includes(conn.to.n)))
-          ) {
-            results.push({
-              elementId: conn.id,
-              elementKind: 'connection',
-              targetName: `${conn.from.n} -> ${conn.to.n}`,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched) {
-        // Try matching processes
-        for (const proc of project.processes || []) {
-          if (
-            (line != null && proc.line === line) ||
-            (proc.name &&
-              (msg.includes(`'${proc.name}'`) ||
-                msg.includes(`"${proc.name}"`) ||
-                msg.includes(`process ${proc.name}`)))
-          ) {
-            results.push({
-              elementId: proc.name,
-              elementKind: 'process',
-              targetName: proc.name,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched) {
-        // Try matching subsystems
-        for (const sub of project.subSystems || []) {
-          if (
-            (line != null && sub.line === line) ||
-            (sub.ref &&
-              (msg.includes(`'${sub.ref}'`) ||
-                msg.includes(`"${sub.ref}"`) ||
-                msg.includes(`subsystem ${sub.ref}`)))
-          ) {
-            results.push({
-              elementId: sub.ref,
-              elementKind: 'subsystem',
-              targetName: sub.ref,
-              severity: sev,
-              message: msg,
-              line,
-              source,
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-
-      if (!matched) {
-        // Fallback to system-level
-        results.push({
-          elementId: 'system',
-          elementKind: 'system',
-          targetName: project.system?.name || 'system',
-          severity: sev,
-          message: msg,
-          line,
-          source,
-        });
-      }
-    }
-
-    // 2. Semantic model consistency validation (built-in RosTooling model checks)
-    for (const conn of project.connections || []) {
-      const fromNode = project.nodes.find((n) => n.id === conn.from.n);
-      const toNode = project.nodes.find((n) => n.id === conn.to.n);
-      const fromIface = fromNode?.ifaces.find((i) => i.id === conn.from.i);
-      const toIface = toNode?.ifaces.find((i) => i.id === conn.to.i);
-
-      const isTypeDep =
-        Boolean(project.isRos) ||
-        conn.id.startsWith('dep_') ||
-        fromNode?.backing === 'type' ||
-        toNode?.backing === 'type';
-
-      if (!fromNode || !fromIface || !toNode || !toIface) {
-        if (!isTypeDep) {
-          results.push({
-            elementId: conn.id,
-            elementKind: 'connection',
-            targetName: conn.id,
-            severity: 'error',
-            message: `Connection references unresolvable endpoint: from='${conn.from.n}::${conn.from.i}', to='${conn.to.n}::${conn.to.i}'`,
-            line: conn.line,
-            source: 'RosSystemValidator',
-          });
-        }
-        continue;
-      }
-
-      if (isTypeDep) {
-        // In .ros models, connections represent UML schema type dependencies
-        const cleanFromType = (fromIface.type || '').replace(/^['"]|['"]$/g, '').replace(/\[\]$/, '').trim();
-        const cleanToType = (toIface.type || '').replace(/^['"]|['"]$/g, '').replace(/\[\]$/, '').trim();
-        const baseFrom = cleanFromType.split('/').pop()?.split('.').pop() || cleanFromType;
-        const baseTo = cleanToType.split('/').pop()?.split('.').pop() || cleanToType;
-
-        if (baseFrom !== baseTo && cleanFromType !== cleanToType && !cleanFromType.endsWith('/' + toNode.label)) {
-          results.push({
-            elementId: conn.id,
-            elementKind: 'connection',
-            targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
-            severity: 'error',
-            message: `Type dependency mismatch: '${fromIface.type}' does not reference '${toNode.label}'`,
-            line: conn.line,
-            source: 'RosValidator',
-          });
-        }
-        continue;
-      }
-
-      const validKinds: Record<string, string> = {
-        pub: 'sub',
-        sub: 'pub',
-        ss: 'sc',
-        sc: 'ss',
-        as: 'ac',
-        ac: 'as',
-      };
-      if (validKinds[fromIface.kind] && validKinds[fromIface.kind] !== toIface.kind) {
-        results.push({
-          elementId: conn.id,
-          elementKind: 'connection',
-          targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
-          severity: 'error',
-          message: `Incompatible port kinds in connection: cannot connect '${fromIface.kind}' to '${toIface.kind}'`,
-          line: conn.line,
-          source: 'RosSystemValidator',
-        });
-      }
-
-      const cleanFrom = (fromIface.type || '').replace(/^['"]|['"]$/g, '').trim();
-      const cleanTo = (toIface.type || '').replace(/^['"]|['"]$/g, '').trim();
-      const normFrom = cleanFrom.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
-      const normTo = cleanTo.replace(/\/msg\//, '/').replace(/\/srv\//, '/').replace(/\/action\//, '/');
-      const isMatch =
-        cleanFrom === cleanTo ||
-        normFrom === normTo ||
-        (cleanFrom.includes('/') && !cleanTo.includes('/') && cleanFrom.endsWith('/' + cleanTo)) ||
-        (!cleanFrom.includes('/') && cleanTo.includes('/') && cleanTo.endsWith('/' + cleanFrom));
-
-      if (fromIface.type && toIface.type && fromIface.type !== '—' && toIface.type !== '—' && !isMatch) {
-        results.push({
-          elementId: conn.id,
-          elementKind: 'connection',
-          targetName: `${fromNode.label}.${fromIface.name} -> ${toNode.label}.${toIface.name}`,
-          severity: 'error',
-          message: `Port type mismatch: '${fromIface.type}' does not match '${toIface.type}'`,
-          line: conn.line,
-          source: 'RosSystemValidator',
-        });
-      }
-    }
-
-    // Validate Processes
-    for (const proc of project.processes || []) {
-      for (const nodeName of proc.nodes || []) {
-        const found = project.nodes.some((n) => n.label === nodeName);
-        if (!found) {
-          results.push({
-            elementId: proc.name,
-            elementKind: 'process',
-            targetName: proc.name,
-            severity: 'warning',
-            message: `Process '${proc.name}' references undefined node '${nodeName}'`,
-            line: proc.line,
-            source: 'RosSystemValidator',
-          });
-        }
-      }
-    }
-
-    return results;
-  }
+  // ------------------------------------------------------------------------------------------
+  // Editor lifecycle
+  // ------------------------------------------------------------------------------------------
 
   public async resolveCustomTextEditor(
     document: vscode.TextDocument,
@@ -1784,151 +337,264 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
     });
 
     const docKey = document.uri.toString();
-    const initialText = document.getText();
-    const isRosSystem = document.fileName.endsWith('.rossystem');
-    const isRos = document.fileName.endsWith('.ros');
-    const isReadOnly = this.isCoreCatalogue(document.fileName);
-    const cached = this.projectCache.get(docKey);
-    let project: RosProject;
+    const fileName = document.fileName;
+    const isDiagram = fileName.endsWith('.rossystem');
+    const isReadOnly = this.isCoreCatalogue(fileName);
+    const glspBridge = GlspClientBridge.getInstance();
+    /** Host-managed session (forms) — the Sprotty client of a .rossystem brings its own id. */
+    const hostClientId = `ros_editor_${docKey}`;
+    let diagramClientId: string | null = null;
+    let currentGGraph: GGraph | null = null;
+    let currentMarkers: GlspMarker[] = [];
+    let disposed = false;
+    /** Text the server last parsed for this document; document changes equal to it are ours. */
+    let serverText: string | null = null;
 
-    try {
-      project = RosModelParser.parse(initialText, document.fileName);
-      project.isRosSystem = isRosSystem;
-      project.isRos = isRos;
-      if (!isRos) {
-        const connUpdated = this.resolveSystemInterfaces(project, document.fileName);
-        if (connUpdated && !isReadOnly && isRosSystem) {
-          const newText = RosModelEmitter.emitRosSystem(project);
-          if (newText !== initialText) {
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount + 5, 0), newText);
-            await vscode.workspace.applyEdit(edit);
-            await document.save();
+    const toProject = (): RosProject =>
+      GlspClientBridge.gGraphToRosProject(
+        currentGGraph || { id: 'root', type: 'graph', children: [] },
+        currentMarkers,
+        { fileName }
+      );
+
+    const postModel = () => {
+      if (disposed || !currentGGraph) return;
+      void webviewPanel.webview.postMessage({
+        type: 'updateGlspModel',
+        gGraph: currentGGraph,
+        markers: currentMarkers,
+        project: toProject(),
+      });
+    };
+
+    const post = (msg: unknown) => {
+      if (!disposed) void webviewPanel.webview.postMessage(msg);
+    };
+
+    /**
+     * Pulls the surgical span edits for the session's pending AST mutations from the server and
+     * applies them to the open document as ONE undoable WorkspaceEdit. The file is never
+     * rewritten; VS Code keeps the undo history and dirty state.
+     */
+    const applyServerEdits = async (clientId: string): Promise<boolean> => {
+      const result = await glspBridge.requestTextEdits(clientId);
+      serverText = result.newText;
+      if (result.edits.length === 0) return true;
+      if (document.getText() !== result.baseText) {
+        // The buffer changed while the server computed the edits: re-sync instead of guessing.
+        void vscode.window.showWarningMessage('RosTooling: the document changed during a diagram edit; the edit was not applied.');
+        serverText = null;
+        await reloadFromDocument();
+        return false;
+      }
+      const edit = new vscode.WorkspaceEdit();
+      for (const e of result.edits) {
+        edit.replace(
+          document.uri,
+          new vscode.Range(document.positionAt(e.offset), document.positionAt(e.offset + e.length)),
+          e.text
+        );
+      }
+      const ok = await vscode.workspace.applyEdit(edit);
+      if (!ok) {
+        void vscode.window.showErrorMessage('RosTooling: VS Code rejected the model edit.');
+        serverText = null;
+        await reloadFromDocument();
+      }
+      return ok;
+    };
+
+    /** Re-parses the current buffer on the server (text edits, VS Code undo/redo, companions). */
+    const reloadFromDocument = async () => {
+      serverText = document.getText();
+      if (diagramClientId) {
+        // The Sprotty client owns its session: let it re-request the model (sourceText is injected below).
+        post({ type: 'glspReload' });
+        return;
+      }
+      try {
+        currentGGraph = await glspBridge.reloadModel(hostClientId, document.uri.fsPath, document.getText());
+        currentMarkers = await glspBridge.requestMarkers(hostClientId);
+        postModel();
+      } catch (err) {
+        console.warn('Could not refresh GLSP model from document:', err);
+      }
+    };
+
+    if (!isDiagram) {
+      try {
+        const session = await glspBridge.openSession(
+          hostClientId,
+          document.uri.fsPath,
+          (updatedGraph) => {
+            currentGGraph = updatedGraph;
+          },
+          (updatedMarkers) => {
+            currentMarkers = updatedMarkers;
           }
+        );
+        currentGGraph = session.graph;
+        currentMarkers = session.markers;
+        if (document.isDirty) {
+          currentGGraph = await glspBridge.reloadModel(hostClientId, document.uri.fsPath, document.getText());
+          currentMarkers = await glspBridge.requestMarkers(hostClientId);
         }
+        serverText = document.getText();
+      } catch (glspErr) {
+        console.warn('GLSP server not reachable yet:', glspErr);
+        void vscode.window.showWarningMessage(`RosTooling: GLSP model server unavailable (${glspErr}).`);
       }
-      this.assignGridPositions(project);
-      const schematic = this.loadLayoutSchematic(document.fileName);
-      if (schematic) {
-        this.applyLayoutSchematic(project, schematic);
-      } else if (cached) {
-        this.restoreCachedLayout(project, cached);
-      }
-      const initialDiags = vscode.languages.getDiagnostics(document.uri);
-      project.diagnostics = this.mapDiagnosticsToElements(initialDiags, project, document.fileName);
-      this.projectCache.set(docKey, project);
-    } catch (e) {
-      console.error('Failed to parse RosTooling model:', e);
-      project = {
-        formatVersion: 4,
-        isRosSystem,
-        isRos,
-        system: { name: isRos ? '' : path.basename(document.fileName, path.extname(document.fileName)) },
-        subSystems: [],
-        nodes: [],
-        connections: [],
-        packages: {},
-        types: {},
-      };
-      this.assignGridPositions(project);
-      const schematic = this.loadLayoutSchematic(document.fileName);
-      if (schematic) {
-        this.applyLayoutSchematic(project, schematic);
-      } else if (cached) {
-        this.restoreCachedLayout(project, cached);
-      }
-      const initialDiags = vscode.languages.getDiagnostics(document.uri);
-      project.diagnostics = this.mapDiagnosticsToElements(initialDiags, project, document.fileName);
-      this.projectCache.set(docKey, project);
     }
 
-    this.refreshCatalogues(document.fileName);
+    await this.ensureCatalogues(fileName);
+
     webviewPanel.webview.html = getStudioHtml(
-      project,
+      toProject(),
       this.context.extensionUri,
       webviewPanel.webview,
       this.nodeIndex,
       this.typeIndex,
-      document.fileName,
-      isReadOnly
+      fileName,
+      isReadOnly,
+      currentGGraph,
+      currentMarkers
     );
 
-    let isInternalUpdate = false;
-    let lastInternalUpdateTime = 0;
+    const isOperation = (action: GlspAction) => action.isOperation === true;
 
-    // Handle messages from Webview
+    /** Runs one model operation and lands its text change in the document. */
+    const runOperation = async (clientId: string, action: GlspAction) => {
+      if (isReadOnly) {
+        vscode.window.showInformationMessage('Core catalogue models are read-only and cannot be modified.');
+        return;
+      }
+      if (serverText !== null && document.getText() !== serverText) {
+        await reloadFromDocument();
+      }
+      await glspBridge.sendAction(clientId, action);
+      await applyServerEdits(clientId);
+      if (clientId === hostClientId) {
+        currentGGraph = await glspBridge.reloadModel(hostClientId, document.uri.fsPath, document.getText());
+        currentMarkers = await glspBridge.requestMarkers(hostClientId);
+        serverText = document.getText();
+        postModel();
+      } else {
+        await glspBridge.sendAction(clientId, { kind: 'requestMarkers', requestId: '', elementsIDs: ['root'], reason: 'live' });
+      }
+    };
+
     const messageListener = webviewPanel.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.type) {
-        case 'applyEdit': {
-          if (this.isCoreCatalogue(document.fileName)) {
-            vscode.window.showInformationMessage('Core catalogue models are read-only and cannot be modified.');
-            return;
-          }
+        // ---------------- Sprotty / GLSP client proxy (.rossystem) ----------------
+        case 'glspInitServer': {
+          post({ type: 'glspResponse', requestId: msg.requestId, result: await glspBridge.getInitializeResult() });
+          break;
+        }
+        case 'glspInitSession': {
+          const params = msg.params || {};
+          diagramClientId = String(params.clientSessionId);
+          await glspBridge.initializeProxySession(
+            diagramClientId,
+            String(params.diagramType || 'ros-system-diagram'),
+            params.clientActionKinds || [],
+            document.uri.fsPath,
+            (action) => {
+              if (action.kind === 'setModel' || action.kind === 'updateModel') {
+                currentGGraph = (action.newRoot as GGraph) || currentGGraph;
+                postModel();
+              } else if (action.kind === 'setMarkers') {
+                currentMarkers = (action.markers as GlspMarker[]) || [];
+                postModel();
+              }
+              post({ type: 'glspServerAction', clientId: diagramClientId, action });
+            }
+          );
+          serverText = document.getText();
+          post({ type: 'glspResponse', requestId: msg.requestId, result: null });
+          break;
+        }
+        case 'glspDisposeSession': {
+          if (diagramClientId) await glspBridge.disposeSession(diagramClientId);
+          diagramClientId = null;
+          break;
+        }
+        case 'glspClientAction': {
+          const action: GlspAction = msg.action;
+          const clientId = String(msg.clientId || diagramClientId || hostClientId);
+          if (!action?.kind) return;
           try {
-            isInternalUpdate = true;
-            lastInternalUpdateTime = Date.now();
-            const updatedProject: RosProject = msg.project;
-            updatedProject.isRosSystem = isRosSystem;
-            updatedProject.isRos = isRos;
-            this.projectCache.set(docKey, updatedProject);
-            const newContent = RosModelEmitter.emit(updatedProject, document.fileName);
-
-            const edit = new vscode.WorkspaceEdit();
-            const fullRange = document.validateRange(new vscode.Range(0, 0, document.lineCount + 5, 0));
-            edit.replace(document.uri, fullRange, newContent);
-            await vscode.workspace.applyEdit(edit);
-
-            // Sync type changes back to backing companion models (.ros2 / .ros1 / .ros)
-            await this.syncCompanionRos2Models(updatedProject, document.fileName);
-
-            // Automatically sync referenced interfaces to subsystem models (.rossystem)
-            await this.syncSubsystemModels(updatedProject, document.fileName);
-
-            // Save layout schematic
-            await this.saveLayoutSchematic(document.fileName, updatedProject);
-
-            // Re-evaluate diagnostics and notify webview
-            const diags = vscode.languages.getDiagnostics(document.uri);
-            const mappedDiags = this.mapDiagnosticsToElements(diags, updatedProject, document.fileName);
-            updatedProject.diagnostics = mappedDiags;
-            void webviewPanel.webview.postMessage({
-              type: 'updateDiagnostics',
-              diagnostics: mappedDiags,
-            });
+            if (action.kind === 'requestModel') {
+              // Always parse the live buffer (may be unsaved).
+              const options = { ...((action.options as Record<string, unknown>) || {}) };
+              options.sourceUri = GlspClientBridge.toFileUri(document.uri.fsPath);
+              options.sourceText = document.getText();
+              serverText = document.getText();
+              await glspBridge.sendAction(clientId, { ...action, options });
+            } else if (action.kind === 'saveModel') {
+              await document.save();
+            } else if (action.kind === 'glspUndo' || action.kind === 'undo') {
+              await vscode.commands.executeCommand('undo');
+            } else if (action.kind === 'glspRedo' || action.kind === 'redo') {
+              await vscode.commands.executeCommand('redo');
+            } else if (isOperation(action)) {
+              await runOperation(clientId, action);
+            } else {
+              await glspBridge.sendAction(clientId, action);
+            }
           } catch (err) {
-            vscode.window.showErrorMessage(`Failed to apply model changes: ${err}`);
-          } finally {
-            isInternalUpdate = false;
-            lastInternalUpdateTime = Date.now();
+            vscode.window.showErrorMessage(`GLSP action '${action.kind}' failed: ${err}`);
           }
           break;
         }
 
-        case 'saveLayout': {
-          if (this.isCoreCatalogue(document.fileName)) {
-            return;
-          }
+        // ---------------- Forms (.ros2 / .ros) ----------------
+        case 'glspOperation':
+        case 'glspAction': {
+          const action: GlspAction = msg.action || msg.operation;
+          if (!action || !action.kind) return;
           try {
-            const updatedProject: RosProject = msg.project;
-            this.projectCache.set(docKey, updatedProject);
-            await this.saveLayoutSchematic(document.fileName, updatedProject);
+            await runOperation(diagramClientId || hostClientId, { isOperation: true, ...action });
           } catch (err) {
-            console.warn('Failed to save layout schematic:', err);
+            vscode.window.showErrorMessage(`GLSP operation '${action.kind}' failed: ${err}`);
+          }
+          break;
+        }
+
+        case 'undo':
+        case 'redo': {
+          await vscode.commands.executeCommand(msg.type);
+          break;
+        }
+
+        case 'requestModelRefresh': {
+          await reloadFromDocument();
+          break;
+        }
+
+        case 'exportSvg': {
+          try {
+            const svgContent = String(msg.svg || '');
+            if (!svgContent) return;
+            const defaultSvgPath = document.uri.fsPath.replace(/\.[^.]+$/, '.svg');
+            const targetUri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(defaultSvgPath),
+              filters: { 'SVG Diagram (*.svg)': ['svg'] },
+              saveLabel: 'Export Diagram SVG',
+            });
+            if (targetUri) {
+              await vscode.workspace.fs.writeFile(targetUri, new TextEncoder().encode(svgContent));
+              vscode.window.showInformationMessage(`Exported system diagram to ${path.basename(targetUri.fsPath)}`);
+            }
+          } catch (err) {
+            vscode.window.showErrorMessage(`Failed to export SVG diagram: ${err}`);
           }
           break;
         }
 
         case 'openComponentRos2': {
-          const compPath = this.resolveComponentFilePath(
-            msg.from,
-            msg.pkg,
-            msg.artifact,
-            msg.label,
-            document.fileName
-          );
+          const compPath = await this.resolveComponentFilePath(msg.from, msg.pkg, msg.artifact, msg.label, fileName);
           if (compPath && fs.existsSync(compPath)) {
-            const targetUri = vscode.Uri.file(compPath);
-            await vscode.commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+            await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(compPath), RosCustomEditorProvider.viewType);
           } else {
             vscode.window.showWarningMessage(`Could not locate component source file for '${msg.from || msg.label || 'component'}'.`);
           }
@@ -1936,14 +602,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
 
         case 'openSubsystemRosSystem': {
-          const subPath = this.resolveSubsystemFilePath(
-            msg.subRef,
-            msg.fromFile,
-            document.fileName
-          );
+          const subPath = await this.resolveSubsystemFilePath(msg.subRef, msg.fromFile, fileName);
           if (subPath && fs.existsSync(subPath)) {
-            const targetUri = vscode.Uri.file(subPath);
-            await vscode.commands.executeCommand('vscode.openWith', targetUri, RosCustomEditorProvider.viewType);
+            await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(subPath), RosCustomEditorProvider.viewType);
           } else {
             vscode.window.showWarningMessage(`Could not locate subsystem source file for '${msg.subRef || msg.fromFile || 'subsystem'}'.`);
           }
@@ -1951,17 +612,13 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         }
 
         case 'generateCode': {
-          if (document.isDirty) {
-            await document.save();
-          }
+          if (document.isDirty) await document.save();
           await vscode.commands.executeCommand('rossystem.triggerCodeGeneration', document.uri);
           break;
         }
 
         case 'generateWrappers': {
-          if (document.isDirty) {
-            await document.save();
-          }
+          if (document.isDirty) await document.save();
           await vscode.commands.executeCommand('ros2.generateWrappers', document.uri, msg.selectedNodes);
           break;
         }
@@ -1979,21 +636,14 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
               cancellable: false,
             },
             async (progress) => {
-              if (this.catalogueManager) {
-                const res = await this.catalogueManager.syncRepositories(true, (step) =>
-                  progress.report({ message: step })
-                );
-                const updated = this.refreshCatalogues();
-                webviewPanel.webview.postMessage({
-                  type: 'updateCatalogue',
-                  nodeCatalog: updated.nodeIndex,
-                  typeCatalog: updated.typeIndex,
-                });
-                if (res.success) {
-                  vscode.window.showInformationMessage('RosTooling: Catalogue updated with latest models.');
-                } else if (res.errors.length > 0) {
-                  vscode.window.showWarningMessage(`RosTooling: Catalogue updated with some notices: ${res.errors.join(', ')}`);
-                }
+              if (!this.catalogueManager) return;
+              const res = await this.catalogueManager.syncRepositories(true, (step) => progress.report({ message: step }));
+              const updated = await this.refreshCatalogues(fileName);
+              post({ type: 'updateCatalogue', nodeCatalog: updated.nodeIndex, typeCatalog: updated.typeIndex });
+              if (res.success) {
+                vscode.window.showInformationMessage('RosTooling: Catalogue updated with latest models.');
+              } else if (res.errors.length > 0) {
+                vscode.window.showWarningMessage(`RosTooling: Catalogue updated with some notices: ${res.errors.join(', ')}`);
               }
             }
           );
@@ -2008,15 +658,9 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             openLabel: 'Add to RosTooling Catalogue',
           });
           if (selected && selected.length > 0 && this.catalogueManager) {
-            for (const uri of selected) {
-              this.catalogueManager.addCustomFolder(uri.fsPath);
-            }
-            const updated = this.refreshCatalogues();
-            webviewPanel.webview.postMessage({
-              type: 'updateCatalogue',
-              nodeCatalog: updated.nodeIndex,
-              typeCatalog: updated.typeIndex,
-            });
+            for (const uri of selected) this.catalogueManager.addCustomFolder(uri.fsPath);
+            const updated = await this.refreshCatalogues(fileName);
+            post({ type: 'updateCatalogue', nodeCatalog: updated.nodeIndex, typeCatalog: updated.typeIndex });
             vscode.window.showInformationMessage(`Added ${selected.length} folder(s) to RosTooling Catalogue.`);
           }
           break;
@@ -2025,12 +669,8 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
         case 'removeCatalogueFolder': {
           if (msg.folderId && this.catalogueManager) {
             this.catalogueManager.removeCustomFolder(msg.folderId);
-            const updated = this.refreshCatalogues();
-            webviewPanel.webview.postMessage({
-              type: 'updateCatalogue',
-              nodeCatalog: updated.nodeIndex,
-              typeCatalog: updated.typeIndex,
-            });
+            const updated = await this.refreshCatalogues(fileName);
+            post({ type: 'updateCatalogue', nodeCatalog: updated.nodeIndex, typeCatalog: updated.typeIndex });
             vscode.window.showInformationMessage('Folder removed from RosTooling Catalogue.');
           }
           break;
@@ -2038,107 +678,38 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
       }
     });
 
-    const refreshWebviewFromDocument = async () => {
-      try {
-        const freshProject = RosModelParser.parse(document.getText(), document.fileName);
-        freshProject.isRosSystem = isRosSystem;
-        freshProject.isRos = isRos;
-        if (!isRos) {
-          const connUpdated = this.resolveSystemInterfaces(freshProject, document.fileName);
-          if (connUpdated && !isReadOnly && isRosSystem) {
-            const newText = RosModelEmitter.emitRosSystem(freshProject);
-            if (newText !== document.getText()) {
-              const edit = new vscode.WorkspaceEdit();
-              const fullRange = document.validateRange(new vscode.Range(0, 0, document.lineCount + 5, 0));
-              edit.replace(document.uri, fullRange, newText);
-              await vscode.workspace.applyEdit(edit);
-              await document.save();
-            }
-          }
-          void this.syncSubsystemModels(freshProject, document.fileName);
-        }
-        const currentCached = this.projectCache.get(docKey);
-
-        if (currentCached) {
-          this.restoreCachedLayout(freshProject, currentCached);
-        }
-
-        this.assignGridPositions(freshProject);
-        const diags = vscode.languages.getDiagnostics(document.uri);
-        freshProject.diagnostics = this.mapDiagnosticsToElements(diags, freshProject, document.fileName);
-        this.projectCache.set(docKey, freshProject);
-
-        void webviewPanel.webview.postMessage({
-          type: 'updateModel',
-          project: freshProject,
-        });
-      } catch (err) {
-        console.warn('Could not sync external text update to webview:', err);
-      }
-    };
-
-    // Sync external text changes (both on active document AND companion .ros2/.ros1/.ros/.rossystem files) into Webview
+    // Text edits, VS Code undo/redo and external reloads re-sync the server with the buffer.
+    // Changes that equal the text the server already has (our own WorkspaceEdits) are skipped.
+    let debounce: NodeJS.Timeout | undefined;
     const changeDocSubscription = vscode.workspace.onDidChangeTextDocument((e) => {
-      if (isInternalUpdate || Date.now() - lastInternalUpdateTime < 1000) {
-        return;
-      }
-
-      const changedPath = e.document.fileName || e.document.uri.fsPath;
-      const isTargetDoc = e.document.uri.toString() === docKey;
-      const isCompanionDoc =
-        (changedPath.endsWith('.ros2') ||
-          changedPath.endsWith('.ros1') ||
-          changedPath.endsWith('.ros') ||
-          changedPath.endsWith('.rossystem')) &&
-        changedPath !== document.fileName;
-
-      if (isTargetDoc || isCompanionDoc) {
-        this.invalidateCompanionCache();
-        refreshWebviewFromDocument();
-      }
+      if (e.document.uri.toString() !== docKey) return;
+      if (serverText !== null && e.document.getText() === serverText) return;
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => void reloadFromDocument(), 350);
     });
 
-    // Sync saved model documents into Webview
+    // Companion models (.ros2/.ros/.rossystem) saved -> re-link and re-validate.
     const saveDocSubscription = vscode.workspace.onDidSaveTextDocument((savedDoc) => {
       const savedPath = savedDoc.fileName || savedDoc.uri.fsPath;
-      if (
-        savedPath.endsWith('.ros2') ||
-        savedPath.endsWith('.ros1') ||
-        savedPath.endsWith('.ros') ||
-        savedPath.endsWith('.rossystem')
-      ) {
-        this.invalidateCompanionCache();
-        if (savedPath !== document.fileName) {
-          refreshWebviewFromDocument();
-        }
-      }
-    });
-
-    // Sync LSP / RosTooling Xtext diagnostics changes into Webview
-    const diagSubscription = vscode.languages.onDidChangeDiagnostics((e) => {
-      const isTarget = e.uris.some((u) => u.toString() === docKey);
-      if (isTarget) {
-        const currentProject = this.projectCache.get(docKey) || project;
-        const diags = vscode.languages.getDiagnostics(document.uri);
-        const mapped = this.mapDiagnosticsToElements(diags, currentProject, document.fileName);
-        currentProject.diagnostics = mapped;
-        void webviewPanel.webview.postMessage({
-          type: 'updateDiagnostics',
-          diagnostics: mapped,
-        });
+      if (!/\.(ros2|ros1|ros|rossystem)$/.test(savedPath)) return;
+      this.invalidateCompanionCache();
+      if (savedPath !== fileName) {
+        void reloadFromDocument();
       }
     });
 
     webviewPanel.onDidDispose(() => {
+      disposed = true;
+      if (debounce) clearTimeout(debounce);
+      void glspBridge.disposeSession(hostClientId);
+      if (diagramClientId) void glspBridge.disposeSession(diagramClientId);
       viewStateSubscription.dispose();
       messageListener.dispose();
       changeDocSubscription.dispose();
       saveDocSubscription.dispose();
-      diagSubscription.dispose();
       if (RosCustomEditorProvider.activeCustomDocument === document) {
         RosCustomEditorProvider.activeCustomDocument = undefined;
       }
-      this.projectCache.delete(docKey);
     });
   }
 }

@@ -9,8 +9,8 @@ import { spawn } from 'node:child_process';
 import * as os from 'os';
 import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
-import { RosModelParser } from './model/RosModelParser';
 import { AgentSkillInstaller } from './agent/AgentSkillInstaller';
+import { GlspClientBridge } from './glsp/GlspClientBridge';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -204,10 +204,21 @@ export async function activate(context: ExtensionContext) {
         : defaultVmArgs;
     outputChannel.appendLine(`LSP JVM options: ${vmArgs.join(' ')}`);
 
+    const glspPort = Number(process.env.ROS_GLSP_PORT || 5008);
+    GlspClientBridge.getInstance({
+        host: '127.0.0.1',
+        port: glspPort,
+        javaExecutable,
+        jarPath,
+        cataloguePath,
+        autoSpawn: true
+    });
+
     const baseArgs = [
         '--add-opens=java.base/java.lang=ALL-UNNAMED',
         '--add-opens=java.base/java.util=ALL-UNNAMED',
         `-Drostooling.catalogue.path=${cataloguePath}`,
+        `-Dros.glsp.port=${glspPort}`,
         ...vmArgs
     ];
 
@@ -716,21 +727,13 @@ export async function activate(context: ExtensionContext) {
             resolvedTargetNodes = [];
         }
 
-        // 1. Resolve document text and parse package/nodes
-        let docText = '';
-        try {
-            const rawBytes = await workspace.fs.readFile(targetUri);
-            docText = new TextDecoder().decode(rawBytes);
-        } catch {
-            const d = workspace.textDocuments.find(d => d.uri.toString() === targetUri.toString());
-            if (d) docText = d.getText();
-        }
-
-        const parsedProj = RosModelParser.parseRos2(docText, targetUri.fsPath);
-        const pkgName = parsedProj.system?.name || 'ros_package';
-        const allNodesInFile = (parsedProj.nodes || []).map(n => ({
-            artifactName: n.artifact || n.label,
-            nodeName: n.label
+        // 1. Describe package/nodes via the Java/Xtext GLSP server (no TypeScript DSL parsing)
+        const [described] = await GlspClientBridge.getInstance().requestRosIndex([targetUri.fsPath]);
+        const describedPkg = described?.packages?.[0];
+        const pkgName = describedPkg?.name || 'ros_package';
+        const allNodesInFile = (describedPkg?.artifacts || []).map(a => ({
+            artifactName: a.artifact,
+            nodeName: a.node
         }));
 
         let nodesToProcess = allNodesInFile;
@@ -1073,6 +1076,7 @@ export async function activate(context: ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+    void GlspClientBridge.getInstance().dispose();
     if (!lc) {
         return undefined;
     }

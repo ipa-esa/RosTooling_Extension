@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
-import { RosModelParser } from './RosModelParser';
+import { GlspClientBridge, RosIndexFile } from '../glsp/GlspClientBridge';
 import {
   RosCatalogueIndex,
   RosCatalogueFolder,
@@ -39,7 +39,8 @@ export class RosCatalogueManager {
   private syncPromise: Promise<{ success: boolean; updated: string[]; errors: string[] }> | null = null;
   private cacheIndex: RosCatalogueIndex | null = null;
   private cachedRootsKey = '';
-  private fileCache = new Map<string, { mtime: number; data: unknown }>();
+  /** Per-file server descriptions (requestRosIndex), invalidated by mtime. */
+  private fileCache = new Map<string, { mtime: number; data: RosIndexFile }>();
 
   constructor(storageDir?: string) {
     this.storageDir = storageDir || path.join(os.homedir(), '.rostooling', 'catalogue_repos');
@@ -258,9 +259,11 @@ export class RosCatalogueManager {
   }
 
   /**
-   * Search for all model files in candidate directories and build a live index
+   * Search for all model files in candidate directories and build a live index. Model files are
+   * parsed exclusively by the Java/Xtext server (GLSP `requestRosIndex`); only files whose mtime
+   * changed since the last call are sent.
    */
-  public buildCatalogueIndex(extraSearchRoots: string[] = []): RosCatalogueIndex {
+  public async buildCatalogueIndex(extraSearchRoots: string[] = []): Promise<RosCatalogueIndex> {
     const rootsKey = extraSearchRoots.slice().sort().join('|');
     if (this.cacheIndex && this.cachedRootsKey === rootsKey) {
       return this.cacheIndex;
@@ -302,112 +305,97 @@ export class RosCatalogueManager {
 
     const uniqueSources = new Set<string>();
     const seenFilePaths = new Set<string>();
+    const fileMeta: { filePath: string; root: string; sourceName: string; mtime: number }[] = [];
 
     for (const { root, sourceName } of searchRoots) {
       uniqueSources.add(sourceName);
-      const modelFiles = this.findModelFilesRecursively(root);
-
-      for (const filePath of modelFiles) {
+      for (const filePath of this.findModelFilesRecursively(root)) {
         if (seenFilePaths.has(filePath)) continue;
         seenFilePaths.add(filePath);
         try {
-          const stats = fs.statSync(filePath);
-          const ext = path.extname(filePath).toLowerCase();
-          const relPath = path.relative(root, filePath);
-          const domain = relPath.includes(path.sep) ? relPath.split(path.sep)[0] : 'general';
-
-          // Check cache
-          const cacheKey = `${filePath}:${stats.mtimeMs}`;
-          let parsedData = this.fileCache.get(cacheKey)?.data;
-
-          if (!parsedData) {
-            const content = fs.readFileSync(filePath, 'utf-8');
-            if (ext === '.ros') {
-              parsedData = { kind: 'ros', project: RosModelParser.parseRos(content, filePath) };
-            } else if (ext === '.ros2' || ext === '.ros1') {
-              parsedData = { kind: 'ros2', project: RosModelParser.parseRos2(content, filePath) };
-            } else if (ext === '.rossystem') {
-              parsedData = { kind: 'rossystem', project: RosModelParser.parseRosSystem(content, filePath) };
-            }
-            if (parsedData) {
-              this.fileCache.set(cacheKey, { mtime: stats.mtimeMs, data: parsedData });
-            }
-          }
-
-          if (!parsedData) continue;
-          const parsed = parsedData as { kind: string; project: ReturnType<typeof RosModelParser.parse> };
-          const p = parsed.project;
-
-          if (parsed.kind === 'ros') {
-            // Index Communication types (messages, services, actions)
-            for (const tKey of Object.keys(p.types || {})) {
-              const spec = p.types[tKey];
-              const compositeKey = `${spec.pkg}/${spec.category}/${spec.name}`;
-              index.types[compositeKey] = {
-                pkg: spec.pkg,
-                category: spec.category,
-                file: relPath,
-                source: sourceName,
-                domain,
-                fields: spec.fields,
-              };
-            }
-          } else if (parsed.kind === 'ros2') {
-            // Index Component nodes
-            for (const n of p.nodes || []) {
-              const pkgName = n.pkg || (p.system ? p.system.name : 'ros_pkg');
-              const nodeName = n.label || n.artifact;
-              const nodeKey = `${pkgName}.${nodeName}`;
-              const ifaceMap: Record<string, string | { kind: string; type?: string }> = {};
-              for (const iface of n.ifaces || []) {
-                ifaceMap[iface.name] = {
-                  kind: iface.kind,
-                  type: iface.type || '',
-                };
-              }
-              const paramMap: Record<string, { type?: string; value?: string | number | boolean }> = {};
-              for (const param of n.params || []) {
-                paramMap[param.name] = {
-                  type: param.ptype || 'String',
-                  value: param.value as string | number | boolean | undefined,
-                };
-              }
-
-              index.nodes[nodeKey] = {
-                node: nodeName,
-                artifact: n.artifact || n.label,
-                from: `${pkgName}.${nodeName}`,
-                pkg: pkgName,
-                file: relPath,
-                source: sourceName,
-                domain,
-                interfaces: ifaceMap,
-                parameters: paramMap,
-              };
-            }
-          } else if (parsed.kind === 'rossystem') {
-            // Index Systems / Subsystems
-            const sysName = p.system?.name || path.basename(filePath, '.rossystem');
-            const nodesMap: Record<string, { from?: string; interfaces?: Record<string, string> }> = {};
-            for (const n of p.nodes || []) {
-              const ifaces: Record<string, string> = {};
-              for (const i of n.ifaces || []) {
-                ifaces[i.name] = i.kind;
-              }
-              nodesMap[n.label] = { from: n.from, interfaces: ifaces };
-            }
-            index.systems.push({
-              system: sysName,
-              file: relPath,
-              fullPath: filePath,
-              source: sourceName,
-              domain,
-              nodes: nodesMap,
-            });
-          }
-        } catch (err) {
-          console.warn(`Error indexing model file ${filePath}:`, err);
+          fileMeta.push({ filePath, root, sourceName, mtime: fs.statSync(filePath).mtimeMs });
+        } catch {
+          // vanished
         }
+      }
+    }
+
+    const stale = fileMeta.filter((m) => this.fileCache.get(m.filePath)?.mtime !== m.mtime).map((m) => m.filePath);
+    if (stale.length > 0) {
+      const described = await GlspClientBridge.getInstance().requestRosIndex(stale);
+      for (const entry of described) {
+        const meta = fileMeta.find((m) => path.resolve(m.filePath) === entry.path);
+        if (meta) {
+          this.fileCache.set(meta.filePath, { mtime: meta.mtime, data: entry });
+        }
+      }
+    }
+
+    for (const { filePath, root, sourceName } of fileMeta) {
+      const entry = this.fileCache.get(filePath)?.data;
+      if (!entry || entry.error) continue;
+      const relPath = path.relative(root, filePath);
+      const domain = relPath.includes(path.sep) ? relPath.split(path.sep)[0] : 'general';
+
+      for (const pkg of entry.packages || []) {
+        // Communication types (messages, services, actions)
+        for (const spec of pkg.specs || []) {
+          const compositeKey = spec.fullname || `${pkg.name}/${spec.category}/${spec.name}`;
+          index.types[compositeKey] = {
+            pkg: pkg.name,
+            category: spec.category,
+            file: relPath,
+            source: sourceName,
+            domain,
+            fields: Object.fromEntries(
+              Object.entries(spec.sections || {}).map(([section, fields]) => [
+                section,
+                fields.map((f) => ({ type: f.type, name: f.name, array: f.type.endsWith('[]') })),
+              ])
+            ),
+          };
+        }
+        // Component nodes
+        for (const art of pkg.artifacts || []) {
+          const nodeKey = `${pkg.name}.${art.node}`;
+          const ifaceMap: Record<string, { kind: string; type?: string }> = {};
+          for (const iface of art.interfaces || []) {
+            ifaceMap[iface.name] = { kind: iface.kind, type: iface.type || '' };
+          }
+          const paramMap: Record<string, { type?: string; value?: string }> = {};
+          for (const param of art.parameters || []) {
+            paramMap[param.name] = { type: param.type || 'String', value: param.default || undefined };
+          }
+          index.nodes[nodeKey] = {
+            node: art.node,
+            artifact: art.artifact,
+            from: `${pkg.name}.${art.node}`,
+            pkg: pkg.name,
+            file: relPath,
+            source: sourceName,
+            domain,
+            interfaces: ifaceMap,
+            parameters: paramMap,
+          };
+        }
+      }
+
+      if (entry.kind === 'rossystem' && entry.system) {
+        const nodesMap: Record<string, { from?: string; interfaces?: Record<string, string> }> = {};
+        for (const n of entry.system.nodes || []) {
+          nodesMap[n.name] = {
+            from: n.from,
+            interfaces: Object.fromEntries((n.interfaces || []).map((i) => [i.name, i.kind])),
+          };
+        }
+        index.systems.push({
+          system: entry.system.name || path.basename(filePath, '.rossystem'),
+          file: relPath,
+          fullPath: filePath,
+          source: sourceName,
+          domain,
+          nodes: nodesMap,
+        });
       }
     }
 
