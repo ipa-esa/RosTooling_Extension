@@ -1,7 +1,10 @@
 import 'reflect-metadata';
 import { Container, injectable } from 'inversify';
 import {
+  Action,
   BaseGLSPClient,
+  ChangeBoundsListener,
+  ChangeBoundsTool,
   ConsoleLogger,
   LogLevel,
   bindOrRebind,
@@ -12,9 +15,15 @@ import {
   FitToScreenAction,
   GEdge,
   GLabel,
+  GModelElement,
+  GModelRoot,
   GNode,
   GPort,
+  GResizeHandle,
   IActionHandler,
+  ISelectionListener,
+  MouseListener,
+  Point,
   RequestExportSvgAction,
   RequestModelAction,
   SelectionService,
@@ -24,8 +33,11 @@ import {
   configureModelElement,
   createDiagramOptionsModule,
   edgeIntersectionModule,
+  findParentByFeature,
   initializeDiagramContainer,
+  isMoveable,
   resizeFeature,
+  boundsFeature,
   standaloneDefaultModule,
   toolPaletteModule,
 } from '@eclipse-glsp/client';
@@ -84,12 +96,68 @@ const rosDiagramModule = new FeatureModule((bind, unbind, isBound, rebind) => {
   configureModelElement(context, 'node:subsystem', GNode, RosSubsystemView, { disable: [resizeFeature] });
   configureModelElement(context, 'node:process', GNode, RosProcessView, { disable: [resizeFeature] });
   for (const kind of ['pub', 'sub', 'ss', 'sc', 'as', 'ac']) {
-    configureModelElement(context, `port:${kind}`, GPort, RosPortView);
+    // Port geometry comes from the server (ELK). Without boundsFeature the client never
+    // re-measures a port from the DOM, where its group also holds the label text (that turned
+    // ports into wide bars after GLSP's local bounds requests, e.g. on clicking a node).
+    configureModelElement(context, `port:${kind}`, GPort, RosPortView, { disable: [boundsFeature] });
   }
   configureModelElement(context, EDGE_TYPE, GEdge, RosConnectionView);
   for (const label of ['label:name', 'label:subtitle', 'label:badge', 'label:type']) {
     configureModelElement(context, label, GLabel, HiddenView);
   }
+});
+
+/**
+ * Upstream GLSP ChangeBoundsListener calls super.mouseDown() even on empty-canvas / non-left-button
+ * drags, so panning the viewport while a node is selected fires a spurious ChangeBoundsOperation on
+ * mouseUp and makes ELK re-place the node. Ignore drags that do not begin on a moveable/resizable
+ * element or that produce no actual movement.
+ */
+@injectable()
+class RosChangeBoundsListener extends ChangeBoundsListener {
+  private dragStartBounds = new Map<string, Point>();
+
+  override mouseDown(target: GModelElement, event: MouseEvent): Action[] {
+    const isMoveOrResize = target instanceof GResizeHandle || findParentByFeature(target, isMoveable) !== undefined;
+    if (event.button !== 0 || target instanceof GModelRoot || !isMoveOrResize) {
+      this._isMouseDown = false;
+      this._isMouseDrag = false;
+      this.dragStartBounds.clear();
+      return [];
+    }
+    this.dragStartBounds.clear();
+    for (const el of this.getElementsToMove(target)) {
+      this.dragStartBounds.set(el.id, { x: el.position.x, y: el.position.y });
+    }
+    return super.mouseDown(target, event);
+  }
+
+  protected override handleMoveOnServer(target: GModelElement): Action[] {
+    const moved = this.getElementsToMove(target).some((el) => {
+      const start = this.dragStartBounds.get(el.id);
+      return !start || Math.abs(el.position.x - start.x) > 0.5 || Math.abs(el.position.y - start.y) > 0.5;
+    });
+    this.dragStartBounds.clear();
+    return moved ? super.handleMoveOnServer(target) : [];
+  }
+
+  override dispose(): void {
+    this.dragStartBounds.clear();
+    super.dispose();
+  }
+}
+
+@injectable()
+class RosChangeBoundsTool extends ChangeBoundsTool {
+  protected override createChangeBoundsListener(): MouseListener & ISelectionListener {
+    return new RosChangeBoundsListener(this);
+  }
+}
+
+const rosToolOverridesModule = new FeatureModule((bind, unbind, isBound, rebind) => {
+  const context = { bind, unbind, isBound, rebind };
+  bind(RosChangeBoundsTool).toSelf().inSingletonScope();
+  bindOrRebind(context, ChangeBoundsTool).toService(RosChangeBoundsTool);
 });
 
 export interface RosDiagramHandle {
@@ -122,6 +190,7 @@ export async function mountRosDiagram(options: {
     rosDiagramModule,
     edgeIntersectionModule,
     standaloneDefaultModule,
+    rosToolOverridesModule,
     createDiagramOptionsModule(
       {
         clientId,

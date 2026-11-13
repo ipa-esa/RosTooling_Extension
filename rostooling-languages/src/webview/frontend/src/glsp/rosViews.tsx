@@ -41,13 +41,21 @@ export class RosNodeView extends ShapeView {
     const ns = String(a.namespace || '');
     const title = ns ? `${ns.replace(/\/$/, '')}/${name}` : name;
     const params = a.totalParams !== undefined ? `${a.activeParams ?? 0}/${a.totalParams} params` : '';
+    // The server wraps a long 'from' and grows the header by the extra lines.
+    const fromLines = String(a.fromLines ?? a.from ?? '').split('\n');
+    const headExtra = Math.max(0, fromLines.length - 1) * 13;
     return (
       <g class-ros-node={true} class-selected={node.selected} class-mouseover={node.hoverFeedback}
         on-dblclick={() => rosDiagramApi.openComponent(String(a.from || ''), name)}>
         <rect class-ros-node-card={true} x={0} y={0} width={w} height={h} rx={8} ry={8} />
-        <path class-ros-node-head={true} d={`M 0 8 a 8 8 0 0 1 8 -8 h ${w - 16} a 8 8 0 0 1 8 8 v 44 h ${-w} z`} />
-        <text class-ros-node-title={true} x={12} y={22}>{truncate(title, 32)}</text>
-        <text class-ros-node-sub={true} x={12} y={40}>{truncate(String(a.from || ''), 42)}</text>
+        <path class-ros-node-head={true} d={`M 0 8 a 8 8 0 0 1 8 -8 h ${w - 16} a 8 8 0 0 1 8 8 v ${44 + headExtra} h ${-w} z`} />
+        <text class-ros-node-title={true} x={12} y={22}>
+          <title>{`${title}${a.from ? ` (${String(a.from)})` : ''}`}</title>
+          {truncate(title, Number(a.titleMaxChars) || 32)}
+        </text>
+        <text class-ros-node-sub={true} x={12} y={40}>
+          {fromLines.map((line, i) => <tspan x={12} dy={i === 0 ? 0 : 13}>{line}</tspan>)}
+        </text>
         {a.isLifecycle ? (
           <g class-ros-badge={true} class-lc={true}>
             <rect x={w - 116} y={10} width={26} height={16} rx={8} />
@@ -77,6 +85,9 @@ export class RosPortView extends ShapeView {
     const west = port.position.x < 0 || port.position.x < 20;
     const spec = String(a.specName || '');
     const label = `${String(a.interfaceName || port.id)}${spec ? ` : ${spec.split('/').pop()}` : ''}`;
+    // The server wraps long labels to the card width and sizes the row for them.
+    const lines = String(a.labelLines || label).split('\n');
+    const lx = west ? w + 8 : -8;
     return (
       <g class-ros-port={true} class={{ [`ros-port-${kind}`]: true, inherited: !a.isExplicit }}
         class-selected={port.selected} class-mouseover={port.hoverFeedback}
@@ -85,8 +96,8 @@ export class RosPortView extends ShapeView {
         <title>{`${kind.toUpperCase()} ${String(a.interfaceName || '')}${spec ? ` (${spec})` : ''}${a.isExplicit ? '' : ' — inherited from component'}`}</title>
         <rect class-ros-port-hit={true} x={-4} y={-4} width={w + 8} height={h + 8} />
         <rect class-ros-port-box={true} x={0} y={0} width={w} height={h} rx={2} />
-        <text class-ros-port-label={true} class-west={west} class-east={!west} x={west ? w + 8 : -8} y={h / 2 + 4}>
-          {truncate(label, 24)}
+        <text class-ros-port-label={true} class-west={west} class-east={!west} x={lx} y={h / 2 + 4}>
+          {lines.map((line, i) => <tspan x={lx} dy={i === 0 ? 0 : 13}>{line}</tspan>)}
         </text>
       </g>
     ) as unknown as VNode;
@@ -100,12 +111,19 @@ export class RosSubsystemView extends ShapeView {
     const a = argsOf(node);
     const name = String(a.subSystemName || node.id);
     const collapsed = Boolean(a.collapsed);
+    const hasPorts = Number(a.boundaryPortCount ?? 0) > 0;
     const w = node.size.width;
     return (
       <g class-ros-subsystem={true} class-selected={node.selected} class-mouseover={node.hoverFeedback}
         on-dblclick={() => rosDiagramApi.openSubsystem(name)}>
         <rect class-ros-frame={true} x={0} y={0} width={w} height={node.size.height} rx={10} ry={10} />
-        <text class-ros-frame-title={true} x={14} y={22}>{`SubSystem: ${name}`}</text>
+        <text class-ros-frame-title={true} x={14} y={22}>
+          <title>{`SubSystem: ${name}`}</title>
+          {`SubSystem: ${name}`}
+        </text>
+        {collapsed && hasPorts ? (
+          <line x1={8} y1={34} x2={w - 8} y2={34} stroke="var(--rt-muted)" stroke-opacity={0.35} stroke-width={1} />
+        ) : null}
         <g class-ros-toggle={true}
           on-mousedown={(e: MouseEvent) => e.stopPropagation()}
           on-click={(e: MouseEvent) => {

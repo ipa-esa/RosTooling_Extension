@@ -45,6 +45,8 @@ export interface DiagramPort {
   name: string;
   spec: string;
   explicit: boolean;
+  /** "name : Type", wrapped by the server to the card width. */
+  labelLines: string[];
   nodeId: string;
   side: 'west' | 'east';
   x: number;
@@ -135,6 +137,7 @@ export function layoutFromGGraph(graph: GElementLike | null | undefined): Diagra
           kind: p.type.slice('port:'.length) as PortKind,
           name: String(p.args?.interfaceName || p.id),
           spec: String(p.args?.specName || ''),
+          labelLines: p.args?.labelLines ? String(p.args.labelLines).split('\n') : [],
           explicit: Boolean(p.args?.isExplicit),
           nodeId: child.id,
           side,
@@ -335,6 +338,25 @@ export interface RenderOptions {
   dark?: boolean;
 }
 
+function renderNodePortsSvg(
+  out: string[],
+  n: DiagramNode,
+  c: { card: string; text: string },
+  errorIds: Set<string>
+): void {
+  for (const p of n.ports) {
+    const col = PORT_COLORS[p.kind] || '#94a3b8';
+    out.push(`<rect x="${fmt(p.x)}" y="${fmt(p.y)}" width="${fmt(p.w)}" height="${fmt(p.h)}" rx="2" fill="${col}" stroke="${errorIds.has(p.id) ? '#ef4444' : c.card}" stroke-width="1"/>`);
+    const ly = p.y + p.h / 2 + 4;
+    const label = `${p.name}${p.spec ? ` : ${p.spec.split('/').pop()}` : ''}`;
+    const lines = p.labelLines.length ? p.labelLines : [truncate(label, 20)];
+    const west = p.side === 'west';
+    const lx = west ? n.x + 8 : n.x + n.w - 8;
+    const tspans = lines.map((line, i) => `<tspan x="${fmt(lx)}" dy="${i === 0 ? 0 : 13}">${escapeXml(line)}</tspan>`).join('');
+    out.push(`<text x="${fmt(lx)}" y="${fmt(ly)}" font-size="10.5"${west ? '' : ' text-anchor="end"'} fill="${c.text}">${tspans}</text>`);
+  }
+}
+
 /**
  * Renders the ELK-layouted GGraph as a self-contained SVG document (inline styles, no external
  * resources), suitable for files, docs and PRs.
@@ -377,6 +399,10 @@ export function renderDiagramSvg(
         `<rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}" rx="10" fill="${options.dark ? '#111827' : '#f8fafc'}" stroke="${errorIds.has(n.id) ? '#ef4444' : c.frame}" stroke-width="1.5" stroke-dasharray="6 4"/>`
       );
       out.push(`<text x="${fmt(n.x + 14)}" y="${fmt(n.y + 22)}" font-size="12" font-weight="700" fill="${c.text}">${escapeXml(`SubSystem: ${name}`)}${collapsed ? ' (collapsed)' : ''}</text>`);
+      if (collapsed && n.ports.length > 0) {
+        out.push(`<line x1="${fmt(n.x + 8)}" y1="${fmt(n.y + 34)}" x2="${fmt(n.x + n.w - 8)}" y2="${fmt(n.y + 34)}" stroke="${c.frame}" stroke-opacity="0.35" stroke-width="1"/>`);
+        renderNodePortsSvg(out, n, c, errorIds);
+      }
     } else if (n.type === 'node:process') {
       const name = String(n.el.args?.processName || n.id);
       const threads = String(n.el.args?.threads ?? '');
@@ -397,11 +423,13 @@ export function renderDiagramSvg(
     out.push(
       `<rect x="${fmt(n.x)}" y="${fmt(n.y)}" width="${fmt(n.w)}" height="${fmt(n.h)}" rx="8" fill="${c.card}" stroke="${hasError ? '#ef4444' : c.border}" stroke-width="${hasError ? 2 : 1.2}"/>`
     );
-    out.push(`<path d="M ${fmt(n.x)} ${fmt(n.y + 8)} a 8 8 0 0 1 8 -8 h ${fmt(n.w - 16)} a 8 8 0 0 1 8 8 v 44 h ${fmt(-n.w)} z" fill="${c.head}"/>`);
+    const fromLines = String(a.fromLines ?? from).split('\n');
+    const headExtra = Math.max(0, fromLines.length - 1) * 13;
+    out.push(`<path d="M ${fmt(n.x)} ${fmt(n.y + 8)} a 8 8 0 0 1 8 -8 h ${fmt(n.w - 16)} a 8 8 0 0 1 8 8 v ${44 + headExtra} h ${fmt(-n.w)} z" fill="${c.head}"/>`);
     const title = ns ? `${ns.replace(/\/$/, '')}/${name}` : name;
     // Long names are truncated on the card; the full name stays available as the hover title.
-    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 22)}" font-size="13" font-weight="700" fill="${c.text}"><title>${escapeXml(`${title}${from ? ` (${from})` : ''}`)}</title>${escapeXml(truncate(title, 34))}</text>`);
-    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 40)}" font-size="10.5" fill="${c.muted}">${escapeXml(truncate(from, 44))}</text>`);
+    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 22)}" font-size="13" font-weight="700" fill="${c.text}"><title>${escapeXml(`${title}${from ? ` (${from})` : ''}`)}</title>${escapeXml(truncate(title, Number(a.titleMaxChars) || 34))}</text>`);
+    out.push(`<text x="${fmt(n.x + 12)}" y="${fmt(n.y + 40)}" font-size="10.5" fill="${c.muted}">${fromLines.map((line, i) => `<tspan x="${fmt(n.x + 12)}" dy="${i === 0 ? 0 : 13}">${escapeXml(line)}</tspan>`).join('')}</text>`);
     const badges: string[] = [];
     if (a.isLifecycle) badges.push('LC');
     if (a.totalParams !== undefined) badges.push(`${a.activeParams ?? 0}/${a.totalParams} params`);
@@ -413,17 +441,7 @@ export function renderDiagramSvg(
       out.push(`<text x="${fmt(bx + bw / 2)}" y="${fmt(n.y + 21.5)}" font-size="9.5" text-anchor="middle" font-weight="700" fill="${b === 'LC' ? '#ffffff' : c.text}">${escapeXml(b)}</text>`);
       bx -= 4;
     }
-    for (const p of n.ports) {
-      const col = PORT_COLORS[p.kind] || '#94a3b8';
-      out.push(`<rect x="${fmt(p.x)}" y="${fmt(p.y)}" width="${fmt(p.w)}" height="${fmt(p.h)}" rx="2" fill="${col}" stroke="${errorIds.has(p.id) ? '#ef4444' : c.card}" stroke-width="1"/>`);
-      const ly = p.y + p.h / 2 + 4;
-      const label = `${p.name}${p.spec ? ` : ${p.spec.split('/').pop()}` : ''}`;
-      if (p.side === 'west') {
-        out.push(`<text x="${fmt(n.x + 8)}" y="${fmt(ly)}" font-size="10.5" fill="${c.text}">${escapeXml(truncate(label, 20))}</text>`);
-      } else {
-        out.push(`<text x="${fmt(n.x + n.w - 8)}" y="${fmt(ly)}" font-size="10.5" text-anchor="end" fill="${c.text}">${escapeXml(truncate(label, 20))}</text>`);
-      }
-    }
+    renderNodePortsSvg(out, n, c, errorIds);
   }
 
   for (const e of layout.edges) {
