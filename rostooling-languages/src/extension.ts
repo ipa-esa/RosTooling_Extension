@@ -840,7 +840,8 @@ export async function activate(context: ExtensionContext) {
             // src-gen/<pkgName> might not exist yet
         }
 
-        const hostDistro = process.env.ROS_DISTRO || 'humble';
+        // The generator resolves 'auto' to $ROS_DISTRO or its newest supported LTS (ros2.listDistros).
+        const hostDistro = 'auto';
         const cppTargetNodes = nodesToProcess
             .filter(n => nodeLangMap.get(n.artifactName) === 'cpp')
             .map(n => n.artifactName);

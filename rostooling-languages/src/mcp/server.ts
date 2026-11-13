@@ -40,6 +40,11 @@ class LspSessionManager {
     return client;
   }
 
+  /** Workspace of the running language server, if any (to reuse it for workspace-independent queries). */
+  public get workspaceDir(): string | null {
+    return this.currentWorkspaceDir;
+  }
+
   public async closeAll(): Promise<void> {
     if (this.activeClient) {
       await this.activeClient.stop();
@@ -130,10 +135,13 @@ export function createMcpServer(): McpServer {
         .default('cpp')
         .describe("Implementation language: 'cpp', 'python', or 'both' (hybrid). Defaults to 'cpp'."),
       ros_distro: z
-        .enum(['humble', 'jazzy', 'iron', 'rolling'])
+        .string()
         .optional()
-        .default('humble')
-        .describe("Target ROS 2 distribution (e.g. 'humble', 'jazzy'). Defaults to 'humble'."),
+        .default('auto')
+        .describe(
+          "Target ROS 2 distribution, e.g. 'jazzy'. 'auto' (default) uses $ROS_DISTRO, else the newest LTS. " +
+            'Supported names come from the generator itself: call list_ros2_distros.'
+        ),
       workspace_dir: z
         .string()
         .optional()
@@ -202,7 +210,7 @@ export function createMcpServer(): McpServer {
       const modelUri = pathToFileURL(absModelPath).href;
       const targetNodeNames = nodesToProcess.map(n => n.artifactName);
 
-      let genResult: { files?: Record<string, string>; error?: string } = {};
+      let genResult: { files?: Record<string, string>; error?: string; distro?: string } = {};
 
       if (language === 'both') {
         // Hybrid: C++ for first half, Python for remaining or custom per node
@@ -253,6 +261,7 @@ export function createMcpServer(): McpServer {
               {
                 status: 'success',
                 package: pkgName,
+                distro: genResult.distro,
                 workspaceDir: rootDir,
                 outputDir: path.join(srcGenDir, pkgName),
                 totalGenerated: Object.keys(files).length,
@@ -268,6 +277,26 @@ export function createMcpServer(): McpServer {
             ),
           },
         ],
+      };
+    }
+  );
+
+  // Tool 1b: list_ros2_distros (the Java generator's distro registry is the only list)
+  server.tool(
+    'list_ros2_distros',
+    "Lists the ROS 2 distributions the code generators support (oldest first), the default, and what 'auto' resolves to.",
+    {
+      workspace_dir: z
+        .string()
+        .optional()
+        .describe('Workspace root used to start the language server if none is running. Defaults to the current directory.'),
+    },
+    async ({ workspace_dir }) => {
+      const dir = workspace_dir ? path.resolve(workspace_dir) : sessionManager.workspaceDir ?? process.cwd();
+      const client = await sessionManager.getClient(dir);
+      const result = await client.executeCommand('ros2.listDistros', []);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       };
     }
   );

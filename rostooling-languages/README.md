@@ -151,7 +151,8 @@ This extension provides a built-in **Model Context Protocol (MCP)** server, enab
 
 ### Available MCP Tools
 
-* **`generate_ros2_wrappers`**: Generates C++, Python, or Hybrid ROS 2 node wrappers, runners, `CMakeLists.txt`, `package.xml`, and starter domain logic stubs (`*Algorithm.hpp`, `*_logic.py`) from a `.ros2` model file into `src-gen/<pkg>/`.
+* **`generate_ros2_wrappers`**: Generates C++, Python, or Hybrid ROS 2 node wrappers, runners, `CMakeLists.txt`, `package.xml`, and starter domain logic stubs (`*Algorithm.hpp`, `*_logic.py`) from a `.ros2` model file into `src-gen/<pkg>/`. `ros_distro` selects the target ROS 2 distribution (`auto` = `$ROS_DISTRO`, else the newest supported LTS).
+* **`list_ros2_distros`**: Lists the ROS 2 distributions the generators support, the default, and what `auto` resolves to.
 * **`generate_rossystem_code`**: Generates ROS 2 launch files (`<system>.launch.py`), `ComposableNodeContainer` descriptions, parameter YAMLs, and PlantUML diagrams from a `.rossystem` model.
 * **`validate_ros_model`**: Runs real-time syntax, type, and semantic validation through the official Xtext Language Server and returns structured diagnostic reports (`ERROR`, `WARNING`, line numbers, and messages).
 * **`build_ros2_package`**: Triggers `colcon build --symlink-install` in the target ROS 2 workspace.
