@@ -95,9 +95,9 @@ jobs:
         working-directory: rostooling-languages
         run: |
           node npm/build-mcp-package.mjs
-          PKG_DIR="$RUNNER_TEMP/rostooling-mcp"
+          PKG_DIR="$RUNNER_TEMP/mcp-package-smoke"
           mkdir -p "$PKG_DIR"
           npm pack ./build/npm-mcp --pack-destination "$PKG_DIR"
           (cd "$PKG_DIR" && npm init -y > /dev/null && npm install --omit=dev --no-audit --no-fund ./*.tgz)
-          RT_MCP_BIN="$PKG_DIR/node_modules/@rostooling/rostooling-mcp/bin/rostooling-mcp.js" \
+          RT_MCP_BIN="$PKG_DIR/node_modules/rostooling-mcp/bin/rostooling-mcp.js" \
             npx mocha --ui tdd --timeout 240000 --exit out/test/mcpSystemTools.test.js out/test/mcpPackageTools.test.js

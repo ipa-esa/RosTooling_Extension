@@ -7,7 +7,7 @@
 // runtime (the require closure of out/mcp/server.js), the language-server JAR, and writes a
 // dedicated package.json whose dependencies are exactly the external modules of that closure.
 //
-// Usage: node npm/build-mcp-package.mjs [--name @rostooling/rostooling-mcp]
+// Usage: node npm/build-mcp-package.mjs [--name rostooling-mcp]
 // Requires `npm run compile` and the server JAR in server/ (./gradlew copyFatJar).
 
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(root, 'build', 'npm-mcp');
 const nameArg = process.argv.indexOf('--name');
-const name = nameArg > 0 ? process.argv[nameArg + 1] : '@rostooling/rostooling-mcp';
+const name = nameArg > 0 ? process.argv[nameArg + 1] : 'rostooling-mcp';
 
 const ext = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const builtin = new Set(builtinModules);

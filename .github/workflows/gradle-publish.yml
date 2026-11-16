@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       publish_npm:
-        description: 'Publish to npm registry as @rostooling/rostooling-mcp'
+        description: 'Publish the headless MCP server to npm as rostooling-mcp'
         required: true
         type: boolean
         default: false
@@ -85,10 +85,10 @@ jobs:
       # The headless MCP server as its own small package (npm/build-mcp-package.mjs): only its
       # runtime files, the server JAR, and its three dependencies; not the extension's package.json.
       # npm trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
-      - name: Publish to npm (@rostooling/rostooling-mcp)
+      - name: Publish to npm (rostooling-mcp)
         if: github.event_name == 'release' || inputs.publish_npm
         working-directory: rostooling-languages
         run: |
           npm install -g npm@^11.5.1
-          node npm/build-mcp-package.mjs --name @rostooling/rostooling-mcp
+          node npm/build-mcp-package.mjs --name rostooling-mcp
           npm publish ./build/npm-mcp --provenance --access public

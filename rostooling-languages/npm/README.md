@@ -17,7 +17,8 @@ semantic operations, and the server applies them to the model and edits the file
 ## Use
 
 ```bash
-npx -y @rostooling/rostooling-mcp --help
+npm i -g rostooling-mcp
+rostooling-mcp --help
 ```
 
 MCP client configuration (stdio):
@@ -27,7 +28,7 @@ MCP client configuration (stdio):
   "mcpServers": {
     "rostooling": {
       "command": "npx",
-      "args": ["-y", "@rostooling/rostooling-mcp"]
+      "args": ["-y", "rostooling-mcp"]
     }
   }
 }
