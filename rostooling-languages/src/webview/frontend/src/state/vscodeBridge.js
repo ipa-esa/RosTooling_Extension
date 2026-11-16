@@ -92,8 +92,8 @@ export const hostBridge = {
     getVsCodeApi().postMessage({ type: 'exportSvg', svg });
   },
   /** Auto-connect dry run on the diagram's GLSP session; answered with 'autoConnectProposals'. */
-  requestAutoConnect() {
-    getVsCodeApi().postMessage({ type: 'autoConnectPropose' });
+  requestAutoConnect(clientId) {
+    getVsCodeApi().postMessage({ type: 'autoConnectPropose', clientId: clientId || undefined });
   },
   requestModelRefresh() {
     getVsCodeApi().postMessage({ type: 'requestModelRefresh' });

@@ -154,7 +154,7 @@ registerHostMessageListener({
     state.pending = 0;
     reconcileSelection();
     emitChange();
-    afterAutoConnectApplied();
+    autoConnectOnModelUpdate();
   },
   onUpdateCatalogue(nodeCatalog, typeCatalog) {
     state.nodeIndex = nodeCatalog || {};
@@ -167,8 +167,17 @@ registerHostMessageListener({
     const prev = state.autoConnect;
     const receivers = (result && result.receivers) || [];
     const choice = {};
+    const extras = {};
     for (const r of receivers) {
-      choice[r.receiverId] = (r.candidates.find((c) => c.preselected) || {}).id || null;
+      const ids = new Set(r.candidates.map((c) => c.id));
+      const kept = prev.refresh ? prev.choice?.[r.receiverId] : undefined;
+      // A refresh (undo/redo/edit while open) keeps the user's choices where they still exist.
+      choice[r.receiverId] = kept === null || (kept && ids.has(kept))
+        ? kept
+        : (r.candidates.find((c) => c.preselected) || {}).id || null;
+      if (prev.refresh && prev.extras?.[r.receiverId]) {
+        extras[r.receiverId] = new Set([...prev.extras[r.receiverId]].filter((id) => ids.has(id) && id !== choice[r.receiverId]));
+      }
     }
     let applied = null;
     if (prev.appliedIds && result) {
@@ -190,7 +199,7 @@ registerHostMessageListener({
       alreadyConnected: (result && result.alreadyConnected) || [],
       skipped: (result && result.skipped) || [],
       choice,
-      extras: {},
+      extras,
       applied,
     };
     emitChange();
@@ -205,12 +214,14 @@ registerHostMessageListener({
 function requestAutoConnectDryRun(patch = {}) {
   state.autoConnect = { ...(state.autoConnect || {}), loading: true, error: null, ...patch };
   emitChange();
-  hostBridge.requestAutoConnect();
+  // Ask the diagram's own GLSP session: it holds the live (possibly unsaved) model.
+  hostBridge.requestAutoConnect(rosDiagramApi.clientSessionId());
 }
 
 export function openAutoConnect() {
   if (state.isReadOnly) return;
   state.autoConnect = null;
+  autoConnectSeenRevision = modelRevision();
   requestAutoConnectDryRun({ receivers: [], emitterSummary: [], alreadyConnected: [], skipped: [], choice: {}, extras: {} });
 }
 
@@ -275,7 +286,33 @@ export function applyAutoConnect() {
 function afterAutoConnectApplied() {
   const ac = state.autoConnect;
   if (ac && ac.awaitingApply) {
-    requestAutoConnectDryRun({ awaitingApply: false });
+    requestAutoConnectDryRun({ awaitingApply: false, refresh: false });
+  }
+}
+
+/** Revision of the diagram model; markers-only updates keep it. */
+function modelRevision() {
+  const g = state.gGraph;
+  if (!g) return null;
+  return g.revision !== undefined ? g.revision : JSON.stringify(g).length;
+}
+let autoConnectSeenRevision = null;
+
+/**
+ * Model updates while the dialog is open: after an apply, show the result; after any other
+ * change of the model (VS Code undo/redo, text edits, other diagram edits) re-run the dry run
+ * so the dialog never shows stale receivers, keeping the user's choices where possible.
+ */
+function autoConnectOnModelUpdate() {
+  const rev = modelRevision();
+  const changed = rev !== autoConnectSeenRevision;
+  autoConnectSeenRevision = rev;
+  const ac = state.autoConnect;
+  if (!ac) return;
+  if (ac.awaitingApply) {
+    afterAutoConnectApplied();
+  } else if (changed && !ac.loading) {
+    requestAutoConnectDryRun({ refresh: true, appliedIds: undefined, applied: null });
   }
 }
 

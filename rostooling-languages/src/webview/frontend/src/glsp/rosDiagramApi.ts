@@ -9,13 +9,20 @@ type Dispatch = (action: Action) => Promise<void> | void;
 
 let dispatchFn: Dispatch | null = null;
 let readOnly = false;
+let sessionId: string | null = null;
 
 export const EDGE_TYPE = 'edge:ros-connection';
 
 export const rosDiagramApi = {
-  attach(dispatch: Dispatch, isReadOnly: boolean): void {
+  attach(dispatch: Dispatch, isReadOnly: boolean, clientSessionId?: string): void {
     dispatchFn = dispatch;
     readOnly = isReadOnly;
+    sessionId = clientSessionId || null;
+  },
+
+  /** GLSP client session id of the mounted diagram (requests that must hit its live model). */
+  clientSessionId(): string | null {
+    return sessionId;
   },
 
   isAttached(): boolean {
