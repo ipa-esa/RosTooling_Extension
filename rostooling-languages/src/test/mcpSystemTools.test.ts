@@ -74,6 +74,40 @@ const NODES = `warehouse_nodes:
           type: "warehouse_msgs/srv/SetSpeedLimit"
 `;
 
+const CHAT_NODES = `chat_nodes:
+  artifacts:
+    talker:
+      node: talker
+      publishers:
+        chatter:
+          type: "warehouse_msgs/msg/Scan"
+    listener:
+      node: listener
+      subscribers:
+        chatter:
+          type: "warehouse_msgs/msg/Scan"
+    logger:
+      node: logger
+      subscribers:
+        chatter:
+          type: "warehouse_msgs/msg/Scan"
+    limit_server_a:
+      node: limit_server_a
+      serviceservers:
+        set_speed_limit:
+          type: "warehouse_msgs/srv/SetSpeedLimit"
+    limit_server_b:
+      node: limit_server_b
+      serviceservers:
+        set_speed_limit:
+          type: "warehouse_msgs/srv/SetSpeedLimit"
+    limit_client:
+      node: limit_client
+      serviceclients:
+        set_speed_limit:
+          type: "warehouse_msgs/srv/SetSpeedLimit"
+`;
+
 interface Outcome {
   success: boolean;
   error?: string;
@@ -105,6 +139,7 @@ suite('MCP semantic system tools (Block 5 gate)', function () {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-mcp-e2e-'));
     fs.writeFileSync(path.join(dir, 'warehouse_msgs.ros'), MSGS);
     fs.writeFileSync(path.join(dir, 'warehouse_nodes.ros2'), NODES);
+    fs.writeFileSync(path.join(dir, 'chat_nodes.ros2'), CHAT_NODES);
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
     env.ROS_GLSP_PORT = String(Number(process.env.ROS_GLSP_IT_PORT) || 6100 + Math.floor(Math.random() * 800));
@@ -197,5 +232,53 @@ suite('MCP semantic system tools (Block 5 gate)', function () {
     // Node cards are labelled with their namespace; the process frame with its name.
     for (const n of ['>lidar<', '>perception/detector<', '>planner<', 'perception_container']) assert.ok(svg.includes(n), `SVG shows ${n}`);
     assert.strictEqual((svg.match(/<svg/g) || []).length, 1);
+  });
+
+  test('auto-connect: receivers decide; dry run, apply a subset, second server for a client rejected', async () => {
+    const sys = path.join(dir, 'chat_system.rossystem');
+    for (const n of ['talker', 'listener', 'logger', 'limit_server_a', 'limit_server_b', 'limit_client']) {
+      await ok('ros_add_node', { system_path: sys, node_name: n, from: `chat_nodes.${n}`, system_name: 'chat_system' });
+    }
+    const before = fs.readFileSync(sys, 'utf-8');
+
+    type Cand = { id: string; emitterRef: string; tier: string; preselected: boolean };
+    type Recv = { receiverId: string; kind: string; multiAllowed: boolean; candidates: Cand[] };
+    const dry = (await ok('ros_auto_connect', { system_path: sys })) as Outcome & {
+      dryRun: boolean; receivers: Recv[]; emitterSummary: { emitterRef: string; preselectedReceivers: number }[]; preselected: string[];
+    };
+    assert.strictEqual(dry.dryRun, true);
+    const byId = Object.fromEntries(dry.receivers.map((r) => [r.receiverId, r]));
+    assert.deepStrictEqual(Object.keys(byId).sort(), ['limit_client::set_speed_limit', 'listener::chatter', 'logger::chatter']);
+    assert.strictEqual(byId['listener::chatter'].multiAllowed, true);
+    assert.strictEqual(byId['limit_client::set_speed_limit'].multiAllowed, false);
+    assert.deepStrictEqual(byId['listener::chatter'].candidates.map((c) => `${c.emitterRef} ${c.tier} ${c.preselected}`),
+      ['talker::chatter contract true']);
+    // Two equally named servers: the client is left for the caller to decide (nothing preselected).
+    assert.deepStrictEqual(byId['limit_client::set_speed_limit'].candidates.map((c) => c.preselected), [false, false]);
+    assert.deepStrictEqual(dry.preselected.sort(), ['talker::chatter->listener::chatter', 'talker::chatter->logger::chatter']);
+    assert.strictEqual(dry.emitterSummary.find((e) => e.emitterRef === 'talker::chatter')?.preselectedReceivers, 2);
+    assert.strictEqual(fs.readFileSync(sys, 'utf-8'), before, 'a dry run writes nothing');
+
+    const applied = (await ok('ros_auto_connect', {
+      system_path: sys, apply: true, connections: [
+        'talker::chatter->listener::chatter',
+        'limit_server_a::set_speed_limit->limit_client::set_speed_limit',
+        'limit_server_b::set_speed_limit->limit_client::set_speed_limit',
+      ],
+    })) as Outcome & { applied: string[]; rejected: { id: string; reason: string }[] };
+    assert.deepStrictEqual(applied.applied, ['talker::chatter->listener::chatter']);
+    assert.strictEqual(applied.rejected.length, 2, JSON.stringify(applied.rejected));
+    for (const r of applied.rejected) {
+      assert.ok(r.reason.startsWith('service client limit_client::set_speed_limit takes exactly one server; 2 were selected'), r.reason);
+    }
+    const text = fs.readFileSync(sys, 'utf-8');
+    assert.ok(text.includes('    - [ "talker::chatter" , "listener::chatter" ]\n'), text);
+    assert.ok(!text.includes('set_speed_limit" ]'), text);
+
+    // Focus on one node: only its receiver remains open, with the publisher preselected.
+    const focus = (await ok('ros_auto_connect', { system_path: sys, nodes: ['logger'] })) as Outcome & { receivers: Recv[] };
+    assert.deepStrictEqual(focus.receivers.map((r) => r.receiverId), ['logger::chatter']);
+    const validation = (await call('validate_ros_model', { model_path: sys, workspace_dir: dir })) as Outcome & { isValid: boolean; diagnostics: unknown[] };
+    assert.ok(validation.isValid, JSON.stringify(validation.diagnostics, null, 2));
   });
 });

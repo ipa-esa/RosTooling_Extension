@@ -36,6 +36,7 @@ Exposed MCP Tools:
   ros_add_subsystem           Add a subSystems: reference to a .rossystem composition
   ros_set_system_property     Set top-level name or fromFile on a .rossystem
   ros_connect_interfaces      Connect "<node>.<interface>" -> "<node>.<interface>"
+  ros_auto_connect            Dry run: receivers with ranked candidates; apply chosen ids
   ros_set_parameter           Set a declared parameter's value on a node instance
   ros_add_process             Group node instances into a process (composable container)
   ros_remove_element          Remove a node, process, subsystem or connection

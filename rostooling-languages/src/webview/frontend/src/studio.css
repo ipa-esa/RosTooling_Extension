@@ -1301,3 +1301,49 @@ details.qos-details > summary {
 /* Drag-to-connect rubber band */
 .ros-wire-overlay { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 1000; }
 .ros-wire-overlay path { fill: none; stroke: var(--rt-border-strong); stroke-width: 2; stroke-dasharray: 6 4; }
+
+/* ---------------- Auto-connect review panel ---------------- */
+.rt-ac-panel { position: absolute; top: 54px; left: 10px; z-index: 6; width: min(640px, calc(100% - 20px));
+  max-height: calc(100% - 70px); display: flex; flex-direction: column; border-radius: var(--rt-radius);
+  background: var(--rt-surface); border: 1px solid var(--rt-border); box-shadow: var(--rt-shadow); color: var(--rt-ink); }
+.rt-ac-hdr { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--rt-border); }
+.rt-ac-hdr .rt-btn { margin-left: auto; }
+.rt-ac-sub { color: var(--rt-muted); font-size: 11.5px; }
+.rt-ac-body { overflow: auto; padding: 6px 10px; flex: 1 1 auto; min-height: 0; }
+.rt-ac-empty { display: flex; align-items: center; gap: 6px; color: var(--rt-muted); font-size: 12px; padding: 10px 2px; }
+.rt-ac-empty.err { color: var(--rt-err); }
+.rt-ac-result { font-size: 12px; padding: 6px 8px; margin: 4px 0 8px; border-radius: var(--rt-radius-sm);
+  background: rgba(16, 185, 129, 0.12); color: var(--rt-ok); }
+.rt-ac-result.warn { background: var(--rt-warn-bg); color: var(--rt-warn); }
+.rt-ac-hint { color: var(--rt-muted); }
+.rt-ac-node { margin: 6px 0 10px; }
+.rt-ac-node-hdr { font-size: 12px; font-weight: 600; color: var(--rt-muted); padding: 2px 0 4px; }
+.rt-ac-receiver { border: 1px solid var(--rt-border); border-radius: var(--rt-radius-sm); margin: 0 0 6px; padding: 4px 8px 6px; }
+.rt-ac-receiver legend { display: flex; align-items: center; gap: 6px; padding: 0 4px; font-size: 12px; }
+.rt-ac-cand { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 8px; row-gap: 1px;
+  padding: 3px 4px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.rt-ac-cand:hover { background: var(--rt-hover); }
+.rt-ac-cand.none { grid-template-columns: auto 1fr; color: var(--rt-muted); }
+.rt-ac-emitter { overflow-wrap: anywhere; }
+.rt-ac-evidence { grid-column: 2 / -1; color: var(--rt-muted); font-size: 11px; overflow-wrap: anywhere; }
+.rt-ac-tier { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--rt-surface-3); color: var(--rt-muted); white-space: nowrap; }
+.rt-ac-tier.t-remap, .rt-ac-tier.t-directed-remap, .rt-ac-tier.t-contract { background: rgba(16, 185, 129, 0.15); color: var(--rt-ok); }
+.rt-ac-tier.t-fuzzy { background: var(--rt-warn-bg); color: var(--rt-warn); }
+.rt-ac-extras { margin-top: 4px; padding-left: 18px; border-left: 2px solid var(--rt-border); }
+.rt-ac-extras-hdr { font-size: 11px; color: var(--rt-muted); padding: 2px 0; }
+.rt-ac-meta { color: var(--rt-muted); font-size: 11px; white-space: nowrap; }
+.rt-ac-kind { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; }
+.rt-ac-kind.k-sub { color: var(--k-sub); background: var(--k-sub-bg); }
+.rt-ac-kind.k-sc { color: var(--k-sc); background: var(--k-sc-bg); }
+.rt-ac-kind.k-ac { color: var(--k-ac); background: var(--k-ac-bg); }
+.rt-ac-fanout, .rt-ac-skipped { margin-top: 6px; border-top: 1px solid var(--rt-border); padding-top: 6px; }
+.rt-ac-fanout table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; }
+.rt-ac-fanout td { padding: 2px 6px; border-bottom: 1px solid var(--rt-border); }
+.rt-ac-fanout tr.idle { color: var(--rt-muted); }
+.rt-ac-skipped ul { margin: 6px 0 0; padding-left: 18px; color: var(--rt-muted); font-size: 11.5px; }
+.rt-ac-ftr { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--rt-border); }
+.rt-ac-spacer { flex: 1; }
+.rt-mono { font-family: var(--vscode-editor-font-family, ui-monospace, monospace); }
+/* Canvas highlight of hovered auto-connect ports / cards */
+.sprotty-graph .ros-ac-highlight .ros-port-box { stroke: var(--rt-border-strong); stroke-width: 3; }
+.sprotty-graph .ros-ac-highlight > rect:first-child { stroke: var(--rt-border-strong); stroke-width: 2.5; }

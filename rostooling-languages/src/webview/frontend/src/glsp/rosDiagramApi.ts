@@ -28,6 +28,21 @@ export const rosDiagramApi = {
     return true;
   },
 
+  /**
+   * Visual-only highlight of diagram elements (auto-connect hover): ports by their data-port-id,
+   * other elements (node / subsystem cards) by Sprotty's DOM id "<baseDiv>_<elementId>".
+   * Passing an empty list clears it. Nothing is sent to the server.
+   */
+  highlight(elementIds: (string | null | undefined)[]): void {
+    document.querySelectorAll('.ros-ac-highlight').forEach((el) => el.classList.remove('ros-ac-highlight'));
+    for (const id of elementIds) {
+      if (!id) continue;
+      const port = document.querySelector(`[data-port-id="${CSS.escape(id)}"]`);
+      const el = port || document.getElementById(`ros-sprotty_${id}`);
+      el?.classList.add('ros-ac-highlight');
+    }
+  },
+
   toggleSubSystem(elementId: string, collapsed: boolean): void {
     if (readOnly) return;
     this.dispatch({ kind: 'toggleSubSystem', isOperation: true, elementId, collapsed } as unknown as Action);

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Download, RefreshCw, Trash2, FileCode2, ChevronsDownUp, ChevronsUpDown, Loader2, Cable } from 'lucide-react';
+import { Maximize2, Download, RefreshCw, Trash2, FileCode2, ChevronsDownUp, ChevronsUpDown, Loader2, Cable, Wand2, X } from 'lucide-react';
 import {
   useStudio,
   setUIState,
@@ -7,7 +7,14 @@ import {
   deleteElements,
   toggleSubSystem,
   KIND_META,
+  openAutoConnect,
+  closeAutoConnect,
+  chooseAutoConnect,
+  toggleAutoConnectExtra,
+  autoConnectSelection,
+  applyAutoConnect,
 } from '../state/studioStore';
+import { rosDiagramApi } from '../glsp/rosDiagramApi';
 import { hostBridge } from '../state/vscodeBridge';
 import { CommitInput } from '../components/CommitInput';
 import { layoutFromGGraph } from '../../../../glsp/GGraphSvgRenderer';
@@ -86,6 +93,13 @@ export function RosSystemView() {
               <Cable size={14} /> Connect
             </button>
           )}
+          {!isReadOnly && (
+            <button type="button" className="rt-btn" data-testid="auto-connect"
+              title="Auto-connect: propose connections between placed nodes whose interface names match, then choose which to add"
+              onClick={() => openAutoConnect()}>
+              <Wand2 size={14} /> Auto-connect
+            </button>
+          )}
           <button type="button" className="rt-btn" title="Export the ELK-layouted diagram as SVG" onClick={() => handleRef.current?.exportSvg()}>
             <Download size={14} /> Export SVG
           </button>
@@ -101,8 +115,173 @@ export function RosSystemView() {
         {error && <div className="rt-canvas-empty"><p>Diagram client failed to start: {error}</p></div>}
         <div id={BASE_DIV} className="rt-sprotty-host" data-testid="rossystem-canvas" />
         <div id={HIDDEN_DIV} className="rt-sprotty-hidden" />
+        {studio.autoConnect && <AutoConnectDialog ac={studio.autoConnect} />}
       </div>
       <SystemInspector node={selectedNode} edge={selectedEdge} layout={layout} />
+    </div>
+  );
+}
+
+const TIER_LABELS = {
+  remap: 'both remapped to the same name',
+  'directed-remap': 'one remapped to the other interface name',
+  contract: 'same interface name',
+  fuzzy: 'similar names',
+  'type-unique': 'only emitter of this type',
+  'type-ambiguous': 'one of several emitters of this type',
+};
+
+const RECEIVER_LABEL = { sub: 'Subscriber', sc: 'Service client', ac: 'Action client' };
+
+/** Highlights the receiver and a candidate emitter on the canvas while hovered. */
+function hoverProps(receiver, candidate) {
+  return {
+    onMouseEnter: () => rosDiagramApi.highlight([receiver.portId || receiver.elementId,
+      candidate ? candidate.emitterPortId || candidate.emitterElementId : null]),
+    onMouseLeave: () => rosDiagramApi.highlight([]),
+  };
+}
+
+/**
+ * Auto-connect review. The receiver port is the only decision point: one radio group per
+ * receiver (ranked candidates from the server + "leave unconnected"); topic subscribers may add
+ * further publishers explicitly. Emitter fan-out is a read-only summary of those choices.
+ * Everything shown comes from the server's dry run; "Add" sends the chosen ids back.
+ */
+function AutoConnectDialog({ ac }) {
+  const [showSkipped, setShowSkipped] = useState(false);
+  const [showFanOut, setShowFanOut] = useState(true);
+  useEffect(() => () => rosDiagramApi.highlight([]), []);
+  const selected = autoConnectSelection(ac);
+  const selectedSet = new Set(selected);
+  const receivers = ac.receivers || [];
+  const byNode = new Map();
+  for (const r of receivers) {
+    if (!byNode.has(r.node)) byNode.set(r.node, []);
+    byNode.get(r.node).push(r);
+  }
+  // Live fan-out: server-reported existing connections + the current choices.
+  const chosenByEmitter = new Map();
+  for (const r of receivers) {
+    for (const c of r.candidates) {
+      if (selectedSet.has(c.id)) chosenByEmitter.set(c.emitterRef, (chosenByEmitter.get(c.emitterRef) || 0) + 1);
+    }
+  }
+  const short = (t) => (t ? t.split('/').pop() : '');
+  return (
+    <div className="rt-ac-panel" role="dialog" aria-label="Auto-connect" data-testid="auto-connect-dialog">
+      <div className="rt-ac-hdr">
+        <Wand2 size={14} />
+        <strong>Auto-connect</strong>
+        <span className="rt-ac-sub">
+          {ac.loading ? 'asking the model server…' : `${receivers.length} open receiver${receivers.length === 1 ? '' : 's'}`}
+        </span>
+        <button type="button" className="rt-btn icon-only subtle" title="Close" onClick={() => closeAutoConnect()}>
+          <X size={14} />
+        </button>
+      </div>
+      <div className="rt-ac-body">
+        {ac.applied && (
+          <div className={`rt-ac-result ${ac.applied.notAdded.length ? 'warn' : ''}`} data-testid="auto-connect-result">
+            Added {ac.applied.added.length} connection{ac.applied.added.length === 1 ? '' : 's'}
+            {ac.applied.notAdded.length > 0 && <> · not added by the server: {ac.applied.notAdded.join(', ')}</>}
+            <span className="rt-ac-hint"> (Undo reverts the whole batch)</span>
+          </div>
+        )}
+        {ac.loading && (
+          <div className="rt-ac-empty"><Loader2 size={14} className="rt-spin" /> asking the model server…</div>
+        )}
+        {ac.error && <div className="rt-ac-empty err">{ac.error}</div>}
+        {!ac.loading && !ac.error && receivers.length === 0 && (
+          <div className="rt-ac-empty">No open receivers: every subscriber/client is connected or has no compatible emitter.</div>
+        )}
+        {[...byNode.entries()].map(([node, list]) => (
+          <section key={node} className="rt-ac-node">
+            <div className="rt-ac-node-hdr rt-mono">{node}</div>
+            {list.map((r) => {
+              const chosen = ac.choice[r.receiverId] || null;
+              const extras = ac.extras[r.receiverId] || new Set();
+              const group = `ac-${r.receiverId}`;
+              return (
+                <fieldset key={r.receiverId} className="rt-ac-receiver" data-testid="auto-connect-receiver" data-receiver={r.receiverId}>
+                  <legend {...hoverProps(r, null)}>
+                    <span className={`rt-ac-kind k-${r.kind}`}>{RECEIVER_LABEL[r.kind] || r.kind}</span>
+                    <span className="rt-mono">{r.iface}</span>
+                    <span className="rt-ac-meta">{short(r.type)}</span>
+                  </legend>
+                  {r.candidates.map((c) => (
+                    <label key={c.id} className="rt-ac-cand" title={c.evidence} {...hoverProps(r, c)}>
+                      <input type="radio" name={group} checked={chosen === c.id} onChange={() => chooseAutoConnect(r.receiverId, c.id)} />
+                      <span className="rt-mono rt-ac-emitter">{c.emitterRef}</span>
+                      <span className={`rt-ac-tier t-${c.tier}`} title={TIER_LABELS[c.tier] || c.tier}>{c.tier}</span>
+                      <span className="rt-ac-evidence">{c.evidence}</span>
+                    </label>
+                  ))}
+                  <label className="rt-ac-cand none">
+                    <input type="radio" name={group} checked={chosen === null} onChange={() => chooseAutoConnect(r.receiverId, null)} />
+                    <span>leave unconnected</span>
+                  </label>
+                  {r.multiAllowed && r.candidates.length > 1 && (
+                    <div className="rt-ac-extras">
+                      <div className="rt-ac-extras-hdr">add another publisher</div>
+                      {r.candidates.filter((c) => c.id !== chosen).map((c) => (
+                        <label key={c.id} className="rt-ac-cand" title={c.evidence} {...hoverProps(r, c)}>
+                          <input type="checkbox" checked={extras.has(c.id)} onChange={() => toggleAutoConnectExtra(r.receiverId, c.id)} />
+                          <span className="rt-mono rt-ac-emitter">{c.emitterRef}</span>
+                          <span className={`rt-ac-tier t-${c.tier}`}>{c.tier}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </fieldset>
+              );
+            })}
+          </section>
+        ))}
+        {(ac.emitterSummary || []).length > 0 && (
+          <div className="rt-ac-fanout">
+            <button type="button" className="rt-btn subtle" onClick={() => setShowFanOut(!showFanOut)}>
+              {showFanOut ? 'Hide' : 'Show'} emitter fan-out
+            </button>
+            {showFanOut && (
+              <table data-testid="auto-connect-fanout">
+                <tbody>
+                  {ac.emitterSummary.map((e) => {
+                    const added = chosenByEmitter.get(e.emitterRef) || 0;
+                    return (
+                      <tr key={e.emitterRef} className={added ? '' : 'idle'}>
+                        <td className="rt-mono">{e.emitterRef}</td>
+                        <td>{short(e.type)}</td>
+                        <td title="existing connections + chosen here">{e.existingConnections} + {added} → {e.existingConnections + added}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        {ac.skipped.length > 0 && (
+          <div className="rt-ac-skipped">
+            <button type="button" className="rt-btn subtle" onClick={() => setShowSkipped(!showSkipped)}>
+              {showSkipped ? 'Hide' : 'Show'} {ac.skipped.length} skipped
+            </button>
+            {showSkipped && (
+              <ul>
+                {ac.skipped.map((s, i) => <li key={i} className="rt-mono">{s}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="rt-ac-ftr">
+        <span className="rt-ac-spacer" />
+        <button type="button" className="rt-btn" onClick={() => closeAutoConnect()}>Close</button>
+        <button type="button" className="rt-btn primary" data-testid="auto-connect-apply" disabled={selected.length === 0 || ac.loading}
+          onClick={() => applyAutoConnect()}>
+          Add {selected.length} connection{selected.length === 1 ? '' : 's'}
+        </button>
+      </div>
     </div>
   );
 }

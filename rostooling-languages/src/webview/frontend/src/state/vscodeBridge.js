@@ -70,6 +70,11 @@ export function registerHostMessageListener(handlers) {
           handlers.onUpdateCatalogue(msg.nodeCatalog || {}, msg.typeCatalog || {});
         }
         break;
+      case 'autoConnectProposals':
+        if (handlers.onAutoConnectProposals) {
+          handlers.onAutoConnectProposals(msg.result || null, msg.error || null);
+        }
+        break;
       default:
         break;
     }
@@ -85,6 +90,10 @@ export const hostBridge = {
   },
   exportSvg(svg) {
     getVsCodeApi().postMessage({ type: 'exportSvg', svg });
+  },
+  /** Auto-connect dry run on the diagram's GLSP session; answered with 'autoConnectProposals'. */
+  requestAutoConnect() {
+    getVsCodeApi().postMessage({ type: 'autoConnectPropose' });
   },
   requestModelRefresh() {
     getVsCodeApi().postMessage({ type: 'requestModelRefresh' });

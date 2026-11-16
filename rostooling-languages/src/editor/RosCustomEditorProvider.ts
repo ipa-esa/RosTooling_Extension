@@ -560,6 +560,20 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           break;
         }
 
+        case 'autoConnectPropose': {
+          // Dry run on the diagram's own session (its model may hold not-yet-saved edits).
+          try {
+            if (serverText !== null && document.getText() !== serverText) {
+              await reloadFromDocument();
+            }
+            const result = await glspBridge.requestAutoConnect(diagramClientId || hostClientId);
+            post({ type: 'autoConnectProposals', result });
+          } catch (err) {
+            post({ type: 'autoConnectProposals', result: null, error: `Auto-connect failed: ${err}` });
+          }
+          break;
+        }
+
         case 'undo':
         case 'redo': {
           await vscode.commands.executeCommand(msg.type);
