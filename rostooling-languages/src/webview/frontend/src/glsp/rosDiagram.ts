@@ -218,7 +218,7 @@ export async function mountRosDiagram(options: {
 
   const dispatcher = container.get<{ dispatch(a: unknown): Promise<void> }>(TYPES.IActionDispatcher);
   const dispatch = (action: unknown) => dispatcher.dispatch(action);
-  rosDiagramApi.attach(dispatch as never, options.isReadOnly);
+  rosDiagramApi.attach(dispatch as never, options.isReadOnly, clientId);
 
   server.onReload(() => {
     void dispatch(RequestModelAction.create({ options: { sourceUri: options.sourceUri, diagramType: ROS_DIAGRAM_TYPE } }));

@@ -5,6 +5,28 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-11-16
+
+### Added
+- **Auto-Connect for `.rossystem` Diagrams (`RosSystemView.jsx`, `studioStore.js`, `GlspClientBridge.ts`)**:
+  - Added an "Auto-connect" toolbar button that opens a dialog grouped by node. Each receiver port has a radio list of ranked candidates (tier and evidence) plus "leave unconnected"; topic subscribers can add further publishers explicitly.
+  - The dialog shows a live read-only fan-out per emitter and a collapsible skipped list, highlights the hovered candidate on the canvas, applies the selection as one undoable WorkspaceEdit (`applyRosAutoConnect`) and re-runs the dry run to show what was added. While open, it refreshes after undo/redo and other model changes and keeps the user's choices.
+  - All matching, ranking and validity rules come from the Java GLSP server (`requestRosAutoConnect`); the extension only relays them.
+- **MCP Tools**:
+  - Added `ros_auto_connect { system_path, nodes?, apply?, connections? }`: a dry run by default; with `apply` it returns the applied ids, the rejected ids with the server's reason, and validation errors/warnings.
+  - Added `list_ros2_distros`, backed by the LSP command `ros2.listDistros`.
+
+### Changed
+- **ROS 2 Distribution Selection**:
+  - The supported distributions come from RosTooling's Java registry (`de.fraunhofer.ipa.ros2.distro`) instead of a list in TypeScript. `generate_ros2_wrappers` takes `ros_distro` as a free string defaulting to `auto` (`$ROS_DISTRO`, else the newest supported LTS), returns an error listing the supported names for an unknown one, and reports the distribution it used.
+  - The VS Code generate command passes `auto` instead of `$ROS_DISTRO || 'humble'`: without `$ROS_DISTRO` it now generates for Jazzy instead of Humble.
+- **RosTooling 3.5.0**:
+  - The language server JAR is built against RosTooling 3.5.0 and bundles `de.fraunhofer.ipa.ros2.distro` (`build.gradle`).
+
+### Fixed
+- **Diagram Session Handling**:
+  - Auto-connect requests go to the mounted diagram's own GLSP session, and `glspDisposeSession` disposes exactly the session the webview names; previously a diagram remount could leave requests going to a dead session ("Timed out waiting for setRosAutoConnect").
+
 ## [2.4.0] - 2026-11-13
 
 ### Added

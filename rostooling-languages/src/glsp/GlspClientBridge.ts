@@ -113,7 +113,68 @@ const CLIENT_ACTION_KINDS = [
   'exportSvg',
   'setRosIndex',
   'setRosTextEdits',
+  'setRosAutoConnect',
 ];
+
+/**
+ * Auto-connect dry run (`requestRosAutoConnect` -> `setRosAutoConnect`), computed by the Java
+ * server (RosAutoConnector). The receiver port is the only decision point; emitters are a
+ * read-only fan-out summary. The extension only displays and relays this structure.
+ */
+export interface RosAutoConnectCandidate {
+  /** Stable id "emitterRef->receiverRef" to pass to `applyRosAutoConnect`. */
+  id: string;
+  /** "node::iface" or "sub::[...::]node::iface". */
+  emitterRef: string;
+  emitterNode: string;
+  emitterKind: 'pub' | 'ss' | 'as';
+  /** Diagram port id, or null when not drawn (collapsed or nested subsystem). */
+  emitterPortId: string | null;
+  /** A drawn element to highlight: the port, else its node or subsystem card. */
+  emitterElementId: string;
+  tier: 'remap' | 'directed-remap' | 'contract' | 'fuzzy' | 'type-unique' | 'type-ambiguous';
+  score: number;
+  evidence: string;
+  /** At most one per receiver. */
+  preselected: boolean;
+}
+
+export interface RosAutoConnectReceiver {
+  receiverId: string;
+  ref: string;
+  node: string;
+  iface: string;
+  kind: 'sub' | 'sc' | 'ac';
+  type: string;
+  portId: string | null;
+  elementId: string;
+  subsystem: string | null;
+  /** True only for topic subscribers: further publishers may be added explicitly. */
+  multiAllowed: boolean;
+  /** Best first. */
+  candidates: RosAutoConnectCandidate[];
+}
+
+export interface RosAutoConnectEmitterSummary {
+  emitterRef: string;
+  node: string;
+  kind: 'pub' | 'ss' | 'as';
+  type: string;
+  portId: string | null;
+  elementId: string;
+  existingConnections: number;
+  candidateReceivers: number;
+  preselectedReceivers: number;
+}
+
+export interface RosAutoConnectResult {
+  receivers: RosAutoConnectReceiver[];
+  emitterSummary: RosAutoConnectEmitterSummary[];
+  alreadyConnected: { receiverId: string; kind: string; from: string[] }[];
+  skipped: string[];
+  /** Server verdict on a proposed selection (only when `selected` was sent). */
+  selection?: { accepted: string[]; rejected: { id: string; reason: string }[] };
+}
 
 /** Surgical text change computed by the Java serializer (offsets refer to `baseText`). */
 export interface RosTextEditsResult {
@@ -586,6 +647,41 @@ export class GlspClientBridge {
       baseText: String(action.baseText ?? ''),
       newText: String(action.newText ?? ''),
       edits: (action.edits as RosTextEditsResult['edits']) || [],
+    };
+  }
+
+  /**
+   * Auto-connect dry run on the session's current model (RosAutoConnector on the Java server):
+   * receivers with ranked candidates, emitter fan-out, skipped matches. With `selected`, the
+   * server also judges that selection exactly as `applyRosAutoConnect` ({ selected }) would.
+   * Nothing is modified.
+   */
+  public async requestAutoConnect(
+    clientId: string,
+    nodes: string[] = [],
+    selected?: string[],
+    timeoutMs = 20000
+  ): Promise<RosAutoConnectResult> {
+    const conn = await this.ensureConnected();
+    const requestId = `req_autoconnect_${++this.reqCounter}`;
+    const response = new Promise<GlspAction>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingResponses.delete(requestId);
+        reject(new Error('Timed out waiting for setRosAutoConnect'));
+      }, timeoutMs);
+      this.pendingResponses.set(requestId, (action) => {
+        clearTimeout(timer);
+        resolve(action);
+      });
+    });
+    await conn.sendNotification('process', { clientId, action: { kind: 'requestRosAutoConnect', requestId, nodes, ...(selected ? { selected } : {}) } });
+    const action = await response;
+    return {
+      receivers: (action.receivers as RosAutoConnectReceiver[]) || [],
+      emitterSummary: (action.emitterSummary as RosAutoConnectEmitterSummary[]) || [],
+      alreadyConnected: (action.alreadyConnected as RosAutoConnectResult['alreadyConnected']) || [],
+      skipped: (action.skipped as string[]) || [],
+      ...(action.selection ? { selection: action.selection as RosAutoConnectResult['selection'] } : {}),
     };
   }
 

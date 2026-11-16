@@ -514,8 +514,11 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
           break;
         }
         case 'glspDisposeSession': {
-          if (diagramClientId) await glspBridge.disposeSession(diagramClientId);
-          diagramClientId = null;
+          // Dispose exactly the session the webview names: when the diagram remounts, the new
+          // session may already be initialized and must stay the active one.
+          const disposed = String(msg.params?.clientSessionId || diagramClientId || '');
+          if (disposed) await glspBridge.disposeSession(disposed);
+          if (disposed === diagramClientId) diagramClientId = null;
           break;
         }
         case 'glspClientAction': {
@@ -556,6 +559,20 @@ export class RosCustomEditorProvider implements vscode.CustomTextEditorProvider 
             await runOperation(diagramClientId || hostClientId, { isOperation: true, ...action });
           } catch (err) {
             vscode.window.showErrorMessage(`GLSP operation '${action.kind}' failed: ${err}`);
+          }
+          break;
+        }
+
+        case 'autoConnectPropose': {
+          // Dry run on the diagram's own session (its model may hold not-yet-saved edits).
+          try {
+            if (serverText !== null && document.getText() !== serverText) {
+              await reloadFromDocument();
+            }
+            const result = await glspBridge.requestAutoConnect(String(msg.clientId || diagramClientId || hostClientId));
+            post({ type: 'autoConnectProposals', result });
+          } catch (err) {
+            post({ type: 'autoConnectProposals', result: null, error: `Auto-connect failed: ${err}` });
           }
           break;
         }

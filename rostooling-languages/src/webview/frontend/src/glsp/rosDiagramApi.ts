@@ -9,13 +9,20 @@ type Dispatch = (action: Action) => Promise<void> | void;
 
 let dispatchFn: Dispatch | null = null;
 let readOnly = false;
+let sessionId: string | null = null;
 
 export const EDGE_TYPE = 'edge:ros-connection';
 
 export const rosDiagramApi = {
-  attach(dispatch: Dispatch, isReadOnly: boolean): void {
+  attach(dispatch: Dispatch, isReadOnly: boolean, clientSessionId?: string): void {
     dispatchFn = dispatch;
     readOnly = isReadOnly;
+    sessionId = clientSessionId || null;
+  },
+
+  /** GLSP client session id of the mounted diagram (requests that must hit its live model). */
+  clientSessionId(): string | null {
+    return sessionId;
   },
 
   isAttached(): boolean {
@@ -26,6 +33,21 @@ export const rosDiagramApi = {
     if (!dispatchFn) return false;
     void dispatchFn(action);
     return true;
+  },
+
+  /**
+   * Visual-only highlight of diagram elements (auto-connect hover): ports by their data-port-id,
+   * other elements (node / subsystem cards) by Sprotty's DOM id "<baseDiv>_<elementId>".
+   * Passing an empty list clears it. Nothing is sent to the server.
+   */
+  highlight(elementIds: (string | null | undefined)[]): void {
+    document.querySelectorAll('.ros-ac-highlight').forEach((el) => el.classList.remove('ros-ac-highlight'));
+    for (const id of elementIds) {
+      if (!id) continue;
+      const port = document.querySelector(`[data-port-id="${CSS.escape(id)}"]`);
+      const el = port || document.getElementById(`ros-sprotty_${id}`);
+      el?.classList.add('ros-ac-highlight');
+    }
   },
 
   toggleSubSystem(elementId: string, collapsed: boolean): void {

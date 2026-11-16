@@ -15,7 +15,7 @@ apply plugin: 'net.researchgate.release'
 ext {
     xtextVersion = '2.42.0'
     group = 'de.fraunhofer.ipa.ros'
-    version = '3.4.0'
+    version = '3.5.0'
 }
 
 java {
@@ -56,6 +56,8 @@ dependencies {
     // .ros2 extension
     implementation "${project.ext.group}:${project.ext.group}2.xtext:${project.ext.version}"
     implementation "${project.ext.group}:${project.ext.group}2.xtext.ide:${project.ext.version}"
+    // ROS 2 distribution registry and dialects used by the .ros2 generator
+    implementation "${project.ext.group}:${project.ext.group}2.distro:${project.ext.version}"
 
     // // .rossystem extension
     implementation "${project.ext.group}:${project.ext.group}system:${project.ext.version}"

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { GGraph, GModelElement, GlspClientBridge } from '../glsp/GlspClientBridge.js';
+import { GGraph, GModelElement, GlspClientBridge, RosAutoConnectResult } from '../glsp/GlspClientBridge.js';
 import { renderDiagramSvg } from '../glsp/GGraphSvgRenderer.js';
 import {
   Bridge,
@@ -351,6 +351,77 @@ export async function removeElement(
   });
 }
 
+/**
+ * Auto-connect over GLSP. The Java server owns every rule (RosAutoConnector): candidates by
+ * compatibility, ranking by name evidence, at most one preselection per receiver, and the
+ * per-receiver validity of a selection. The receiver port is the only decision point; emitters
+ * are a read-only fan-out. This tool only relays: dry run -> apply chosen candidate ids.
+ */
+export async function autoConnect(
+  bridge: Bridge,
+  p: { system_path: string; nodes?: string[]; apply?: boolean; connections?: string[] }
+): Promise<ToolOutcome> {
+  return withSystem(bridge, p.system_path, true, async (s) => {
+    const nodes = p.nodes || [];
+    const dry = await bridge.requestAutoConnect(s.clientId, nodes);
+    const view = (r: RosAutoConnectResult) => ({
+      receivers: r.receivers.map((x) => ({
+        receiverId: x.receiverId,
+        kind: x.kind,
+        type: x.type,
+        multiAllowed: x.multiAllowed,
+        candidates: x.candidates.map((c) => ({
+          id: c.id, emitterRef: c.emitterRef, tier: c.tier, score: c.score, evidence: c.evidence, preselected: c.preselected,
+        })),
+      })),
+      emitterSummary: r.emitterSummary.map((e) => ({
+        emitterRef: e.emitterRef, type: e.type, existingConnections: e.existingConnections,
+        candidateReceivers: e.candidateReceivers, preselectedReceivers: e.preselectedReceivers,
+      })),
+      alreadyConnected: r.alreadyConnected,
+      skipped: r.skipped,
+    });
+    if (!p.apply) {
+      const m = summarizeMarkers(await bridge.requestMarkers(s.clientId));
+      const preselected = dry.receivers.flatMap((r) => r.candidates.filter((c) => c.preselected).map((c) => c.id));
+      return {
+        success: true, file: s.file, dryRun: true, changed: false, ...view(dry), preselected,
+        hint: dry.receivers.length
+          ? 'Each receiver decides: pick at most one candidate per service/action client; a subscriber may take several publishers. '
+            + 'Call again with apply: true and connections: [candidate ids] (default: the preselected ones).'
+          : 'No open receivers.',
+        ...m,
+      };
+    }
+
+    const requested = p.connections && p.connections.length
+      ? p.connections
+      : dry.receivers.flatMap((r) => r.candidates.filter((c) => c.preselected).map((c) => c.id));
+    if (requested.length === 0) {
+      return fail(s, 'Nothing to apply: no connections given and no candidate is preselected.', view(dry));
+    }
+    // The server judges the selection exactly as applyRosAutoConnect will.
+    const verdict = (await bridge.requestAutoConnect(s.clientId, nodes, requested)).selection || { accepted: [], rejected: [] };
+    if (verdict.accepted.length === 0) {
+      return fail(s, 'The server rejected every selected connection.', { rejected: verdict.rejected, ...view(dry) });
+    }
+    await runOperation(bridge, s, { kind: 'applyRosAutoConnect', selected: requested });
+    const { changed, markers } = await commit(bridge, s);
+    const after = await bridge.requestAutoConnect(s.clientId, nodes);
+    const connected = new Set(after.alreadyConnected.flatMap((cr) => cr.from.map((f) => `${f}->${cr.receiverId}`)));
+    const applied = verdict.accepted.filter((id) => connected.has(id));
+    const missing = verdict.accepted.filter((id) => !connected.has(id));
+    const m = summarizeMarkers(markers);
+    if (missing.length) {
+      return fail(s, 'The server accepted but did not write every connection.', { applied, missing, rejected: verdict.rejected, ...m });
+    }
+    return {
+      success: m.errors.length === 0, file: s.file, dryRun: false, changed, applied, rejected: verdict.rejected,
+      remaining: view(after), ...m,
+    };
+  });
+}
+
 export async function exportSystemDiagram(
   bridge: Bridge,
   p: { system_path: string; output_path?: string; dark?: boolean }
@@ -426,6 +497,18 @@ export function registerSystemTools(server: McpServer, getBridge: () => Bridge =
       to: z.string().describe('Other endpoint, e.g. "planner.scan_in" (usually the subscriber / client side).'),
     },
     async (p) => asResult(await connectInterfaces(getBridge(), p))
+  );
+
+  server.tool(
+    'ros_auto_connect',
+    'Proposes connections for the node instances of a .rossystem (including interfaces declared inside its subsystems) and adds the chosen ones. The RECEIVER port decides: every subscriber / service client / action client lists ranked candidate emitters (publisher / server) of a compatible kind and equal message type, with evidence and a tier (remap > directed-remap > contract > fuzzy > type-unique > type-ambiguous); at most one candidate per receiver is preselected. A service/action client takes exactly one server; a subscriber may take several publishers when each is chosen explicitly. Emitters are only a read-only fan-out summary. Default is a DRY RUN (nothing written) returning receivers, emitterSummary, alreadyConnected, skipped and the preselected ids. Then call with apply: true and connections: [candidate ids] (default: the preselected ones); the result lists applied ids, rejected ids with the server\'s reason, and validation errors/warnings. All rules run on the Java/Xtext model server.',
+    {
+      system_path: systemPath,
+      nodes: z.array(z.string()).optional().describe('Focus: only candidates touching these node instances ("node" or "subsystem::node"), e.g. a node you just added.'),
+      apply: z.boolean().optional().describe('false (default): dry run, nothing is written. true: add the chosen candidates.'),
+      connections: z.array(z.string()).optional().describe('With apply: candidate ids ("emitterRef->receiverRef") to add; default: the preselected ones.'),
+    },
+    async (p) => asResult(await autoConnect(getBridge(), p))
   );
 
   server.tool(
