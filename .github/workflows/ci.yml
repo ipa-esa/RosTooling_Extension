@@ -87,3 +87,17 @@ jobs:
         run: xvfb-run -a npm test
         env:
           ROSTOOLING_CATALOGUE_PATH: /home/runner/.rostooling/catalogue_repos
+
+      # The headless MCP server is also published to npm on its own (see gradle-publish.yml).
+      # Build that package, install it from its tarball into an empty folder, and run the MCP
+      # suites against the installed copy and its bundled server JAR.
+      - name: Smoke-test the rostooling-mcp npm package
+        working-directory: rostooling-languages
+        run: |
+          node npm/build-mcp-package.mjs
+          PKG_DIR="$RUNNER_TEMP/rostooling-mcp"
+          mkdir -p "$PKG_DIR"
+          npm pack ./build/npm-mcp --pack-destination "$PKG_DIR"
+          (cd "$PKG_DIR" && npm init -y > /dev/null && npm install --omit=dev --no-audit --no-fund ./*.tgz)
+          RT_MCP_BIN="$PKG_DIR/node_modules/@rostooling/rostooling-mcp/bin/rostooling-mcp.js" \
+            npx mocha --ui tdd --timeout 240000 --exit out/test/mcpSystemTools.test.js out/test/mcpPackageTools.test.js

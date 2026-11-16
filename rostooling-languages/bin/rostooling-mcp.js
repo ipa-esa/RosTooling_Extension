@@ -23,6 +23,7 @@ Environment Variables:
 Exposed MCP Tools:
   validate_ros_model          Validate .ros, .ros2, or .rossystem syntax, types, and connections
   generate_ros2_wrappers      Generate C++, Python, or Hybrid ROS 2 node wrappers into src-gen/
+  list_ros2_distros           List the ROS 2 distributions the generator supports
   generate_rossystem_code     Generate ROS 2 launch, parameter YAML, and composition packages into src-gen/
   build_ros2_package          Build generated packages with colcon build
   ros_add_spec                Add a msg/srv/action spec + typed fields to a .ros file (creates if missing)

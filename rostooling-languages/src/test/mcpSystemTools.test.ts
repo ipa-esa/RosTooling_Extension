@@ -15,7 +15,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..');
 const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.5.0.jar');
-const BIN = path.join(EXT_ROOT, 'bin', 'rostooling-mcp.js');
+// RT_MCP_BIN runs the suite against an installed rostooling-mcp package, which finds its bundled JAR.
+const BIN = process.env.RT_MCP_BIN || path.join(EXT_ROOT, 'bin', 'rostooling-mcp.js');
+const BIN_ARGS = process.env.RT_MCP_BIN ? [BIN] : [BIN, '--jar', JAR];
 
 const MSGS = `warehouse_msgs:
   msgs:
@@ -135,7 +137,7 @@ suite('MCP semantic system tools (Block 5 gate)', function () {
   }
 
   suiteSetup(async () => {
-    assert.ok(fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
+    assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-mcp-e2e-'));
     fs.writeFileSync(path.join(dir, 'warehouse_msgs.ros'), MSGS);
     fs.writeFileSync(path.join(dir, 'warehouse_nodes.ros2'), NODES);
@@ -144,7 +146,7 @@ suite('MCP semantic system tools (Block 5 gate)', function () {
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
     env.ROS_GLSP_PORT = String(Number(process.env.ROS_GLSP_IT_PORT) || 6100 + Math.floor(Math.random() * 800));
     client = new Client({ name: 'rostooling-e2e', version: '1.0.0' });
-    await client.connect(new StdioClientTransport({ command: process.execPath, args: [BIN, '--jar', JAR], env, stderr: process.env.RT_MCP_DEBUG ? 'inherit' : 'ignore' }));
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: BIN_ARGS, env, stderr: process.env.RT_MCP_DEBUG ? 'inherit' : 'ignore' }));
   });
 
   suiteTeardown(async () => {

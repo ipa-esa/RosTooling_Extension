@@ -1,8 +1,9 @@
 name: Gradle Package
 
 on:
+  # 'published' fires once, when a release becomes public, and never for drafts.
   release:
-    types: [created]
+    types: [published]
   workflow_dispatch:
     inputs:
       publish_openvsx:
@@ -15,6 +16,11 @@ on:
         required: true
         type: boolean
         default: false
+
+# Never publish the same version twice in parallel.
+concurrency:
+  group: publish-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -70,15 +76,19 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
-      # Runs automatically on releases, or manually when the checkbox is selected
+      # Runs automatically on releases, or manually when the checkbox is selected.
+      # The only Open VSX publish; an already published version is skipped instead of failing.
       - name: Publish to Open VSX
         if: github.event_name == 'release' || inputs.publish_openvsx
-        run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --trusted-publishing
+        run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --trusted-publishing --skip-duplicate
 
+      # The headless MCP server as its own small package (npm/build-mcp-package.mjs): only its
+      # runtime files, the server JAR, and its three dependencies; not the extension's package.json.
+      # npm trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
       - name: Publish to npm (@rostooling/rostooling-mcp)
         if: github.event_name == 'release' || inputs.publish_npm
         working-directory: rostooling-languages
         run: |
-          npm pkg set name=@rostooling/rostooling-mcp
-          npm publish --provenance --access public
-          git checkout package.json
+          npm install -g npm@^11.5.1
+          node npm/build-mcp-package.mjs --name @rostooling/rostooling-mcp
+          npm publish ./build/npm-mcp --provenance --access public
