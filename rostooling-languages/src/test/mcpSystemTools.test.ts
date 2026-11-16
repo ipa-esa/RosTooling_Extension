@@ -241,8 +241,8 @@ suite('MCP semantic system tools (Block 5 gate)', function () {
     }
     const before = fs.readFileSync(sys, 'utf-8');
 
-    type Cand = { id: string; emitterRef: string; tier: string; preselected: boolean };
-    type Recv = { receiverId: string; kind: string; multiAllowed: boolean; candidates: Cand[] };
+    interface Cand { id: string; emitterRef: string; tier: string; preselected: boolean }
+    interface Recv { receiverId: string; kind: string; multiAllowed: boolean; candidates: Cand[] }
     const dry = (await ok('ros_auto_connect', { system_path: sys })) as Outcome & {
       dryRun: boolean; receivers: Recv[]; emitterSummary: { emitterRef: string; preselectedReceivers: number }[]; preselected: string[];
     };
