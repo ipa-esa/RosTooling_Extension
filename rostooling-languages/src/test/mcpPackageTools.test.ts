@@ -84,6 +84,10 @@ suite('MCP semantic .ros2 package tools', function () {
       'ros2_set_qos',
       'ros2_set_property',
       'ros2_remove_element',
+      'ros_list_plugins',
+      'ros_get_extension_block',
+      'ros_set_extension_block',
+      'generate_plugin_outputs',
     ]) {
       assert.ok(names.includes(n), `missing tool ${n}: ${names.join(', ')}`);
     }
@@ -334,5 +338,71 @@ suite('MCP semantic .ros2 package tools', function () {
     );
     const sysText = fs.readFileSync(plugSysPath, 'utf-8');
     assert.ok(sysText.includes('plugins:'), sysText);
+  });
+
+  test('lists plugins, reads/writes @ extension blocks, and runs generate_plugin_outputs via MCP', async () => {
+    const pluginList = (await call('ros_list_plugins', { workspace_dir: dir })) as unknown as {
+      plugins: unknown[];
+      tools: unknown[];
+      loadErrors: string[];
+    };
+    assert.ok(Array.isArray(pluginList.plugins), JSON.stringify(pluginList));
+    assert.ok(Array.isArray(pluginList.tools), JSON.stringify(pluginList));
+
+    const extPkgPath = path.join(dir, 'ext_app_pkg.ros2');
+    await ok('ros2_add_artifact', {
+      package_path: extPkgPath,
+      artifact_name: 'ext_bin',
+      node_name: 'ext_node',
+    });
+
+    const setRes = (await call('ros_set_extension_block', {
+      model_path: extPkgPath,
+      block_name: 'custom_meta',
+      target_kind: 'Node',
+      target_name: 'ext_node',
+      entries: {
+        channel: 'main',
+        rate_hz: 20,
+        tags: ['a', 'b'],
+      },
+      workspace_dir: dir,
+    })) as Outcome & { dslBlock?: string };
+    assert.strictEqual(setRes.success, true, JSON.stringify(setRes));
+    assert.ok(fs.readFileSync(extPkgPath, 'utf-8').includes('@custom_meta:'));
+
+    const getRes = (await call('ros_get_extension_block', {
+      model_path: extPkgPath,
+      block_name: 'custom_meta',
+      target_kind: 'Node',
+      target_name: 'ext_node',
+      workspace_dir: dir,
+    })) as Outcome & { found: boolean; entries: Record<string, unknown> };
+    assert.strictEqual(getRes.found, true, JSON.stringify(getRes));
+    assert.strictEqual(getRes.entries.channel, 'main');
+    assert.strictEqual(getRes.entries.rate_hz, 20);
+
+    const genRes = (await call('generate_plugin_outputs', {
+      model_path: extPkgPath,
+      language: 'cpp',
+      ros_distro: 'jazzy',
+      workspace_dir: dir,
+    })) as unknown as { status?: string; writtenFiles?: string[]; error?: string };
+    assert.strictEqual(genRes.status, 'success', JSON.stringify(genRes));
+    assert.ok(
+      Array.isArray(genRes.writtenFiles) && genRes.writtenFiles.some((f) => f.endsWith('CMakeLists.txt')),
+      JSON.stringify(genRes)
+    );
+
+    const remRes = (await call('ros_set_extension_block', {
+      model_path: extPkgPath,
+      block_name: 'custom_meta',
+      target_kind: 'Node',
+      target_name: 'ext_node',
+      remove: true,
+      workspace_dir: dir,
+    })) as Outcome;
+    assert.strictEqual(remRes.success, true, JSON.stringify(remRes));
+    assert.ok(!fs.readFileSync(extPkgPath, 'utf-8').includes('@custom_meta:'));
   });
 });

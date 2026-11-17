@@ -204,6 +204,17 @@ export async function activate(context: ExtensionContext) {
         : defaultVmArgs;
     outputChannel.appendLine(`LSP JVM options: ${vmArgs.join(' ')}`);
 
+    const pluginPaths = config.get<string[]>('plugins.paths') || [];
+    const pluginEnabled = config.get<string[]>('plugins.enabled') || [];
+    const pluginsDirProp = pluginPaths.filter(Boolean).join(path.delimiter) || process.env.ROS_PLUGINS_DIR || '';
+    const pluginsEnabledProp = pluginEnabled.filter(Boolean).join(',') || process.env.ROS_PLUGINS_ENABLED || '';
+    if (pluginsDirProp) {
+        process.env.ROS_PLUGINS_DIR = pluginsDirProp;
+    }
+    if (pluginsEnabledProp) {
+        process.env.ROS_PLUGINS_ENABLED = pluginsEnabledProp;
+    }
+
     const glspPort = Number(process.env.ROS_GLSP_PORT || 5008);
     GlspClientBridge.getInstance({
         host: '127.0.0.1',
@@ -219,6 +230,8 @@ export async function activate(context: ExtensionContext) {
         '--add-opens=java.base/java.util=ALL-UNNAMED',
         `-Drostooling.catalogue.path=${cataloguePath}`,
         `-Dros.glsp.port=${glspPort}`,
+        ...(pluginsDirProp ? [`-Dros.plugins.dir=${pluginsDirProp}`] : []),
+        ...(pluginsEnabledProp ? [`-Dros.plugins.enabled=${pluginsEnabledProp}`] : []),
         ...vmArgs
     ];
 

@@ -399,6 +399,8 @@ export class GlspClientBridge {
       '--add-opens=java.base/java.lang=ALL-UNNAMED',
       '--add-opens=java.base/java.util=ALL-UNNAMED',
       `-Drostooling.catalogue.path=${this.cataloguePath}`,
+      ...(process.env.ROS_PLUGINS_DIR ? [`-Dros.plugins.dir=${process.env.ROS_PLUGINS_DIR}`] : []),
+      ...(process.env.ROS_PLUGINS_ENABLED ? [`-Dros.plugins.enabled=${process.env.ROS_PLUGINS_ENABLED}`] : []),
       '-XX:TieredStopAtLevel=1',
       '-Xms128m',
       '-Xmx1024m',

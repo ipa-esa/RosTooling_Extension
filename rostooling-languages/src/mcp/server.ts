@@ -16,6 +16,11 @@ import {
 import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
 import { registerSystemTools } from './systemTools.js';
 import { registerPackageTools } from './packageTools.js';
+import {
+  registerPluginTools,
+  syncDynamicPluginsWithServer,
+  type PluginLspDeps,
+} from './pluginTools.js';
 
 class LspSessionManager {
   private activeClient: HeadlessLspClient | null = null;
@@ -113,11 +118,28 @@ async function openCompanionFiles(client: HeadlessLspClient, modelDir: string): 
   }
 }
 
+export interface CreatedMcpServer {
+  server: McpServer;
+  initializeDynamicPlugins: () => Promise<void>;
+}
+
 export function createMcpServer(): McpServer {
+  return createConfiguredMcpServer().server;
+}
+
+export function createConfiguredMcpServer(): CreatedMcpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
     version: '2.5.0',
   });
+  const registeredPluginTools = new Set<string>();
+  const registeredPluginResources = new Set<string>();
+  const pluginDeps: PluginLspDeps = {
+    getClient: (dir) => sessionManager.getClient(dir),
+    workspaceDir: () => sessionManager.workspaceDir,
+    resolveWorkspaceDir,
+    openCompanionFiles,
+  };
 
   // Tool 1: generate_ros2_wrappers
   server.tool(
@@ -465,6 +487,7 @@ export function createMcpServer(): McpServer {
   //   ros2_set_property, ros2_remove_element.
   registerSystemTools(server);
   registerPackageTools(server);
+  registerPluginTools(server, pluginDeps, registeredPluginTools, registeredPluginResources);
 
   // Tool 4: build_ros2_package
   server.tool(
@@ -553,11 +576,32 @@ export function createMcpServer(): McpServer {
     }
   );
 
-  return server;
+  const initializeDynamicPlugins = async () => {
+    const cfg = HeadlessLspClient.resolvePluginConfig(process.cwd());
+    if (!cfg.enabled) {
+      return;
+    }
+    try {
+      const client = await sessionManager.getClient(process.cwd());
+      await syncDynamicPluginsWithServer(
+        server,
+        client,
+        pluginDeps,
+        registeredPluginTools,
+        registeredPluginResources,
+        false
+      );
+    } catch (err) {
+      console.error('[RosTooling MCP Server] Warning: plugin discovery failed:', err);
+    }
+  };
+
+  return { server, initializeDynamicPlugins };
 }
 
 export async function runServer(): Promise<void> {
-  const server = createMcpServer();
+  const { server, initializeDynamicPlugins } = createConfiguredMcpServer();
+  await initializeDynamicPlugins();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('[RosTooling MCP Server] Connected via stdio transport');

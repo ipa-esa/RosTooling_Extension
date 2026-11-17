@@ -11,14 +11,18 @@ Headless Model Context Protocol (MCP) server for Fraunhofer IPA RosTooling
 Communicates over stdio using JSON-RPC 2.0.
 
 Options:
-  --jar <path>, --jar=<path>  Explicit path to the RosTooling Language Server fat JAR
-  -v, --version               Print server version and exit
-  -h, --help                  Show this help message and exit
+  --jar <path>, --jar=<path>            Explicit path to the RosTooling Language Server fat JAR
+  --plugins-dir <path>, --plugins-dir=  Plugin directories or JAR paths (delimiter-separated)
+  --enable-plugins <ids>, --enable-plugins=  Comma-separated active RosToolingPlugin IDs
+  -v, --version                         Print server version and exit
+  -h, --help                            Show this help message and exit
 
 Environment Variables:
   ROSMODEL_JAR                Path to rostooling_extension-*.jar (overrides auto-discovery)
   ROSMODEL_JAVA               Path to Java 21+ executable (defaults to JAVA_HOME/bin/java or java)
   ROSMODEL_CATALOGUE_DIR      Path to catalogue repositories (defaults to ~/.rostooling/catalogue_repos)
+  ROS_PLUGINS_DIR             Plugin directories/JARs forwarded to the Java LSP/GLSP servers
+  ROS_PLUGINS_ENABLED         Comma-separated active RosToolingPlugin IDs
 
 Exposed MCP Tools:
   validate_ros_model          Validate .ros, .ros2, or .rossystem syntax, types, and connections
@@ -63,6 +67,14 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (arg.startsWith('--jar=')) {
     process.env.ROSMODEL_JAR = path.resolve(arg.slice('--jar='.length));
+  } else if (arg === '--plugins-dir' && i + 1 < args.length) {
+    process.env.ROS_PLUGINS_DIR = args[++i];
+  } else if (arg.startsWith('--plugins-dir=')) {
+    process.env.ROS_PLUGINS_DIR = arg.slice('--plugins-dir='.length);
+  } else if (arg === '--enable-plugins' && i + 1 < args.length) {
+    process.env.ROS_PLUGINS_ENABLED = args[++i];
+  } else if (arg.startsWith('--enable-plugins=')) {
+    process.env.ROS_PLUGINS_ENABLED = arg.slice('--enable-plugins='.length);
   }
 }
 

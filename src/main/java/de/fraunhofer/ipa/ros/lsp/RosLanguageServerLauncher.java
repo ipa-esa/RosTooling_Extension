@@ -22,6 +22,7 @@ import com.google.inject.util.Modules;
 import de.fraunhofer.ipa.ros.glsp.RosGlspModule;
 import de.fraunhofer.ipa.ros.ide.BasicsIdeSetup;
 import de.fraunhofer.ipa.ros.ide.RosIdeSetup;
+import de.fraunhofer.ipa.ros.plugin.spi.PluginRegistry;
 import de.fraunhofer.ipa.ros1.ide.Ros1IdeSetup;
 import de.fraunhofer.ipa.ros2.ide.Ros2IdeSetup;
 import de.fraunhofer.ipa.rossystem.ide.RosSystemIdeSetup;
@@ -62,8 +63,6 @@ public class RosLanguageServerLauncher {
         final PrintStream protocolOut = System.out;
         System.setOut(System.err);
 
-        registerMetamodelsAndLanguages();
-
         boolean glspStandalone = false;
         String glspHost = System.getProperty("ros.glsp.host", DEFAULT_GLSP_HOST);
         int glspPort = -1;
@@ -83,6 +82,14 @@ public class RosLanguageServerLauncher {
                 String arg = args[i];
                 if ("--glsp".equals(arg)) {
                     glspStandalone = true;
+                } else if ("--plugins-dir".equals(arg) && i + 1 < args.length) {
+                    System.setProperty(PluginRegistry.PROP_PLUGINS_DIR, args[++i]);
+                } else if (arg.startsWith("--plugins-dir=")) {
+                    System.setProperty(PluginRegistry.PROP_PLUGINS_DIR, arg.substring("--plugins-dir=".length()));
+                } else if ("--enable-plugins".equals(arg) && i + 1 < args.length) {
+                    System.setProperty(PluginRegistry.PROP_PLUGINS_ENABLED, args[++i]);
+                } else if (arg.startsWith("--enable-plugins=")) {
+                    System.setProperty(PluginRegistry.PROP_PLUGINS_ENABLED, arg.substring("--enable-plugins=".length()));
                 } else if ("--port".equals(arg) && i + 1 < args.length) {
                     try {
                         glspPort = Integer.parseInt(args[++i]);
@@ -104,6 +111,9 @@ public class RosLanguageServerLauncher {
                 }
             }
         }
+
+        PluginRegistry.INSTANCE.ensureLoadedFromEnvironment();
+        registerMetamodelsAndLanguages();
 
         if (glspStandalone) {
             int targetPort = glspPort > 0 ? glspPort : DEFAULT_GLSP_PORT;

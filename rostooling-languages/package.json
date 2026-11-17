@@ -153,6 +153,22 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically prompt to install RosTooling AI Agent skills (Claude Code, Antigravity, Cursor) when opening a ROS workspace."
+        },
+        "rostooling-languages.plugins.paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Directories or JAR file paths containing third-party RosToolingPlugin extensions."
+        },
+        "rostooling-languages.plugins.enabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Explicitly enabled RosToolingPlugin IDs (discovery remains passive unless listed here)."
         }
       }
     },

@@ -55,6 +55,32 @@ export class HeadlessLspClient {
     private cataloguePath?: string
   ) {}
 
+  public static resolvePluginConfig(workspaceDir?: string): { dir: string; enabled: string } {
+    let dir = process.env.ROS_PLUGINS_DIR || '';
+    let enabled = process.env.ROS_PLUGINS_ENABLED || '';
+    const dirsToCheck = [process.cwd()];
+    if (workspaceDir && !dirsToCheck.includes(workspaceDir)) {
+      dirsToCheck.unshift(workspaceDir);
+    }
+    for (const d of dirsToCheck) {
+      try {
+        const sPath = path.join(d, '.vscode', 'settings.json');
+        if (fs.existsSync(sPath)) {
+          const content = JSON.parse(fs.readFileSync(sPath, 'utf8'));
+          if (!dir && Array.isArray(content['rostooling-languages.plugins.paths'])) {
+            dir = content['rostooling-languages.plugins.paths'].filter(Boolean).join(path.delimiter);
+          }
+          if (!enabled && Array.isArray(content['rostooling-languages.plugins.enabled'])) {
+            enabled = content['rostooling-languages.plugins.enabled'].filter(Boolean).join(',');
+          }
+        }
+      } catch {
+        // Ignore settings parse errors
+      }
+    }
+    return { dir, enabled };
+  }
+
   public static findJavaExecutable(): string {
     if (process.env.ROSMODEL_JAVA && fs.existsSync(process.env.ROSMODEL_JAVA)) {
       return process.env.ROSMODEL_JAVA;
@@ -313,6 +339,14 @@ export class HeadlessLspClient {
 
     if (catPath && fs.existsSync(catPath)) {
       args.push(`-Drostooling.catalogue.path=${catPath}`);
+    }
+
+    const pluginConfig = HeadlessLspClient.resolvePluginConfig(workspaceDir);
+    if (pluginConfig.dir) {
+      args.push(`-Dros.plugins.dir=${pluginConfig.dir}`);
+    }
+    if (pluginConfig.enabled) {
+      args.push(`-Dros.plugins.enabled=${pluginConfig.enabled}`);
     }
 
     args.push('-jar', jar);
