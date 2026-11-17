@@ -94,12 +94,17 @@ function artifactElements(graph: GGraph): GModelElement[] {
 }
 
 function findArtifactElement(graph: GGraph, name: string): GModelElement | undefined {
-  return artifactElements(graph).find(
-    (n) => n.args?.artifactName === name || n.args?.nodeName === name
+  const els = artifactElements(graph);
+  return (
+    els.find((n) => n.args?.nodeName === name || (!n.args?.isPlugin && n.args?.artifactName === name)) ||
+    els.find((n) => n.args?.artifactName === name)
   );
 }
 
 function artifactKey(el: GModelElement): string {
+  if (el.args?.isPlugin) {
+    return String(el.args?.nodeName || el.args?.artifactName || '');
+  }
   return String(el.args?.artifactName || el.args?.nodeName || '');
 }
 
@@ -112,11 +117,18 @@ function parseParameters(artEl: GModelElement): ParsedParameter[] {
 }
 
 function describeArtifact(artEl: GModelElement): Record<string, unknown> {
+  const pluginSlots = parseJsonArray<{ name: string; base?: string; parameter?: string; default?: string }>(
+    artEl.args?.pluginSlotsJson
+  );
   return {
     artifact: artEl.args?.artifactName,
     node: artEl.args?.nodeName,
     package: artEl.args?.packageName,
     lifecycle: Boolean(artEl.args?.isLifecycle),
+    ...(artEl.args?.isPlugin ? { isPlugin: true } : {}),
+    ...(artEl.args?.implements ? { implements: String(artEl.args.implements) } : {}),
+    ...(artEl.args?.loader ? { loader: String(artEl.args.loader) } : {}),
+    ...(pluginSlots.length ? { pluginSlots } : {}),
     interfaces: parseInterfaces(artEl).map((i) => ({
       name: i.name,
       kind: i.kindCode,
@@ -187,6 +199,7 @@ export async function addArtifact(
     package_name?: string;
     from_git_repo?: string;
     lifecycle?: boolean;
+    is_library?: boolean;
   }
 ): Promise<ToolOutcome> {
   return withPackage(bridge, p.package_path, false, async (s) => {
@@ -214,14 +227,16 @@ export async function addArtifact(
         value: p.from_git_repo,
       });
     }
+    const isLibrary = Boolean(p.is_library) || p.node_name === '';
     await runOperation(bridge, s, {
       kind: 'editRosProperty',
       elementId: 'root',
       property: 'addArtifact',
       key: p.artifact_name,
-      value: p.node_name || p.artifact_name,
+      value: isLibrary ? '' : (p.node_name || p.artifact_name),
+      ...(isLibrary ? { valueType: 'library' } : {}),
     });
-    if (p.lifecycle !== undefined) {
+    if (p.lifecycle !== undefined && !isLibrary) {
       await runOperation(bridge, s, {
         kind: 'editRosProperty',
         elementId: p.artifact_name,
@@ -232,7 +247,7 @@ export async function addArtifact(
     const { changed, graph, markers } = await commitModel(bridge, s);
     const createdArt = findArtifactElement(graph, p.artifact_name);
     const m = summarizeMarkers(markers);
-    if (!createdArt) {
+    if (!createdArt && !isLibrary) {
       return failOutcome(s, `Artifact '${p.artifact_name}' was not created.`, m);
     }
     return {
@@ -241,7 +256,135 @@ export async function addArtifact(
       created: !s.existed,
       changed,
       package: describePackage(graph),
-      artifact: describeArtifact(createdArt),
+      ...(createdArt ? { artifact: describeArtifact(createdArt) } : { artifact: p.artifact_name, isLibrary: true }),
+      ...m,
+    };
+  });
+}
+
+export async function addPlugin(
+  bridge: Bridge,
+  p: {
+    package_path: string;
+    artifact_name: string;
+    plugin_name: string;
+    implements?: string;
+    loader?: 'pluginlib' | 'external';
+    package_name?: string;
+    from_git_repo?: string;
+  }
+): Promise<ToolOutcome> {
+  return withPackage(bridge, p.package_path, false, async (s) => {
+    const existingPlugin = artifactElements(s.graph).find(
+      (n) => n.args?.isPlugin && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
+    );
+    if (existingPlugin) {
+      return failOutcome(
+        s,
+        `Plugin '${p.plugin_name}' already exists on artifact '${p.artifact_name}' in ${path.basename(s.file)}.`,
+        { plugin: describeArtifact(existingPlugin) }
+      );
+    }
+    if (p.package_name) {
+      await runOperation(bridge, s, {
+        kind: 'editRosProperty',
+        elementId: 'root',
+        property: 'name',
+        value: p.package_name,
+      });
+    }
+    if (p.from_git_repo !== undefined) {
+      await runOperation(bridge, s, {
+        kind: 'editRosProperty',
+        elementId: 'root',
+        property: 'fromGitRepo',
+        value: p.from_git_repo,
+      });
+    }
+    await runOperation(bridge, s, {
+      kind: 'editRosProperty',
+      elementId: 'root',
+      property: 'addPlugin',
+      key: `${p.artifact_name}::${p.plugin_name}`,
+      value: JSON.stringify({
+        implements: p.implements || '',
+        loader: p.loader || 'pluginlib',
+      }),
+    });
+    const { changed, graph, markers } = await commitModel(bridge, s);
+    const createdPlugin =
+      artifactElements(graph).find(
+        (n) => n.args?.isPlugin && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
+      ) || findArtifactElement(graph, p.plugin_name);
+    const m = summarizeMarkers(markers);
+    if (!createdPlugin) {
+      return failOutcome(s, `Plugin '${p.plugin_name}' was not created.`, m);
+    }
+    return {
+      success: m.errors.length === 0,
+      file: s.file,
+      created: !s.existed,
+      changed,
+      package: describePackage(graph),
+      plugin: describeArtifact(createdPlugin),
+      ...m,
+    };
+  });
+}
+
+export async function addPluginSlot(
+  bridge: Bridge,
+  p: {
+    package_path: string;
+    artifact: string;
+    name: string;
+    base: string;
+    parameter: string;
+    default_plugin?: string;
+  }
+): Promise<ToolOutcome> {
+  return withPackage(bridge, p.package_path, true, async (s) => {
+    const art = findArtifactElement(s.graph, p.artifact);
+    if (!art) {
+      return failOutcome(s, `Unknown artifact '${p.artifact}'.`, {
+        artifacts: artifactElements(s.graph).map(artifactKey),
+      });
+    }
+    const artName = artifactKey(art);
+    const existingSlots = parseJsonArray<{ name: string }>(art.args?.pluginSlotsJson);
+    if (existingSlots.some((sl) => sl.name === p.name)) {
+      return failOutcome(s, `PluginSlot '${p.name}' already exists on '${artName}'.`, {
+        artifact: describeArtifact(art),
+      });
+    }
+    await runOperation(bridge, s, {
+      kind: 'editRosProperty',
+      elementId: artName,
+      property: 'addPluginSlot',
+      key: p.name,
+      value: JSON.stringify({
+        base: p.base,
+        parameter: p.parameter,
+        ...(p.default_plugin ? { default: p.default_plugin } : {}),
+      }),
+    });
+    const { changed, graph, markers } = await commitModel(bridge, s);
+    const afterArt = findArtifactElement(graph, artName);
+    const createdSlot = afterArt
+      ? parseJsonArray<{ name: string; base?: string; parameter?: string; default?: string }>(
+          afterArt.args?.pluginSlotsJson
+        ).find((sl) => sl.name === p.name)
+      : undefined;
+    const m = summarizeMarkers(markers);
+    if (!afterArt || !createdSlot) {
+      return failOutcome(s, `PluginSlot '${p.name}' was not created.`, m);
+    }
+    return {
+      success: m.errors.length === 0,
+      file: s.file,
+      changed,
+      slot: createdSlot,
+      artifact: describeArtifact(afterArt),
       ...m,
     };
   });
@@ -618,16 +761,46 @@ export function registerPackageTools(
 
   server.tool(
     'ros2_add_artifact',
-    'Adds an artifact (executable/node contract) to a .ros2 package model, creating the .ros2 file if it does not exist. All formatting, Ecore AST construction, and Xtext validation run on the Java GLSP server. Follow up with ros2_add_interface / ros2_add_parameter.',
+    'Adds an artifact (executable/node contract or node-less library) to a .ros2 package model, creating the .ros2 file if it does not exist. All formatting, Ecore AST construction, and Xtext validation run on the Java GLSP server. Follow up with ros2_add_interface / ros2_add_parameter / ros2_add_plugin_slot.',
     {
       package_path: packagePath,
       artifact_name: z.string().describe('Artifact identifier in the package (unquoted RosNames), e.g. "lidar_driver".'),
-      node_name: z.string().optional().describe('ROS node name inside the artifact (defaults to artifact_name). Referenced in .rossystem as "<package>.<node>".'),
+      node_name: z.string().optional().describe('ROS node name inside the artifact (defaults to artifact_name; omit or pass is_library=true for node-less plugin libraries).'),
       package_name: z.string().optional().describe('Optional declared package name on line 1 (lowercase [a-z0-9_], defaults to sanitized file name).'),
       from_git_repo: z.string().optional().describe('Optional upstream Git repository URL for fromGitRepo:.'),
       lifecycle: z.boolean().optional().describe('Set true to mark the node as a ROS 2 lifecycle node.'),
+      is_library: z.boolean().optional().describe('Set true to create a node-less library artifact for plugins.'),
     },
     async (p) => asMcpResult(await addArtifact(getBridge(), p))
+  );
+
+  server.tool(
+    'ros2_add_plugin',
+    'Adds a ROS 2 plugin definition (`pluginlib` or `external`) to an artifact in a .ros2 model, creating the .ros2 file and node-less library artifact if needed. Follow up with ros2_add_interface / ros2_add_parameter targeting plugin_name.',
+    {
+      package_path: packagePath,
+      artifact_name: z.string().describe('Artifact identifier hosting the plugin library, e.g. "planner_plugins".'),
+      plugin_name: z.string().describe('Plugin class/model name, e.g. "StraightLine".'),
+      implements: z.string().optional().describe('C++ qualified base class for pluginlib plugins, e.g. "nav2_core::GlobalPlanner".'),
+      loader: z.enum(['pluginlib', 'external']).optional().describe('Plugin loading mechanism: "pluginlib" (default) or "external".'),
+      package_name: z.string().optional().describe('Optional declared package name on line 1 (lowercase [a-z0-9_]).'),
+      from_git_repo: z.string().optional().describe('Optional upstream Git repository URL for fromGitRepo:.'),
+    },
+    async (p) => asMcpResult(await addPlugin(getBridge(), p))
+  );
+
+  server.tool(
+    'ros2_add_plugin_slot',
+    'Declares a `pluginslots` entry on an existing host node in a .ros2 model linking a C++ base class (`base`) and selection parameter (`parameter`).',
+    {
+      package_path: packagePath,
+      artifact: z.string().describe('Host artifact or node name in the .ros2 model, e.g. "planner_server".'),
+      name: z.string().describe('Slot identifier, e.g. "global_planner".'),
+      base: z.string().describe('C++ qualified base class accepted by this slot, e.g. "nav2_core::GlobalPlanner".'),
+      parameter: z.string().describe('Parameter name on the host node selecting active plugin(s), e.g. "planner_plugin".'),
+      default_plugin: z.string().optional().describe('Optional default plugin identifier for the slot.'),
+    },
+    async (p) => asMcpResult(await addPluginSlot(getBridge(), p))
   );
 
   server.tool(

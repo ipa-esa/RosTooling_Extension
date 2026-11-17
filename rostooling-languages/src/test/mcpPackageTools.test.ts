@@ -77,6 +77,8 @@ suite('MCP semantic .ros2 package tools', function () {
       'ros_add_subsystem',
       'ros_set_system_property',
       'ros2_add_artifact',
+      'ros2_add_plugin',
+      'ros2_add_plugin_slot',
       'ros2_add_interface',
       'ros2_add_parameter',
       'ros2_set_qos',
@@ -243,5 +245,79 @@ suite('MCP semantic .ros2 package tools', function () {
       from_file: 'warehouse_bringup/launch/top.launch.py',
     });
     assert.ok(fs.readFileSync(topSysPath, 'utf-8').includes('subSystems:\n    warehouse_system'));
+  });
+
+  test('authors pluginlib plugins, pluginslots, and system plugin attachments via MCP', async () => {
+    const msgsPath = path.join(dir, 'plug_msgs.ros');
+    await ok('ros_add_spec', {
+      spec_path: msgsPath,
+      spec_name: 'Status',
+      kind: 'msg',
+      fields: [{ name: 'ok', type: 'bool' }],
+    });
+
+    const hostPath = path.join(dir, 'plug_host_pkg.ros2');
+    await ok('ros2_add_artifact', {
+      package_path: hostPath,
+      artifact_name: 'host_bin',
+      node_name: 'host_node',
+    });
+    await ok('ros2_add_parameter', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'active_plugin',
+      type: 'String',
+    });
+    await ok('ros2_add_plugin_slot', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'planner',
+      base: 'nav2_core::GlobalPlanner',
+      parameter: 'active_plugin',
+    });
+    const hostText = fs.readFileSync(hostPath, 'utf-8');
+    assert.ok(hostText.includes('pluginslots:'), hostText);
+    assert.ok(hostText.includes('base: "nav2_core::GlobalPlanner"'), hostText);
+
+    const plugPath = path.join(dir, 'plug_lib_pkg.ros2');
+    await ok('ros2_add_plugin', {
+      package_path: plugPath,
+      artifact_name: 'planner_lib',
+      plugin_name: 'StraightLine',
+      implements: 'nav2_core::GlobalPlanner',
+      loader: 'pluginlib',
+    });
+    await ok('ros2_add_interface', {
+      package_path: plugPath,
+      artifact: 'StraightLine',
+      kind: 'pub',
+      name: 'plan_status',
+      type: 'plug_msgs/msg/Status',
+    });
+    await ok('ros2_add_plugin', {
+      package_path: plugPath,
+      artifact_name: 'planner_lib',
+      plugin_name: 'ExternalHelper',
+      loader: 'external',
+    });
+    const plugText = fs.readFileSync(plugPath, 'utf-8');
+    assert.ok(plugText.includes('plugins:'), plugText);
+    assert.ok(plugText.includes('implements: "nav2_core::GlobalPlanner"'), plugText);
+    assert.ok(plugText.includes('loader: external'), plugText);
+
+    const plugSysPath = path.join(dir, 'plug_sys.rossystem');
+    const hostSysRes = await ok('ros_add_node', {
+      system_path: plugSysPath,
+      node_name: 'host_inst',
+      from: 'plug_host_pkg.host_node',
+      plugins: ['plug_lib_pkg.StraightLine'],
+      from_file: 'plug_bringup/launch/plug.launch.py',
+    });
+    assert.deepStrictEqual(
+      (hostSysRes.node as { plugins?: string[] }).plugins,
+      ['StraightLine']
+    );
+    const sysText = fs.readFileSync(plugSysPath, 'utf-8');
+    assert.ok(sysText.includes('plugins:'), sysText);
   });
 });

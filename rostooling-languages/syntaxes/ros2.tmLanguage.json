@@ -46,7 +46,7 @@
       ]
     },
     "keywords": {
-      "begin": "^\\s*((fromGitRepo|artifacts|node|publishers|subscribers|serviceclients|serviceservers|actionclients|actionservers|parameters|type|default|qos|value|lifecycle|active_in):)",
+      "begin": "^\\s*((fromGitRepo|artifacts|node|plugins|pluginslots|implements|loader|base|parameter|publishers|subscribers|serviceclients|serviceservers|actionclients|actionservers|parameters|type|default|qos|value|lifecycle|active_in):)",
       "beginCaptures": {
         "1": {
           "name": "keyword.control.ros2"
@@ -112,7 +112,7 @@
       "patterns": [
         {
           "name": "support.variable.ros2",
-          "match": "(?i)\\b(True|False|Boolean|Double|Integer|String|Array|Unconfigured|Active|Inactive|Unknown(?:\\s*\\[[a-zA-Z]+\\])?)(?!\\w)"
+          "match": "(?i)\\b(True|False|Boolean|Double|Integer|String|Array|Unconfigured|Active|Inactive|pluginlib|external|Unknown(?:\\s*\\[[a-zA-Z]+\\])?)(?!\\w)"
         }
       ]
     }

@@ -63,10 +63,16 @@ function describeNode(node: GModelElement): Record<string, unknown> {
   } catch {
     parameters = {};
   }
+  const pluginsRaw = typeof node.args?.plugins === 'string' ? node.args.plugins : '';
+  const plugins = pluginsRaw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return {
     name: node.args?.nodeName,
     from: node.args?.from,
     namespace: node.args?.namespace || undefined,
+    ...(plugins.length ? { plugins } : {}),
     interfaces: portsOf(node).map((p) => ({
       ref: `${node.args?.nodeName}.${p.args?.interfaceName}`,
       kind: PORT_KIND[p.type],
@@ -134,6 +140,7 @@ export async function addNode(
     node_name: string;
     from: string;
     namespace?: string;
+    plugins?: string[];
     system_name?: string;
     from_file?: string;
   }
@@ -151,6 +158,7 @@ export async function addNode(
     }
     const args: Record<string, string> = { nodeName: p.node_name, from: p.from };
     if (p.namespace) args.namespace = p.namespace;
+    if (p.plugins && p.plugins.length > 0) args.plugins = p.plugins.join(',');
     await runOperation(bridge, s, { kind: 'createNode', elementTypeId: 'node:ros-node', args });
     const { changed, graph, markers } = await commit(bridge, s);
     const node = findNode(graph, p.node_name);
@@ -459,6 +467,7 @@ export function registerSystemTools(server: McpServer, getBridge: () => Bridge =
       node_name: z.string().describe('Instance name in the system, e.g. "lidar".'),
       from: z.string().describe('Node type as "<package>.<node>", e.g. "nav_pkg.lidar_node" (package and node names from the .ros2 model).'),
       namespace: z.string().optional().describe('Optional ROS namespace for this instance.'),
+      plugins: z.array(z.string()).optional().describe('Optional plugin references attached to this host node (e.g. ["my_plugins.StraightLine"]).'),
       system_name: z.string().optional().describe('Optional system name (defaults to the file name for a new file).'),
       from_file: z.string().optional().describe('Optional launch file path for `fromFile:` (recommended for valid Xtext models, e.g. "my_bringup/launch/app.launch.py").'),
     },
