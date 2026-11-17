@@ -268,6 +268,12 @@ suite('MCP semantic .ros2 package tools', function () {
       name: 'active_plugin',
       type: 'String',
     });
+    await ok('ros2_add_parameter', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'leaf_libraries',
+      type: 'Array',
+    });
     await ok('ros2_add_plugin_slot', {
       package_path: hostPath,
       artifact: 'host_bin',
@@ -275,9 +281,18 @@ suite('MCP semantic .ros2 package tools', function () {
       base: 'nav2_core::GlobalPlanner',
       parameter: 'active_plugin',
     });
+    await ok('ros2_add_plugin_slot', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'leaves',
+      base: 'custom_core::LeafBase',
+      parameter: 'leaf_libraries',
+      format: 'library',
+    });
     const hostText = fs.readFileSync(hostPath, 'utf-8');
     assert.ok(hostText.includes('pluginslots:'), hostText);
     assert.ok(hostText.includes('base: "nav2_core::GlobalPlanner"'), hostText);
+    assert.ok(hostText.includes('format: library'), hostText);
 
     const plugPath = path.join(dir, 'plug_lib_pkg.ros2');
     await ok('ros2_add_plugin', {

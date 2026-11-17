@@ -340,6 +340,7 @@ export async function addPluginSlot(
     name: string;
     base: string;
     parameter: string;
+    format?: 'class' | 'library';
     default_plugin?: string;
   }
 ): Promise<ToolOutcome> {
@@ -365,13 +366,14 @@ export async function addPluginSlot(
       value: JSON.stringify({
         base: p.base,
         parameter: p.parameter,
+        ...(p.format ? { format: p.format } : {}),
         ...(p.default_plugin ? { default: p.default_plugin } : {}),
       }),
     });
     const { changed, graph, markers } = await commitModel(bridge, s);
     const afterArt = findArtifactElement(graph, artName);
     const createdSlot = afterArt
-      ? parseJsonArray<{ name: string; base?: string; parameter?: string; default?: string }>(
+      ? parseJsonArray<{ name: string; base?: string; parameter?: string; format?: string; default?: string }>(
           afterArt.args?.pluginSlotsJson
         ).find((sl) => sl.name === p.name)
       : undefined;
@@ -781,7 +783,7 @@ export function registerPackageTools(
       package_path: packagePath,
       artifact_name: z.string().describe('Artifact identifier hosting the plugin library, e.g. "planner_plugins".'),
       plugin_name: z.string().describe('Plugin class/model name, e.g. "StraightLine".'),
-      implements: z.string().optional().describe('C++ qualified base class for pluginlib plugins, e.g. "nav2_core::GlobalPlanner".'),
+      implements: z.string().optional().describe('C++ qualified base class (required for pluginlib plugins and any plugin attached to a host pluginslot in .rossystem), e.g. "nav2_core::GlobalPlanner".'),
       loader: z.enum(['pluginlib', 'external']).optional().describe('Plugin loading mechanism: "pluginlib" (default) or "external".'),
       package_name: z.string().optional().describe('Optional declared package name on line 1 (lowercase [a-z0-9_]).'),
       from_git_repo: z.string().optional().describe('Optional upstream Git repository URL for fromGitRepo:.'),
@@ -798,6 +800,7 @@ export function registerPackageTools(
       name: z.string().describe('Slot identifier, e.g. "global_planner".'),
       base: z.string().describe('C++ qualified base class accepted by this slot, e.g. "nav2_core::GlobalPlanner".'),
       parameter: z.string().describe('Parameter name on the host node selecting active plugin(s), e.g. "planner_plugin".'),
+      format: z.enum(['class', 'library']).optional().describe('Emitted parameter value format for matched plugins: "class" (default, pkg::Class) or "library" (deduplicated library artifact target name).'),
       default_plugin: z.string().optional().describe('Optional default plugin identifier for the slot.'),
     },
     async (p) => asMcpResult(await addPluginSlot(getBridge(), p))
