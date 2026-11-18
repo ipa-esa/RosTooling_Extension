@@ -5,6 +5,20 @@ All notable changes to the "rostooling-languages" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Generic `@` Extension Blocks & Plugin MCP Tools**:
+  - Added syntax highlighting for `@<name>:` blocks in `.ros`, `.ros2`, and `.rossystem` TextMate grammars.
+  - Added generic plugin MCP tools (`ros_list_plugins`, `ros_get_extension_block`, `ros_set_extension_block`, `generate_plugin_outputs`) alongside dynamic registration of `<plugin_prefix>__<tool>` tools, schema-derived `<plugin_prefix>__set_<block>` typed block tools, and `rostooling://plugin/<id>/docs` MCP documentation resources.
+  - Forwarded plugin configuration to the Java language server via `--plugins-dir` / `--enable-plugins` CLI flags and VS Code settings (`rostooling-languages.plugins.paths`, `rostooling-languages.plugins.enabled`).
+
+### Changed
+- **Safe File Pruning & Bundled RosTooling 3.6.0 Server**:
+  - Unified prune-before-write file ordering across extension and MCP generation commands and restricted `deletePrunedFiles` strictly to `config/<plugin-folder>/`, `launch/<plugin-folder>/`, and `plugins/<plugin-folder>/`.
+  - Propagated plugin generation warnings (including preserved user-owned `setup.py` warnings) through MCP and extension outputs.
+  - Updated the bundled Java language/GLSP server to RosTooling 3.6.0 (including plugin SPI support and Xtext `STRING` escaping in GLSP parameter serialization).
+
 ## [2.5.0] - 2026-11-16
 
 ### Added
