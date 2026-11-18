@@ -918,21 +918,57 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
   test('no-plugin language="both" preserves edited logic files and keeps node files across generate_ros2_wrappers, generate_plugin_outputs, and extension command', async () => {
     assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
 
-    // Safeguard check: PostProcessor never allows deleting core-owned paths
-    for (const corePath of [
+    // Safeguard check: PostProcessor only allows deleting inside config/<pf>/, launch/<pf>/, plugins/<pf>/
+    for (const disallowedPath of [
       'demo_pkg/demo_pkg/talker_logic.py',
       'demo_pkg/include/demo_pkg/TalkerArtAlgorithm.hpp',
+      'demo_pkg/include/demo_pkg/helper.hpp',
       'demo_pkg/src/TalkerArtWrapper.cpp',
+      'demo_pkg/src/helpers.cpp',
+      'demo_pkg/test/test_helper.cpp',
+      'demo_pkg/config/other.yaml',
       'demo_pkg/CMakeLists.txt',
       'demo_pkg/package.xml',
       'demo_pkg/launch/demo_sys.launch.py',
       'demo_pkg/resource/demo_pkg',
     ]) {
-      assert.strictEqual(isPluginOwnedPrunePath(corePath), false, `Must refuse core path: ${corePath}`);
+      assert.strictEqual(isPluginOwnedPrunePath(disallowedPath), false, `Must refuse path: ${disallowedPath}`);
     }
     assert.strictEqual(isPluginOwnedPrunePath('demo_pkg/plugins/de_example_extprobe/old.txt'), true);
     assert.strictEqual(isPluginOwnedPrunePath('demo_sys/config/de_example_extprobe/old.yaml'), true);
     assert.strictEqual(isPluginOwnedPrunePath('demo_sys/launch/de_example_extprobe/old.launch.py'), true);
+
+    const pruneGuardDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-prune-guard-'));
+    try {
+      const keepHelper = path.join(pruneGuardDir, 'demo_pkg', 'src', 'helpers.cpp');
+      const keepOtherCfg = path.join(pruneGuardDir, 'demo_pkg', 'config', 'other.yaml');
+      const stalePluginTxt = path.join(pruneGuardDir, 'demo_pkg', 'plugins', 'de_example_extprobe', 'old.txt');
+      const stalePluginCfg = path.join(pruneGuardDir, 'demo_pkg', 'config', 'de_example_extprobe', 'old.yaml');
+      const stalePluginLaunch = path.join(pruneGuardDir, 'demo_pkg', 'launch', 'de_example_extprobe', 'old.launch.py');
+      for (const p of [keepHelper, keepOtherCfg, stalePluginTxt, stalePluginCfg, stalePluginLaunch]) {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, 'content\n', 'utf8');
+      }
+      const deletedByPrune = await deletePrunedFiles(pruneGuardDir, [
+        'demo_pkg/src/helpers.cpp',
+        'demo_pkg/config/other.yaml',
+        'demo_pkg/plugins/de_example_extprobe/old.txt',
+        'demo_pkg/config/de_example_extprobe/old.yaml',
+        'demo_pkg/launch/de_example_extprobe/old.launch.py',
+      ]);
+      assert.ok(fs.existsSync(keepHelper), 'deletePrunedFiles must never delete src/helpers.cpp');
+      assert.ok(fs.existsSync(keepOtherCfg), 'deletePrunedFiles must never delete config/other.yaml');
+      assert.strictEqual(fs.existsSync(stalePluginTxt), false);
+      assert.strictEqual(fs.existsSync(stalePluginCfg), false);
+      assert.strictEqual(fs.existsSync(stalePluginLaunch), false);
+      assert.deepStrictEqual(deletedByPrune, [
+        'demo_pkg/plugins/de_example_extprobe/old.txt',
+        'demo_pkg/config/de_example_extprobe/old.yaml',
+        'demo_pkg/launch/de_example_extprobe/old.launch.py',
+      ]);
+    } finally {
+      fs.rmSync(pruneGuardDir, { recursive: true, force: true });
+    }
 
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-both-shield-'));
     const pkgPath = path.join(ws, 'both_shield.ros2');

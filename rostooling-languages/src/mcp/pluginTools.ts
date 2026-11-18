@@ -185,7 +185,6 @@ async function executeSetExtensionBlock(
     {
       fileUri: pathToFileURL(absModelPath).href,
       modelPath: absModelPath,
-      modelText: currentText,
       blockName: params.block_name,
       targetKind: params.target_kind,
       targetName: params.target_name,
