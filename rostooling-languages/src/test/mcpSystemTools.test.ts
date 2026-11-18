@@ -14,7 +14,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
  */
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..');
-const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.5.0.jar');
+const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.5.1.jar');
 // RT_MCP_BIN runs the suite against an installed rostooling-mcp package, which finds its bundled JAR.
 const BIN = process.env.RT_MCP_BIN || path.join(EXT_ROOT, 'bin', 'rostooling-mcp.js');
 const BIN_ARGS = process.env.RT_MCP_BIN ? [BIN] : [BIN, '--jar', JAR];
