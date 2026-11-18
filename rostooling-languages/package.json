@@ -21,6 +21,17 @@
   "engines": {
     "vscode": "^1.107.0"
   },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Plugin loading and workspace plugin settings are disabled in untrusted workspaces until you trust the workspace.",
+      "restrictedConfigurations": [
+        "rostooling-languages.plugins.paths",
+        "rostooling-languages.plugins.enabled",
+        "rostooling-languages.plugins.trustedChecksums"
+      ]
+    }
+  },
   "categories": [
     "Programming Languages"
   ],
@@ -169,8 +180,26 @@
           },
           "default": [],
           "description": "Explicitly enabled RosToolingPlugin IDs (discovery remains passive unless listed here)."
+        },
+        "rostooling-languages.plugins.trustedChecksums": {
+          "type": "object",
+          "scope": "application",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "User-confirmed SHA-256 checksums for external RosTooling plugin JARs (plugin ID to SHA-256 hex digest). Stored in user settings only."
         }
       }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "rostooling.pluginsView",
+          "name": "RosTooling Plugins",
+          "when": "rostooling.pluginsViewVisible"
+        }
+      ]
     },
     "customEditors": [
       {
@@ -210,6 +239,42 @@
         "title": "Install AI Agent Skills & MCP (Antigravity, Claude Code, Codex, Cursor, Gemini CLI)",
         "category": "RosTooling",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "rostooling.managePlugins",
+        "title": "Manage Plugins...",
+        "category": "RosTooling",
+        "icon": "$(extensions)"
+      },
+      {
+        "command": "rostooling.refreshPluginsView",
+        "title": "Refresh Plugins",
+        "category": "RosTooling",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "rostooling.enablePlugin",
+        "title": "Enable Plugin",
+        "category": "RosTooling",
+        "icon": "$(check)"
+      },
+      {
+        "command": "rostooling.disablePlugin",
+        "title": "Disable Plugin",
+        "category": "RosTooling",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "rostooling.showPluginLoadError",
+        "title": "Show Load Error",
+        "category": "RosTooling",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "rostooling.openPluginDocs",
+        "title": "Open Documentation",
+        "category": "RosTooling",
+        "icon": "$(book)"
       },
       {
         "command": "rossystem.triggerCodeGeneration",
@@ -268,6 +333,40 @@
           "group": "ROS2@100",
           "when": "resourceExtname == .ros2"
         }
+      ],
+      "view/title": [
+        {
+          "command": "rostooling.refreshPluginsView",
+          "when": "view == rostooling.pluginsView",
+          "group": "navigation"
+        },
+        {
+          "command": "rostooling.managePlugins",
+          "when": "view == rostooling.pluginsView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "rostooling.enablePlugin",
+          "when": "view == rostooling.pluginsView && viewItem == pluginDisabled",
+          "group": "inline@1"
+        },
+        {
+          "command": "rostooling.disablePlugin",
+          "when": "view == rostooling.pluginsView && viewItem == pluginEnabled",
+          "group": "inline@1"
+        },
+        {
+          "command": "rostooling.showPluginLoadError",
+          "when": "view == rostooling.pluginsView && (viewItem == pluginFailed || viewItem == pluginIncompatible)",
+          "group": "inline@1"
+        },
+        {
+          "command": "rostooling.openPluginDocs",
+          "when": "view == rostooling.pluginsView && (viewItem == pluginEnabled || viewItem == pluginDisabled || viewItem == pluginFailed || viewItem == pluginIncompatible)",
+          "group": "1_docs"
+        }
       ]
     }
   },
@@ -280,6 +379,7 @@
     "onCommand:rostooling.openVisualStudio",
     "onCommand:rostooling.selectServerJar",
     "onCommand:rostooling.installAgentSkills",
+    "onCommand:rostooling.managePlugins",
     "onCommand:ros2.generateWrappers",
     "onCommand:rossystem.triggerCodeGeneration",
     "onCommand:rossdl.buildPackage",

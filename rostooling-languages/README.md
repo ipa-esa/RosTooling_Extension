@@ -188,6 +188,28 @@ Or if installed globally via npm:
 
 ---
 
+## Using plugins
+
+RosTooling supports third-party `RosToolingPlugin` JAR extensions without hardcoding any plugin list or downloading external binaries automatically.
+
+1. **Discover and enable plugins**:
+   * Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and run **RosTooling: Manage Plugins...** (`rostooling.managePlugins`), or open the **RosTooling Plugins** view in the VS Code Explorer when working in a ROS workspace.
+   * Choose **Add plugin JAR or folder…** to point `rostooling-languages.plugins.paths` at a plugin `.jar` file or directory containing plugin JARs. Both absolute paths, workspace-relative paths, and `${workspaceFolder}` variables are supported.
+   * Compatible plugins declare metadata in `META-INF/rostooling-plugin.properties` so RosTooling can list their ID, version, summary, supported core range, and optional documentation without loading plugin Java classes until you enable them.
+2. **Where settings live**:
+   * **Workspace settings** (`.vscode/settings.json`): applies only to the current workspace and can be shared with a team.
+   * **User settings**: applies across all workspaces you open.
+   * When enabling a plugin interactively, RosTooling asks which scope to save into, restarts both the LSP and GLSP servers, and updates configured AI agent MCP entries (`--plugins-dir` and `--enable-plugins`).
+3. **Security, Workspace Trust & Checksum Confirmation**:
+   * Enabling a plugin runs Java code from that JAR with your user permissions. Only enable plugins from sources you trust.
+   * **Untrusted workspaces**: Workspace `plugins.paths` and `plugins.enabled` settings in `.vscode/settings.json` are blocked until you grant Workspace Trust.
+   * **SHA-256 pinning**: Before a plugin JAR is activated for the first time (or after its JAR file changes on disk), RosTooling displays its ID, version, JAR path, and SHA-256 checksum for confirmation and records trusted digests in user-only `rostooling-languages.plugins.trustedChecksums`.
+4. **Documentation & Diagnostics**:
+   * Use **Open Documentation** in the **RosTooling Plugins** view context menu to view plugin-supplied Markdown documentation inside VS Code's standard Markdown preview.
+   * Plugins missing `META-INF/rostooling-plugin.properties` appear with `no plugin metadata; enable by id in settings` and can still be enabled manually by entering their ID in `rostooling-languages.plugins.enabled` and confirming the checksum.
+
+---
+
 ## Requirements
 
 * **Visual Studio Code**: version 1.107.0 or later.

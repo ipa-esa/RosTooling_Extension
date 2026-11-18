@@ -87,9 +87,26 @@ task testPluginJar(type: Jar) {
     destinationDirectory = file("${buildDir}/test-plugins")
     from(sourceSets.testPlugin.output) {
         exclude 'META-INF/MANIFEST.MF'
+        exclude '**/ExternalOverlapPlugin*.class'
     }
     manifest {
         from('src/testPlugin/resources/META-INF/MANIFEST.MF')
+    }
+}
+
+task testOverlapPluginJar(type: Jar) {
+    dependsOn testPluginClasses
+    archiveBaseName = 'rostooling-test-overlap-plugin'
+    archiveVersion = ''
+    destinationDirectory = file("${buildDir}/test-plugins")
+    from(sourceSets.testPlugin.output.classesDirs) {
+        include '**/ExternalOverlapPlugin*.class'
+    }
+    from('src/testOverlapPlugin/resources') {
+        exclude 'META-INF/MANIFEST.MF'
+    }
+    manifest {
+        from('src/testOverlapPlugin/resources/META-INF/MANIFEST.MF')
     }
 }
 
@@ -124,7 +141,7 @@ shadowJar {
     }
 }
 
-shadowJar.dependsOn testPluginJar
+shadowJar.dependsOn testPluginJar, testOverlapPluginJar
 
 configure(subprojects.findAll {it.name.startsWith('rostooling')}) {
     apply plugin: 'com.github.node-gradle.node'

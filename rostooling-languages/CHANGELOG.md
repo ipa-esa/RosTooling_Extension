@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Interactive Plugin Discovery, Explorer View & Security Controls**:
+  - Added the `RosTooling: Manage Plugins...` (`rostooling.managePlugins`) Command Palette picker displaying discovered plugins passively from `META-INF/rostooling-plugin.properties` (`rostooling.listDiscoveredPlugins`), supporting enabling/disabling compatible plugins, adding plugin JARs or folders, opening plugin settings, and writing to Workspace or User settings.
+  - Added the **RosTooling Plugins** Explorer view (`rostooling.pluginsView`) in ROS workspaces with status icons, refresh/manage actions, inline Enable/Disable, Load Error details, and sandboxed Markdown documentation preview (`rostooling.getPluginDocumentation` / `rostooling.openPluginDocs`).
+  - Added SHA-256 trust confirmation stored strictly in user-scoped `rostooling-languages.plugins.trustedChecksums` on first enable or JAR checksum change, alongside VS Code Workspace Trust enforcement (`untrustedWorkspaces.supported: "limited"` with `plugins.paths`, `plugins.enabled`, and `plugins.trustedChecksums` restricted).
+  - Shared `${workspaceFolder}` and workspace-relative plugin path resolution (`src/plugins/pluginPaths.ts`) across LSP, GLSP, and `AgentSkillInstaller` MCP configurations (`--plugins-dir` / `--enable-plugins` synchronization and automatic LSP/GLSP restart).
 - **Client Output Root Propagation (`outputRoot`)**:
   - Passed `src-gen/<pkg>` (package generation) and `src-gen` (system generation) as the optional `outputRoot` argument across `extension.ts`, `server.ts`, and `pluginTools.ts` so plugins can read prior plugin-owned files via `GenerationContext.readOwnedFile(...)` before `deletePrunedFiles` runs.
 - **Plugin Notice Propagation (`notices`)**:

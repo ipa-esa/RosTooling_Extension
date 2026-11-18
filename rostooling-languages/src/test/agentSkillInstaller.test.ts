@@ -340,4 +340,56 @@ suite('AgentSkillInstaller Test Suite', () => {
     assert.ok(updatedAgents['custom-guard'], 'Custom hook in .agents/hooks.json must be preserved');
     assert.ok(updatedAgents['rosmodel-lint'], 'rosmodel-lint hook must be added');
   });
+
+  test('MCP config install and refresh propagate plugin CLI flags and remove them when empty', async () => {
+    const homeDir = path.join(tempDir, 'plugin-home');
+    const wsDir = path.join(tempDir, 'plugin-ws');
+    const currentScript = path.join(extRoot, 'bin', 'rostooling-mcp.js');
+    const pluginFlags = ['--plugins-dir', '/tmp/example-plugins', '--enable-plugins', 'de.example.extprobe'];
+
+    const res = await AgentSkillInstaller.installSkills(mockContext, {
+      platform: 'all',
+      scope: 'workspace',
+      customTargetRoot: wsDir,
+      pluginCliArgs: pluginFlags,
+    });
+    assert.strictEqual(res.success, true);
+
+    const claudeJson = JSON.parse(fs.readFileSync(path.join(wsDir, '.mcp.json'), 'utf8'));
+    assert.deepStrictEqual(claudeJson.mcpServers?.rostooling?.args, [currentScript, ...pluginFlags]);
+
+    const codexToml = fs.readFileSync(path.join(wsDir, '.codex', 'config.toml'), 'utf8');
+    assert.ok(codexToml.includes('--plugins-dir'));
+    assert.ok(codexToml.includes('de.example.extprobe'));
+
+    // Refresh existing configs with cleared plugin flags (e.g. disabled or untrusted workspace): flags must be removed cleanly
+    const homeGemini = path.join(homeDir, '.gemini', 'config', 'mcp_config.json');
+    fs.mkdirSync(path.dirname(homeGemini), { recursive: true });
+    fs.writeFileSync(
+      homeGemini,
+      JSON.stringify({
+        mcpServers: {
+          rostooling: { command: 'node', args: [currentScript, ...pluginFlags] },
+          other: { command: 'keep-me' },
+        },
+      }),
+      'utf8'
+    );
+
+    const clearedCount = AgentSkillInstaller.refreshExistingMcpConfigs(mockContext, {
+      homeDir,
+      workspaceDir: wsDir,
+      pluginCliArgs: [],
+    });
+    assert.ok(clearedCount >= 4, `Expected JSON and TOML MCP configs updated, got ${clearedCount}`);
+
+    const claudeCleared = JSON.parse(fs.readFileSync(path.join(wsDir, '.mcp.json'), 'utf8'));
+    assert.deepStrictEqual(claudeCleared.mcpServers?.rostooling?.args, [currentScript]);
+    const geminiCleared = JSON.parse(fs.readFileSync(homeGemini, 'utf8'));
+    assert.deepStrictEqual(geminiCleared.mcpServers?.rostooling?.args, [currentScript]);
+    assert.deepStrictEqual(geminiCleared.mcpServers?.other, { command: 'keep-me' });
+    const codexCleared = fs.readFileSync(path.join(wsDir, '.codex', 'config.toml'), 'utf8');
+    assert.ok(!codexCleared.includes('--plugins-dir'));
+    assert.ok(!codexCleared.includes('--enable-plugins'));
+  });
 });

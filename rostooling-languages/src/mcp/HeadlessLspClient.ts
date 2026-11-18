@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RosCatalogueManager } from '../model/RosCatalogueManager.js';
+import { normalizePluginSettingList, resolvePluginPaths } from '../plugins/pluginPaths.js';
 
 export interface Diagnostic {
   file: string;
@@ -68,10 +69,14 @@ export class HeadlessLspClient {
         if (fs.existsSync(sPath)) {
           const content = JSON.parse(fs.readFileSync(sPath, 'utf8'));
           if (!dir && Array.isArray(content['rostooling-languages.plugins.paths'])) {
-            dir = content['rostooling-languages.plugins.paths'].filter(Boolean).join(path.delimiter);
+            const resolved = resolvePluginPaths(
+              normalizePluginSettingList(content['rostooling-languages.plugins.paths']),
+              { workspaceDir: d }
+            );
+            dir = resolved.join(path.delimiter);
           }
           if (!enabled && Array.isArray(content['rostooling-languages.plugins.enabled'])) {
-            enabled = content['rostooling-languages.plugins.enabled'].filter(Boolean).join(',');
+            enabled = normalizePluginSettingList(content['rostooling-languages.plugins.enabled']).join(',');
           }
         }
       } catch {

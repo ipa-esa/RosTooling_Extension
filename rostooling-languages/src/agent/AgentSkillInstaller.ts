@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { buildMcpPluginCliArgs } from '../plugins/pluginPaths.js';
+import {
+  computeEffectivePluginConfig,
+  normalizeTrustedChecksums,
+} from '../plugins/pluginTrust.js';
 
 export type AgentPlatform = 'claude' | 'antigravity' | 'codex' | 'cursor' | 'gemini' | 'all';
 export type InstallScope = 'workspace' | 'global';
@@ -150,6 +155,7 @@ export class AgentSkillInstaller {
       platform: AgentPlatform;
       scope: InstallScope;
       customTargetRoot?: string;
+      pluginCliArgs?: string[];
     }
   ): Promise<InstallResult> {
     const sourceDir = this.getBundledSkillsDir(context);
@@ -225,6 +231,11 @@ export class AgentSkillInstaller {
 
       const mcpScript = this.resolveMcpScript(context);
       const agyHome = options.customTargetRoot || os.homedir();
+      const workspaceRootForPlugins =
+        options.scope === 'workspace'
+          ? targetRoot
+          : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const pluginCliArgs = this.resolveMcpPluginArgs(workspaceRootForPlugins, options.pluginCliArgs);
 
       // 1. Antigravity (workspace: .agents/{skills,hooks.json}; global: ~/.gemini/config/{skills,hooks.json,mcp_config.json})
       if (shouldInstallAntigravity) {
@@ -243,7 +254,7 @@ export class AgentSkillInstaller {
         }
         if (mcpScript) {
           const agyMcpPath = path.join(agyHome, '.gemini', 'config', 'mcp_config.json');
-          if (this.upsertJsonMcpServer(agyMcpPath, mcpScript, true)) {
+          if (this.upsertJsonMcpServer(agyMcpPath, mcpScript, true, pluginCliArgs)) {
             mcpConfigured = true;
           }
         }
@@ -288,7 +299,7 @@ export class AgentSkillInstaller {
         const claudeMcpPath = options.scope === 'global'
           ? path.join(targetRoot, '.claude.json')
           : path.join(targetRoot, '.mcp.json');
-        if (mcpScript && this.upsertJsonMcpServer(claudeMcpPath, mcpScript, true)) {
+        if (mcpScript && this.upsertJsonMcpServer(claudeMcpPath, mcpScript, true, pluginCliArgs)) {
           mcpConfigured = true;
         }
 
@@ -307,7 +318,7 @@ export class AgentSkillInstaller {
       // 3. OpenAI Codex CLI (.agents/skills + .codex/config.toml)
       if (shouldInstallCodex) {
         ensureAgentsSkills();
-        if (mcpScript && this.upsertTomlMcpServer(path.join(targetRoot, '.codex', 'config.toml'), mcpScript, true)) {
+        if (mcpScript && this.upsertTomlMcpServer(path.join(targetRoot, '.codex', 'config.toml'), mcpScript, true, pluginCliArgs)) {
           mcpConfigured = true;
         }
         installedPlatforms.push('Codex CLI (.agents/skills, .codex/config.toml)');
@@ -325,7 +336,7 @@ export class AgentSkillInstaller {
             this.safeCopyFile(srcSkillMd, destRule, scriptsDir);
           }
         }
-        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.cursor', 'mcp.json'), mcpScript, true)) {
+        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.cursor', 'mcp.json'), mcpScript, true, pluginCliArgs)) {
           mcpConfigured = true;
         }
         installedPlatforms.push('Cursor (.cursor/rules, .cursor/mcp.json)');
@@ -334,7 +345,7 @@ export class AgentSkillInstaller {
       // 5. Gemini CLI (.agents/skills + .gemini/settings.json)
       if (shouldInstallGemini) {
         ensureAgentsSkills();
-        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.gemini', 'settings.json'), mcpScript, true)) {
+        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.gemini', 'settings.json'), mcpScript, true, pluginCliArgs)) {
           mcpConfigured = true;
         }
         installedPlatforms.push('Gemini CLI (.agents/skills, .gemini/settings.json)');
@@ -373,10 +384,39 @@ export class AgentSkillInstaller {
     return typeof arg === 'string' && path.basename(arg.trim()) === 'rostooling-mcp.js';
   }
 
+  private static resolveMcpPluginArgs(workspaceDir?: string, overrideArgs?: string[]): string[] {
+    if (overrideArgs !== undefined) {
+      return [...overrideArgs];
+    }
+    try {
+      if (typeof vscode.workspace?.getConfiguration !== 'function') {
+        return [];
+      }
+      const cfg = vscode.workspace.getConfiguration('rostooling-languages');
+      const effective = computeEffectivePluginConfig({
+        isTrusted: Boolean(vscode.workspace.isTrusted),
+        workspaceDir,
+        pathsInspect: cfg.inspect<string[]>('plugins.paths'),
+        enabledInspect: cfg.inspect<string[]>('plugins.enabled'),
+        trustedChecksums: normalizeTrustedChecksums(
+          cfg.inspect<Record<string, string>>('plugins.trustedChecksums')?.globalValue
+        ),
+      });
+      return buildMcpPluginCliArgs(effective.resolvedPaths, effective.approvedEnabledIds);
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Merge or refresh the "rostooling" MCP server entry in a JSON config file (`mcpServers` map).
    */
-  private static upsertJsonMcpServer(jsonPath: string, mcpScript: string, createIfMissing: boolean): boolean {
+  private static upsertJsonMcpServer(
+    jsonPath: string,
+    mcpScript: string,
+    createIfMissing: boolean,
+    extraArgs: string[] = []
+  ): boolean {
     const exists = fs.existsSync(jsonPath);
     if (!exists && !createIfMissing) {
       return false;
@@ -405,19 +445,23 @@ export class AgentSkillInstaller {
       mcpConfig.mcpServers = {};
     }
 
+    const desiredArgs = [mcpScript, ...extraArgs];
     const current = mcpConfig.mcpServers['rostooling'];
     if (!createIfMissing) {
       if (!current || current.command !== 'node' || !Array.isArray(current.args) || !this.isBundledMcpScriptArg(current.args[0])) {
         return false;
       }
-      if (current.args[0] === mcpScript) {
+      if (
+        current.args.length === desiredArgs.length &&
+        current.args.every((val, idx) => val === desiredArgs[idx])
+      ) {
         return false;
       }
     }
 
     mcpConfig.mcpServers['rostooling'] = {
       command: 'node',
-      args: [mcpScript],
+      args: desiredArgs,
     };
 
     try {
@@ -432,14 +476,22 @@ export class AgentSkillInstaller {
   /**
    * Merge or refresh the `[mcp_servers.rostooling]` TOML table in Codex CLI's `config.toml`.
    */
-  private static upsertTomlMcpServer(tomlPath: string, mcpScript: string, createIfMissing: boolean): boolean {
+  private static upsertTomlMcpServer(
+    tomlPath: string,
+    mcpScript: string,
+    createIfMissing: boolean,
+    extraArgs: string[] = []
+  ): boolean {
     const exists = fs.existsSync(tomlPath);
     if (!exists && !createIfMissing) {
       return false;
     }
 
-    const escaped = mcpScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const block = `[mcp_servers.rostooling]\ncommand = "node"\nargs = ["${escaped}"]\n`;
+    const desiredArgs = [mcpScript, ...extraArgs];
+    const serializedArgs = desiredArgs
+      .map((arg) => `"${arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+      .join(', ');
+    const block = `[mcp_servers.rostooling]\ncommand = "node"\nargs = [${serializedArgs}]\n`;
     const raw = exists ? fs.readFileSync(tomlPath, 'utf8') : '';
     const sectionRe = /^\[mcp_servers\.rostooling\]\s*(?:#.*)?$/m;
     const match = sectionRe.exec(raw);
@@ -482,11 +534,11 @@ export class AgentSkillInstaller {
 
   /**
    * Refresh any already-configured `rostooling` MCP server entries so they point to this
-   * extension version's `bin/rostooling-mcp.js` (never creates new config files).
+   * extension version's `bin/rostooling-mcp.js` and effective plugin flags (never creates new config files).
    */
   public static refreshExistingMcpConfigs(
     context: vscode.ExtensionContext,
-    roots?: { homeDir?: string; workspaceDir?: string }
+    roots?: { homeDir?: string; workspaceDir?: string; pluginCliArgs?: string[] }
   ): number {
     const mcpScript = this.resolveMcpScript(context);
     if (!mcpScript) {
@@ -494,6 +546,7 @@ export class AgentSkillInstaller {
     }
     const homeDir = roots?.homeDir ?? os.homedir();
     const workspaceDir = roots?.workspaceDir ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const pluginCliArgs = this.resolveMcpPluginArgs(workspaceDir, roots?.pluginCliArgs);
 
     const jsonCandidates = [
       path.join(homeDir, '.gemini', 'config', 'mcp_config.json'),
@@ -515,12 +568,12 @@ export class AgentSkillInstaller {
 
     let updated = 0;
     for (const p of new Set(jsonCandidates)) {
-      if (this.upsertJsonMcpServer(p, mcpScript, false)) {
+      if (this.upsertJsonMcpServer(p, mcpScript, false, pluginCliArgs)) {
         updated += 1;
       }
     }
     for (const p of new Set(tomlCandidates)) {
-      if (this.upsertTomlMcpServer(p, mcpScript, false)) {
+      if (this.upsertTomlMcpServer(p, mcpScript, false, pluginCliArgs)) {
         updated += 1;
       }
     }

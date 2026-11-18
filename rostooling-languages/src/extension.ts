@@ -12,6 +12,13 @@ import { RosCatalogueManager } from './model/RosCatalogueManager';
 import { AgentSkillInstaller } from './agent/AgentSkillInstaller';
 import { GlspClientBridge } from './glsp/GlspClientBridge';
 import { deletePrunedFiles } from './mcp/PostProcessor';
+import {
+    PluginDocContentProvider,
+    PluginManagerController,
+    VsCodePluginHost,
+} from './plugins/pluginManager';
+import { PluginTreeItem, PluginsTreeDataProvider } from './plugins/pluginsTreeView';
+import { EffectivePluginConfig } from './plugins/pluginTrust';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -31,7 +38,7 @@ function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     });
 }
 
-let lc: LanguageClient;
+let lc: LanguageClient | undefined;
 let lspStartPromise: Promise<void> | null = null;
 let isLspReady = false;
 
@@ -205,54 +212,10 @@ export async function activate(context: ExtensionContext) {
         : defaultVmArgs;
     outputChannel.appendLine(`LSP JVM options: ${vmArgs.join(' ')}`);
 
-    const pluginPaths = config.get<string[]>('plugins.paths') || [];
-    const pluginEnabled = config.get<string[]>('plugins.enabled') || [];
-    const pluginsDirProp = pluginPaths.filter(Boolean).join(path.delimiter) || process.env.ROS_PLUGINS_DIR || '';
-    const pluginsEnabledProp = pluginEnabled.filter(Boolean).join(',') || process.env.ROS_PLUGINS_ENABLED || '';
-    if (pluginsDirProp) {
-        process.env.ROS_PLUGINS_DIR = pluginsDirProp;
-    }
-    if (pluginsEnabledProp) {
-        process.env.ROS_PLUGINS_ENABLED = pluginsEnabledProp;
-    }
-
     const glspPort = Number(process.env.ROS_GLSP_PORT || 5008);
-    GlspClientBridge.getInstance({
-        host: '127.0.0.1',
-        port: glspPort,
-        javaExecutable,
-        jarPath,
-        cataloguePath,
-        autoSpawn: true
-    });
-
-    const baseArgs = [
-        '--add-opens=java.base/java.lang=ALL-UNNAMED',
-        '--add-opens=java.base/java.util=ALL-UNNAMED',
-        `-Drostooling.catalogue.path=${cataloguePath}`,
-        `-Dros.glsp.port=${glspPort}`,
-        ...(pluginsDirProp ? [`-Dros.plugins.dir=${pluginsDirProp}`] : []),
-        ...(pluginsEnabledProp ? [`-Dros.plugins.enabled=${pluginsEnabledProp}`] : []),
-        ...vmArgs
-    ];
-
-    const serverOptions: ServerOptions = {
-        run: {
-            command: javaExecutable,
-            args: [
-                ...baseArgs,
-                '-jar', jarPath
-            ]
-        },
-        debug: {
-            command: javaExecutable,
-            args: [
-                ...baseArgs,
-                '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp',  // optional debug flag
-                '-jar', jarPath
-            ]
-        }
-    };
+    const initialEnvPluginsDir = process.env.ROS_PLUGINS_DIR || '';
+    const initialEnvPluginsEnabled = process.env.ROS_PLUGINS_ENABLED || '';
+    const isTestRun = context.extensionMode === ExtensionMode.Test || process.env.VSCODE_TEST_RUN === '1';
 
     const documentSelector = [
         { scheme: 'file', language: 'ros' },
@@ -330,12 +293,247 @@ export async function activate(context: ExtensionContext) {
         }
     };
 
-    lc = new LanguageClient('rostooling-languages', serverOptions, clientOptions);
+    const docProvider = new PluginDocContentProvider();
+    context.subscriptions.push(
+        docProvider,
+        workspace.registerTextDocumentContentProvider(PluginDocContentProvider.scheme, docProvider)
+    );
 
-    // Tracing
-    const trace = workspace.getConfiguration('rostooling-languages').get('server.trace') as string;
-    lc.setTrace(trace === 'verbose' ? Trace.Verbose : trace === 'messages' ? Trace.Messages : Trace.Off);
-    context.subscriptions.push(lc);
+    let suppressPluginConfigPromptUntil = 0;
+    const lspStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
+    lspStatusBarItem.command = 'rostooling.selectServerJar';
+    context.subscriptions.push(lspStatusBarItem);
+
+    const requireLanguageClient = (): LanguageClient => {
+        if (!lc) {
+            throw new Error('RosTooling language server is not running.');
+        }
+        return lc;
+    };
+
+    let startLanguageClientImpl: () => Promise<void> = async () => undefined;
+    const restartLanguageAndGlspServers = async (): Promise<void> => {
+        outputChannel.appendLine('[Plugins] Restarting RosTooling LSP and GLSP servers...');
+        await GlspClientBridge.getInstance().dispose().catch((err) => {
+            outputChannel.appendLine(`[Plugins] Warning while disposing GLSP bridge: ${err}`);
+        });
+        const previousClient = lc;
+        isLspReady = false;
+        if (previousClient) {
+            try {
+                await previousClient.stop();
+            } catch (err) {
+                outputChannel.appendLine(`[Plugins] Warning while stopping previous LSP client: ${err}`);
+            }
+        }
+        await startLanguageClientImpl();
+    };
+
+    const refreshTreeView = () => {
+        pluginsTreeView.refresh();
+    };
+
+    const pluginHost = new VsCodePluginHost(outputChannel, docProvider, {
+        isLspReady: () => isLspReady,
+        waitForLspReady: () => ensureLspReady(),
+        sendExecuteCommand: async <T = unknown>(command: string, args: unknown[] = []): Promise<T> => {
+            return requireLanguageClient().sendRequest<T>('workspace/executeCommand', { command, arguments: args });
+        },
+        restartServers: restartLanguageAndGlspServers,
+        refreshMcpConfigs: async () => {
+            if (!isTestRun) {
+                AgentSkillInstaller.refreshExistingMcpConfigs(context);
+            }
+        },
+        refreshPluginsView: refreshTreeView,
+        beginInternalConfigUpdate: () => {
+            suppressPluginConfigPromptUntil = Date.now() + 2000;
+        },
+    });
+    const pluginController = new PluginManagerController(pluginHost);
+    const pluginsTreeView = new PluginsTreeDataProvider(pluginController);
+    context.subscriptions.push(
+        pluginsTreeView,
+        window.registerTreeDataProvider('rostooling.pluginsView', pluginsTreeView)
+    );
+
+    const applyEffectivePluginEnv = (effective: EffectivePluginConfig): { pluginsDirProp: string; pluginsEnabledProp: string } => {
+        const pluginsDirProp =
+            effective.resolvedPaths.join(path.delimiter) ||
+            (effective.pathsSource === 'none' && !effective.blockedByWorkspaceTrust ? initialEnvPluginsDir : '');
+        const hasPendingChecksum = effective.untrustedChecksumIds.length > 0 || effective.changedChecksumIds.length > 0;
+        const pluginsEnabledProp =
+            effective.approvedEnabledIds.join(',') ||
+            (effective.enabledSource === 'none' && !effective.blockedByWorkspaceTrust && !hasPendingChecksum
+                ? initialEnvPluginsEnabled
+                : '');
+
+        if (pluginsDirProp) {
+            process.env.ROS_PLUGINS_DIR = pluginsDirProp;
+        } else {
+            delete process.env.ROS_PLUGINS_DIR;
+        }
+        if (pluginsEnabledProp) {
+            process.env.ROS_PLUGINS_ENABLED = pluginsEnabledProp;
+        } else {
+            delete process.env.ROS_PLUGINS_ENABLED;
+        }
+        return { pluginsDirProp, pluginsEnabledProp };
+    };
+
+    const startLanguageClient = (): Promise<void> => {
+        const effective = pluginController.evaluateEffectiveConfig(true);
+        const { pluginsDirProp, pluginsEnabledProp } = applyEffectivePluginEnv(effective);
+
+        GlspClientBridge.getInstance({
+            host: '127.0.0.1',
+            port: glspPort,
+            javaExecutable,
+            jarPath,
+            cataloguePath,
+            autoSpawn: true
+        });
+
+        const baseArgs = [
+            '--add-opens=java.base/java.lang=ALL-UNNAMED',
+            '--add-opens=java.base/java.util=ALL-UNNAMED',
+            `-Drostooling.catalogue.path=${cataloguePath}`,
+            `-Dros.glsp.port=${glspPort}`,
+            ...(pluginsDirProp ? [`-Dros.plugins.dir=${pluginsDirProp}`] : []),
+            ...(pluginsEnabledProp ? [`-Dros.plugins.enabled=${pluginsEnabledProp}`] : []),
+            ...vmArgs
+        ];
+
+        const serverOptions: ServerOptions = {
+            run: {
+                command: javaExecutable,
+                args: [
+                    ...baseArgs,
+                    '-jar', jarPath
+                ]
+            },
+            debug: {
+                command: javaExecutable,
+                args: [
+                    ...baseArgs,
+                    '-Dorg.eclipse.equinox.simpleconfigurator.location=/tmp',  // optional debug flag
+                    '-jar', jarPath
+                ]
+            }
+        };
+
+        const client = new LanguageClient('rostooling-languages', serverOptions, clientOptions);
+        const trace = workspace.getConfiguration('rostooling-languages').get('server.trace') as string;
+        client.setTrace(trace === 'verbose' ? Trace.Verbose : trace === 'messages' ? Trace.Messages : Trace.Off);
+        lc = client;
+        isLspReady = false;
+
+        lspStatusBarItem.text = '$(sync~spin) ROS LSP: Starting...';
+        lspStatusBarItem.tooltip = 'RosTooling Language Server is starting in the background (click to change JAR or view logs)';
+        lspStatusBarItem.show();
+
+        const tLspStart = performance.now();
+        const started = client.start().then(() => {
+            if (lc !== client) {
+                return;
+            }
+            isLspReady = true;
+            const tLspElapsed = Math.round(performance.now() - tLspStart);
+            outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
+            if (isCustomJar) {
+                lspStatusBarItem.text = '$(tools) ROS LSP (Custom): Ready';
+                lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Custom Override] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
+                lspStatusBarItem.show();
+            } else {
+                lspStatusBarItem.text = '$(check) ROS LSP: Ready';
+                lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Bundled] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
+                setTimeout(() => {
+                    lspStatusBarItem.hide();
+                }, 5000);
+            }
+            pluginsTreeView.refresh();
+            void pluginController.notifyIfBlockedByTrustOrChecksum(effective);
+        }).catch((error) => {
+            if (lc !== client) {
+                return;
+            }
+            isLspReady = false;
+            outputChannel.appendLine(`Failed to start server: ${error}`);
+            lspStatusBarItem.text = '$(error) ROS LSP: Error';
+            lspStatusBarItem.tooltip = `RosTooling Language Server error: ${error} (click to view logs)`;
+            lspStatusBarItem.show();
+        });
+        lspStartPromise = started;
+        return started;
+    };
+    startLanguageClientImpl = startLanguageClient;
+
+    const updatePluginsViewVisibility = async () => {
+        const hasOpenDoc = workspace.textDocuments.some((doc) =>
+            ['ros', 'ros1', 'ros2', 'rossystem'].includes(doc.languageId)
+        );
+        let visible = hasOpenDoc;
+        if (!visible && (workspace.workspaceFolders?.length ?? 0) > 0) {
+            try {
+                const found = await workspace.findFiles('**/*.{ros,ros1,ros2,rossystem}', '**/node_modules/**', 1);
+                visible = found.length > 0;
+            } catch {
+                visible = false;
+            }
+        }
+        await commands.executeCommand('setContext', 'rostooling.pluginsViewVisible', visible);
+    };
+    void updatePluginsViewVisibility();
+    context.subscriptions.push(
+        workspace.onDidOpenTextDocument(() => {
+            void updatePluginsViewVisibility();
+        }),
+        workspace.onDidCreateFiles(() => {
+            void updatePluginsViewVisibility();
+        }),
+        workspace.onDidChangeConfiguration(async (e) => {
+            if (!e.affectsConfiguration('rostooling-languages.plugins')) {
+                return;
+            }
+            const eff = pluginController.evaluateEffectiveConfig(false);
+            applyEffectivePluginEnv(eff);
+            if (!isTestRun) {
+                AgentSkillInstaller.refreshExistingMcpConfigs(context);
+            }
+            pluginsTreeView.refresh();
+            if (Date.now() < suppressPluginConfigPromptUntil) {
+                return;
+            }
+            const choice = await window.showInformationMessage(
+                'Plugin settings changed. Restart RosTooling language server?',
+                'Restart',
+                'Later'
+            );
+            if (choice === 'Restart') {
+                await restartLanguageAndGlspServers();
+            }
+        }),
+        workspace.onDidGrantWorkspaceTrust(async () => {
+            const eff = pluginController.evaluateEffectiveConfig(true);
+            applyEffectivePluginEnv(eff);
+            if (!isTestRun) {
+                AgentSkillInstaller.refreshExistingMcpConfigs(context);
+            }
+            pluginsTreeView.refresh();
+            const hasWorkspacePluginCfg =
+                eff.pathsSource === 'workspace' || eff.enabledSource === 'workspace';
+            if (hasWorkspacePluginCfg) {
+                const choice = await window.showInformationMessage(
+                    'Workspace trusted. Restart RosTooling language server to apply workspace plugin settings?',
+                    'Restart',
+                    'Later'
+                );
+                if (choice === 'Restart') {
+                    await restartLanguageAndGlspServers();
+                }
+            }
+        })
+    );
 
     const safeRegisterCommand = (commandId: string, callback: Parameters<typeof commands.registerCommand>[1]) => {
         try {
@@ -448,36 +646,7 @@ export async function activate(context: ExtensionContext) {
         }
     });
 
-    const lspStatusBarItem = window.createStatusBarItem(StatusBarAlignment.Right, 100);
-    lspStatusBarItem.text = '$(sync~spin) ROS LSP: Starting...';
-    lspStatusBarItem.tooltip = 'RosTooling Language Server is starting in the background (click to change JAR or view logs)';
-    lspStatusBarItem.command = 'rostooling.selectServerJar';
-    lspStatusBarItem.show();
-    context.subscriptions.push(lspStatusBarItem);
-
-    const tLspStart = performance.now();
-    lspStartPromise = lc.start().then(() => {
-        isLspReady = true;
-        const tLspElapsed = Math.round(performance.now() - tLspStart);
-        outputChannel.appendLine(`Rostooling LSP Server started successfully in ${tLspElapsed}ms`);
-        if (isCustomJar) {
-            lspStatusBarItem.text = '$(tools) ROS LSP (Custom): Ready';
-            lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Custom Override] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
-            lspStatusBarItem.show();
-        } else {
-            lspStatusBarItem.text = '$(check) ROS LSP: Ready';
-            lspStatusBarItem.tooltip = `RosTooling Language Server: ${path.basename(jarPath)} [Bundled] (${tLspElapsed}ms)\nClick to change Language Server JAR`;
-            setTimeout(() => {
-                lspStatusBarItem.hide();
-            }, 5000);
-        }
-    }).catch((error) => {
-        isLspReady = false;
-        outputChannel.appendLine(`Failed to start server: ${error}`);
-        lspStatusBarItem.text = '$(error) ROS LSP: Error';
-        lspStatusBarItem.tooltip = `RosTooling Language Server error: ${error} (click to view logs)`;
-        lspStatusBarItem.show();
-    });
+    void startLanguageClient();
 
     safeRegisterCommand('rossystem.triggerCodeGeneration', async (uri?: Uri) => {
         if (!(await ensureLspReady())) {
@@ -546,7 +715,7 @@ export async function activate(context: ExtensionContext) {
 
             console.log('Sending execute Command to server...');
             const sysSrcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
-            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+            const result = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr, existingFiles, 'auto', sysSrcGenUri.fsPath]
             });
@@ -881,7 +1050,7 @@ export async function activate(context: ExtensionContext) {
 
         try {
             if (cppTargetNodes.length > 0 && pyTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -903,7 +1072,7 @@ export async function activate(context: ExtensionContext) {
                 prunedFiles.push(...(result?.prunedFiles || []));
                 notices.push(...(result?.notices || []));
             } else if (pyTargetNodes.length > 0 && cppTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -926,7 +1095,7 @@ export async function activate(context: ExtensionContext) {
                 notices.push(...(result?.notices || []));
             } else if (cppTargetNodes.length > 0 && pyTargetNodes.length > 0) {
                 // Hybrid package generation in single run
-                const resCpp = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+                const resCpp = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -953,7 +1122,7 @@ export async function activate(context: ExtensionContext) {
                     ...Object.keys(resCpp?.files || {}).map(p => p.replace(/^DEFAULT_OUTPUT\/?/, ''))
                 ]));
 
-                const resPy = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+                const resPy = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -977,7 +1146,7 @@ export async function activate(context: ExtensionContext) {
             } else {
                 // Fallback for empty package
                 const fallbackLang = (nodeLangMap.values().next().value as string) || 'cpp';
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await requireLanguageClient().sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -1129,6 +1298,38 @@ export async function activate(context: ExtensionContext) {
 
     safeRegisterCommand('rostooling.installAgentSkills', async () => {
         await AgentSkillInstaller.promptInstallSkills(context);
+    });
+
+    safeRegisterCommand('rostooling.managePlugins', async () => {
+        await pluginController.managePlugins();
+    });
+
+    safeRegisterCommand('rostooling.refreshPluginsView', () => {
+        pluginsTreeView.refresh();
+    });
+
+    safeRegisterCommand('rostooling.enablePlugin', async (item?: PluginTreeItem) => {
+        if (item?.plugin) {
+            await pluginController.enableSinglePlugin(item.plugin);
+        }
+    });
+
+    safeRegisterCommand('rostooling.disablePlugin', async (item?: PluginTreeItem) => {
+        if (item?.plugin) {
+            await pluginController.disableSinglePlugin(item.plugin);
+        }
+    });
+
+    safeRegisterCommand('rostooling.showPluginLoadError', async (item?: PluginTreeItem) => {
+        if (item?.plugin) {
+            await pluginController.showPluginLoadError(item.plugin);
+        }
+    });
+
+    safeRegisterCommand('rostooling.openPluginDocs', async (item?: PluginTreeItem) => {
+        if (item?.plugin) {
+            await pluginController.openPluginDocumentation(item.plugin);
+        }
     });
 
     // Refresh already-configured MCP paths on upgrade and offer agent skill installation on startup

@@ -567,7 +567,9 @@ suite('MCP semantic .ros2 package tools', function () {
 
 suite('Standalone external plugin JAR integration (--plugins-dir & VS Code settings)', function () {
   this.timeout(240000);
-  const TEST_PLUGIN_JAR = path.resolve(EXT_ROOT, '..', 'build', 'test-plugins', 'rostooling-test-plugins.jar');
+  const TEST_PLUGINS_DIR = path.resolve(EXT_ROOT, '..', 'build', 'test-plugins');
+  const TEST_PLUGIN_JAR = path.join(TEST_PLUGINS_DIR, 'rostooling-test-plugins.jar');
+  const TEST_OVERLAP_PLUGIN_JAR = path.join(TEST_PLUGINS_DIR, 'rostooling-test-overlap-plugin.jar');
 
   function cleanPluginEnv(): Record<string, string> {
     const env: Record<string, string> = {};
@@ -582,6 +584,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
   test('loads external plugin JAR via --plugins-dir/--enable-plugins and exercises validate, MCP tools, docs resource, package & system generation', async () => {
     assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
     assert.ok(fs.existsSync(TEST_PLUGIN_JAR), `External test plugin JAR missing at ${TEST_PLUGIN_JAR}`);
+    assert.ok(fs.existsSync(TEST_OVERLAP_PLUGIN_JAR), `External overlap plugin JAR missing at ${TEST_OVERLAP_PLUGIN_JAR}`);
 
     const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ext-cli-'));
     const env = cleanPluginEnv();
@@ -590,7 +593,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
     const cliArgs = [
       ...BIN_ARGS,
       '--plugins-dir',
-      TEST_PLUGIN_JAR,
+      TEST_PLUGINS_DIR,
       '--enable-plugins',
       'de.example.extprobe,de.example.extoverlap',
     ];
