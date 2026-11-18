@@ -143,6 +143,7 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
         pb.addDepend("std_msgs");
         pb.addFindPackage("std_msgs");
         pb.addInstallDirectory("plugins/de.example.extprobe", "share/${PROJECT_NAME}/extprobe", false);
+        context.addNotice("probe profile '" + profile + "' generated for " + context.packageModel().getName());
     }
 
     @Override
@@ -211,6 +212,7 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
         context.addLaunchInclude(
                 launchRel,
                 Map.of("probe_profile", SystemGenerationContext.LaunchArgumentValue.literal(profile)));
+        context.addNotice("system probe '" + profile + "' generated");
     }
 
     @Override

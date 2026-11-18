@@ -545,7 +545,7 @@ export async function activate(context: ExtensionContext) {
             }
 
             console.log('Sending execute Command to server...');
-            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], error?: string }>('workspace/executeCommand', {
+            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr, existingFiles]
             });
@@ -554,6 +554,10 @@ export async function activate(context: ExtensionContext) {
             const files = result?.files || {};
             const count = Object.keys(files).length;
             const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+
+            for (const notice of Array.from(new Set(result?.notices || []))) {
+                window.showInformationMessage(notice);
+            }
 
             if (result?.error) {
                 window.showErrorMessage(`Generation error: ${result.error}`);
@@ -871,10 +875,11 @@ export async function activate(context: ExtensionContext) {
 
         const files: Record<string, string> = {};
         const prunedFiles: string[] = [];
+        const notices: string[] = [];
 
         try {
             if (cppTargetNodes.length > 0 && pyTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -885,13 +890,17 @@ export async function activate(context: ExtensionContext) {
                     ]
                 });
                 if (result?.error) {
+                    for (const notice of Array.from(new Set(result?.notices || []))) {
+                        window.showInformationMessage(notice);
+                    }
                     window.showErrorMessage(`Generation error: ${result.error}`);
                     return;
                 }
                 Object.assign(files, result?.files || {});
                 prunedFiles.push(...(result?.prunedFiles || []));
+                notices.push(...(result?.notices || []));
             } else if (pyTargetNodes.length > 0 && cppTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -902,14 +911,18 @@ export async function activate(context: ExtensionContext) {
                     ]
                 });
                 if (result?.error) {
+                    for (const notice of Array.from(new Set(result?.notices || []))) {
+                        window.showInformationMessage(notice);
+                    }
                     window.showErrorMessage(`Generation error: ${result.error}`);
                     return;
                 }
                 Object.assign(files, result?.files || {});
                 prunedFiles.push(...(result?.prunedFiles || []));
+                notices.push(...(result?.notices || []));
             } else if (cppTargetNodes.length > 0 && pyTargetNodes.length > 0) {
                 // Hybrid package generation in single run
-                const resCpp = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+                const resCpp = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -920,18 +933,22 @@ export async function activate(context: ExtensionContext) {
                     ]
                 });
                 if (resCpp?.error) {
+                    for (const notice of Array.from(new Set(resCpp?.notices || []))) {
+                        window.showInformationMessage(notice);
+                    }
                     window.showErrorMessage(`Generation error: ${resCpp.error}`);
                     return;
                 }
                 Object.assign(files, resCpp?.files || {});
                 prunedFiles.push(...(resCpp?.prunedFiles || []));
+                notices.push(...(resCpp?.notices || []));
 
                 const updatedExisting = Array.from(new Set([
                     ...existingFiles,
                     ...Object.keys(resCpp?.files || {}).map(p => p.replace(/^DEFAULT_OUTPUT\/?/, ''))
                 ]));
 
-                const resPy = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+                const resPy = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -942,15 +959,19 @@ export async function activate(context: ExtensionContext) {
                     ]
                 });
                 if (resPy?.error) {
+                    for (const notice of Array.from(new Set([...notices, ...(resPy?.notices || [])]))) {
+                        window.showInformationMessage(notice);
+                    }
                     window.showErrorMessage(`Generation error: ${resPy.error}`);
                     return;
                 }
                 Object.assign(files, resPy?.files || {});
                 prunedFiles.push(...(resPy?.prunedFiles || []));
+                notices.push(...(resPy?.notices || []));
             } else {
                 // Fallback for empty package
                 const fallbackLang = (nodeLangMap.values().next().value as string) || 'cpp';
-                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -961,15 +982,22 @@ export async function activate(context: ExtensionContext) {
                     ]
                 });
                 if (result?.error) {
+                    for (const notice of Array.from(new Set(result?.notices || []))) {
+                        window.showInformationMessage(notice);
+                    }
                     window.showErrorMessage(`Generation error: ${result.error}`);
                     return;
                 }
                 Object.assign(files, result?.files || {});
                 prunedFiles.push(...(result?.prunedFiles || []));
+                notices.push(...(result?.notices || []));
             }
 
             const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
             await deletePrunedFiles(srcGenUri.fsPath, prunedFiles);
+            for (const notice of Array.from(new Set(notices))) {
+                window.showInformationMessage(notice);
+            }
             const count = Object.keys(files).length;
 
             if (count > 0) {

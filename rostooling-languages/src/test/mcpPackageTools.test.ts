@@ -739,6 +739,11 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
         workspace_dir: wsDir,
       });
       assert.strictEqual(pkgGenRes.isError, false, JSON.stringify(pkgGenRes));
+      assert.deepStrictEqual(
+        pkgGenRes.body.notices,
+        ["[de.example.extprobe] probe profile 'fast' generated for probe_demo"],
+        JSON.stringify(pkgGenRes.body)
+      );
       const pkgGenDir = path.join(wsDir, 'src-gen', 'probe_demo');
       const probeTxt = fs.readFileSync(
         path.join(pkgGenDir, 'plugins', 'de.example.extprobe', 'probe_fast.txt'),
@@ -802,6 +807,11 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
         workspace_dir: wsDir,
       });
       assert.strictEqual(sysGenRes.isError, false, JSON.stringify(sysGenRes));
+      assert.deepStrictEqual(
+        sysGenRes.body.notices,
+        ["[de.example.extprobe] system probe 'sys_hi' generated"],
+        JSON.stringify(sysGenRes.body)
+      );
       const sysGenDir = path.join(wsDir, 'src-gen', 'probe_sys');
       const sysProbeYaml = fs.readFileSync(
         path.join(sysGenDir, 'config', 'de_example_extprobe', 'system_probe.yaml'),
@@ -830,6 +840,11 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
         workspace_dir: wsDir,
       });
       assert.strictEqual(rawSysGenRes.isError, false, JSON.stringify(rawSysGenRes));
+      assert.deepStrictEqual(
+        rawSysGenRes.body.notices,
+        ["[de.example.extprobe] system probe 'sys_hi' generated"],
+        JSON.stringify(rawSysGenRes.body)
+      );
       assert.ok(
         fs.existsSync(path.join(sysGenDir, 'config', 'de_example_extprobe', 'system_probe.yaml')),
         'generate_rossystem_code must write plugin config YAML'
@@ -1029,6 +1044,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       });
       assert.strictEqual(freshBoth.isError, false, JSON.stringify(freshBoth));
       assert.deepStrictEqual(freshBoth.body.prunedFiles, [], JSON.stringify(freshBoth.body));
+      assert.deepStrictEqual(freshBoth.body.notices, [], JSON.stringify(freshBoth.body));
       assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')), 'Fresh both must leave wrapper on disk');
       assert.ok(fs.existsSync(logicPyPath), 'Fresh both must create talker_logic.py');
 
@@ -1067,6 +1083,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       });
       assert.strictEqual(pluginBoth.isError, false, JSON.stringify(pluginBoth));
       assert.deepStrictEqual(pluginBoth.body.prunedFiles, [], JSON.stringify(pluginBoth.body));
+      assert.deepStrictEqual(pluginBoth.body.notices, [], JSON.stringify(pluginBoth.body));
       assert.strictEqual(fs.readFileSync(logicPyPath, 'utf8'), customLogicPy);
       assert.strictEqual(fs.readFileSync(algoHppPath, 'utf8'), customAlgoHpp);
       assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')));

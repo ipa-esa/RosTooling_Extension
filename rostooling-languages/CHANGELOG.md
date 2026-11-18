@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Plugin Notice Propagation (`notices`)**:
+  - Surfaced `GenerationContext.addNotice(...)` messages in the `notices` field of `generate_ros2_wrappers`, `generate_rossystem_code`, and `generate_plugin_outputs` MCP responses and displayed them via `window.showInformationMessage` in VS Code without blocking output.
 - **Generic `@` Extension Blocks & Plugin MCP Tools**:
   - Added syntax highlighting for `@<name>:` blocks in `.ros`, `.ros2`, and `.rossystem` TextMate grammars.
   - Added generic plugin MCP tools (`ros_list_plugins`, `ros_get_extension_block`, `ros_set_extension_block`, `generate_plugin_outputs`) alongside dynamic registration of `<plugin_prefix>__<tool>` tools, schema-derived `<plugin_prefix>__set_<block>` typed block tools, and `rostooling://plugin/<id>/docs` MCP documentation resources.

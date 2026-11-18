@@ -233,7 +233,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
       const modelUri = pathToFileURL(absModelPath).href;
       const targetNodeNames = nodesToProcess.map(n => n.artifactName);
 
-      let genResult: { files?: Record<string, string>; prunedFiles?: string[]; warnings?: string[]; error?: string; distro?: string } = {};
+      let genResult: { files?: Record<string, string>; prunedFiles?: string[]; warnings?: string[]; notices?: string[]; error?: string; distro?: string } = {};
 
       if (language === 'both') {
         // Hybrid: C++ for first half, Python for remaining or custom per node
@@ -264,6 +264,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 {
                   status: 'error',
                   error: genResult.error,
+                  notices: genResult.notices || [],
                 },
                 null,
                 2
@@ -295,6 +296,8 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 skippedFiles: postRes.skippedFiles,
                 cleanedFiles: postRes.cleanedFiles,
                 prunedFiles: prunedDeleted,
+                warnings: genResult.warnings || [],
+                notices: genResult.notices || [],
                 errors: postRes.errors,
               },
               null,
@@ -372,7 +375,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
       await client.openDocument(absModelPath, 'rossystem');
 
       const modelUri = pathToFileURL(absModelPath).href;
-      const genResult = await client.executeCommand<{ files?: Record<string, string>; prunedFiles?: string[]; warnings?: string[]; error?: string }>(
+      const genResult = await client.executeCommand<{ files?: Record<string, string>; prunedFiles?: string[]; warnings?: string[]; notices?: string[]; error?: string }>(
         'rossystem.generateCode',
         [modelUri, existingFiles]
       );
@@ -387,6 +390,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 {
                   status: 'error',
                   error: genResult.error,
+                  notices: genResult.notices || [],
                 },
                 null,
                 2
@@ -417,6 +421,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 cleanedFiles: postRes.cleanedFiles,
                 prunedFiles: prunedDeleted,
                 warnings: genResult.warnings || [],
+                notices: genResult.notices || [],
                 errors: postRes.errors,
               },
               null,

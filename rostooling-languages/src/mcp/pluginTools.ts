@@ -540,6 +540,7 @@ export function registerPluginTools(
         pluginFiles?: Record<string, string>;
         prunedFiles?: string[];
         warnings?: string[];
+        notices?: string[];
         errors?: string[];
         conflictErrors?: string[];
         distro?: string;
@@ -567,6 +568,7 @@ export function registerPluginTools(
                   error: res.error || res.errors?.join('; '),
                   errors: res.errors || [],
                   conflictErrors: res.conflictErrors || [],
+                  notices: res.notices || [],
                 },
                 null,
                 2
@@ -597,6 +599,7 @@ export function registerPluginTools(
                 pluginFiles: Object.keys(res.pluginFiles || {}).map((k) => k.replace(/^DEFAULT_OUTPUT\/?/, '')),
                 prunedFiles: prunedDeleted,
                 warnings: res.warnings || [],
+                notices: res.notices || [],
                 errors: postRes.errors,
               },
               null,
