@@ -3,7 +3,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'node:fs';
-import { window, workspace, ExtensionContext, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation, StatusBarAlignment, ConfigurationTarget } from 'vscode';
+import { window, workspace, ExtensionContext, ExtensionMode, commands, Uri, OutputChannel, SnippetString, FileType, ProgressLocation, StatusBarAlignment, ConfigurationTarget } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, Trace, ErrorHandlerResult, ErrorAction, Message, CloseHandlerResult, CloseAction } from 'vscode-languageclient/node';
 import { spawn } from 'node:child_process';
 import * as os from 'os';
@@ -1069,7 +1069,10 @@ export async function activate(context: ExtensionContext) {
         await AgentSkillInstaller.promptInstallSkills(context);
     });
 
-    // Offer agent skill installation on workspace startup if not already installed
+    // Refresh already-configured MCP paths on upgrade and offer agent skill installation on startup
+    if (context.extensionMode !== ExtensionMode.Test && process.env.VSCODE_TEST_RUN !== '1') {
+        AgentSkillInstaller.refreshExistingMcpConfigs(context);
+    }
     void AgentSkillInstaller.checkAndPromptOnStartup(context);
 
     const tTotalElapsed = Math.round(performance.now() - tActivationStart);

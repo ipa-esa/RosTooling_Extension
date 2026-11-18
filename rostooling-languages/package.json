@@ -191,7 +191,7 @@
       },
       {
         "command": "rostooling.installAgentSkills",
-        "title": "Install AI Agent Skills & MCP (Claude Code, Antigravity, Cursor)",
+        "title": "Install AI Agent Skills & MCP (Antigravity, Claude Code, Codex, Cursor, Gemini CLI)",
         "category": "RosTooling",
         "icon": "$(sparkle)"
       },

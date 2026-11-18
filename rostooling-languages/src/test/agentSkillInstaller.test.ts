@@ -102,33 +102,57 @@ suite('AgentSkillInstaller Test Suite', () => {
     assert.ok(hasLintHook, 'Claude Code hooks should include rosmodel_lint.py --hook for Write|Edit');
   });
 
-  test('Installs skills for Antigravity / Universal (.agents/skills and hooks.json)', async () => {
-    const res = await AgentSkillInstaller.installSkills(mockContext, {
+  test('Installs skills, hooks, and mcp_config.json for Antigravity (workspace & global, incl. 0-byte file)', async () => {
+    // Pre-create a 0-byte mcp_config.json to match Antigravity's fresh default state.
+    const geminiConfigDir = path.join(tempDir, '.gemini', 'config');
+    fs.mkdirSync(geminiConfigDir, { recursive: true });
+    fs.writeFileSync(path.join(geminiConfigDir, 'mcp_config.json'), '');
+
+    const wsRes = await AgentSkillInstaller.installSkills(mockContext, {
       platform: 'antigravity',
       scope: 'workspace',
       customTargetRoot: tempDir,
     });
 
-    assert.strictEqual(res.success, true);
-    assert.strictEqual(res.hooksConfigured, true);
+    assert.strictEqual(wsRes.success, true);
+    assert.strictEqual(wsRes.hooksConfigured, true);
+    assert.strictEqual(wsRes.mcpConfigured, true);
 
-    const skillPath = path.join(tempDir, '.agents', 'skills', 'ros-model', 'SKILL.md');
-    assert.ok(fs.existsSync(skillPath), 'SKILL.md should exist in .agents/skills/ros-model');
-
-    // Verify .agents/hooks.json
-    const hooksPath = path.join(tempDir, '.agents', 'hooks.json');
-    assert.ok(fs.existsSync(hooksPath), '.agents/hooks.json should be created');
-    const hooksData = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
-    assert.ok(hooksData['rosmodel-lint']?.PostToolUse, 'rosmodel-lint hook should be configured in .agents/hooks.json');
-    const lintGroup = hooksData['rosmodel-lint'].PostToolUse[0];
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'skills', 'ros-model', 'SKILL.md')));
+    const wsHooksData = JSON.parse(fs.readFileSync(path.join(tempDir, '.agents', 'hooks.json'), 'utf8'));
+    assert.ok(wsHooksData['rosmodel-lint']?.PostToolUse, 'rosmodel-lint hook should be configured in .agents/hooks.json');
+    const lintGroup = wsHooksData['rosmodel-lint'].PostToolUse[0];
     assert.ok(lintGroup.matcher.includes('write_file'), 'Matcher should cover write_file');
     assert.ok(
       lintGroup.hooks[0].command.includes('rosmodel_lint.py') && lintGroup.hooks[0].command.includes('--hook'),
       'Command should invoke rosmodel_lint.py --hook'
     );
+
+    const agyMcpData = JSON.parse(fs.readFileSync(path.join(geminiConfigDir, 'mcp_config.json'), 'utf8'));
+    assert.strictEqual(agyMcpData.mcpServers?.rostooling?.command, 'node');
+    assert.strictEqual(agyMcpData.mcpServers?.rostooling?.args?.[0], path.join(extRoot, 'bin', 'rostooling-mcp.js'));
+
+    // Global scope puts skills & hooks under ~/.gemini/config/ rather than ~/.agents/
+    const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-agy-global-'));
+    try {
+      const globalRes = await AgentSkillInstaller.installSkills(mockContext, {
+        platform: 'antigravity',
+        scope: 'global',
+        customTargetRoot: globalRoot,
+      });
+      assert.strictEqual(globalRes.success, true);
+      assert.strictEqual(globalRes.mcpConfigured, true);
+      assert.strictEqual(globalRes.hooksConfigured, true);
+      assert.ok(fs.existsSync(path.join(globalRoot, '.gemini', 'config', 'skills', 'ros-model', 'SKILL.md')));
+      assert.ok(fs.existsSync(path.join(globalRoot, '.gemini', 'config', 'hooks.json')));
+      assert.ok(fs.existsSync(path.join(globalRoot, '.gemini', 'config', 'mcp_config.json')));
+      assert.ok(!fs.existsSync(path.join(globalRoot, '.agents')), 'Global Antigravity install should use .gemini/config, not .agents');
+    } finally {
+      fs.rmSync(globalRoot, { recursive: true, force: true });
+    }
   });
 
-  test('Installs skills for Cursor (.cursor/rules)', async () => {
+  test('Installs skills and .cursor/mcp.json for Cursor', async () => {
     const res = await AgentSkillInstaller.installSkills(mockContext, {
       platform: 'cursor',
       scope: 'workspace',
@@ -136,8 +160,66 @@ suite('AgentSkillInstaller Test Suite', () => {
     });
 
     assert.strictEqual(res.success, true);
-    const rulePath = path.join(tempDir, '.cursor', 'rules', 'ros-model.mdc');
-    assert.ok(fs.existsSync(rulePath), 'ros-model.mdc should exist in .cursor/rules');
+    assert.strictEqual(res.mcpConfigured, true);
+    assert.ok(fs.existsSync(path.join(tempDir, '.cursor', 'rules', 'ros-model.mdc')));
+    const cursorMcp = JSON.parse(fs.readFileSync(path.join(tempDir, '.cursor', 'mcp.json'), 'utf8'));
+    assert.strictEqual(cursorMcp.mcpServers?.rostooling?.command, 'node');
+  });
+
+  test('Installs Codex CLI (.codex/config.toml) and Gemini CLI (.gemini/settings.json) preserving existing config', async () => {
+    const codexDir = path.join(tempDir, '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexDir, 'config.toml'),
+      'model = "gpt-5"\n\n[mcp_servers.other]\ncommand = "uvx"\nargs = ["other-mcp"]\n'
+    );
+
+    const geminiDir = path.join(tempDir, '.gemini');
+    fs.mkdirSync(geminiDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(geminiDir, 'settings.json'),
+      JSON.stringify({ theme: 'dark', mcpServers: { existing: { command: 'echo', args: [] } } }, null, 2)
+    );
+
+    const codexRes = await AgentSkillInstaller.installSkills(mockContext, {
+      platform: 'codex',
+      scope: 'workspace',
+      customTargetRoot: tempDir,
+    });
+    assert.strictEqual(codexRes.success, true);
+    assert.strictEqual(codexRes.mcpConfigured, true);
+    assert.ok(fs.existsSync(path.join(tempDir, '.agents', 'skills', 'ros-model', 'SKILL.md')));
+    const toml = fs.readFileSync(path.join(codexDir, 'config.toml'), 'utf8');
+    assert.ok(toml.includes('model = "gpt-5"'));
+    assert.ok(toml.includes('[mcp_servers.other]'));
+    assert.ok(toml.includes('[mcp_servers.rostooling]'));
+    assert.ok(toml.includes(path.join(extRoot, 'bin', 'rostooling-mcp.js')));
+
+    const geminiRes = await AgentSkillInstaller.installSkills(mockContext, {
+      platform: 'gemini',
+      scope: 'workspace',
+      customTargetRoot: tempDir,
+    });
+    assert.strictEqual(geminiRes.success, true);
+    assert.strictEqual(geminiRes.mcpConfigured, true);
+    const settings = JSON.parse(fs.readFileSync(path.join(geminiDir, 'settings.json'), 'utf8'));
+    assert.strictEqual(settings.theme, 'dark');
+    assert.ok(settings.mcpServers?.existing);
+    assert.strictEqual(settings.mcpServers?.rostooling?.command, 'node');
+  });
+
+  test('Claude Code global installs to ~/.claude.json instead of ~/.mcp.json', async () => {
+    const res = await AgentSkillInstaller.installSkills(mockContext, {
+      platform: 'claude',
+      scope: 'global',
+      customTargetRoot: tempDir,
+    });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.mcpConfigured, true);
+    assert.ok(fs.existsSync(path.join(tempDir, '.claude.json')));
+    assert.ok(!fs.existsSync(path.join(tempDir, '.mcp.json')));
+    const claudeCfg = JSON.parse(fs.readFileSync(path.join(tempDir, '.claude.json'), 'utf8'));
+    assert.strictEqual(claudeCfg.mcpServers?.rostooling?.command, 'node');
   });
 
   test('Installs for All Platforms simultaneously', async () => {
@@ -154,6 +236,44 @@ suite('AgentSkillInstaller Test Suite', () => {
     assert.ok(fs.existsSync(path.join(tempDir, '.claude', 'hooks.json')));
     assert.ok(fs.existsSync(path.join(tempDir, '.cursor', 'rules', 'ros-model.mdc')));
     assert.ok(fs.existsSync(path.join(tempDir, '.mcp.json')));
+    assert.ok(fs.existsSync(path.join(tempDir, '.gemini', 'config', 'mcp_config.json')));
+    assert.ok(fs.existsSync(path.join(tempDir, '.cursor', 'mcp.json')));
+    assert.ok(fs.existsSync(path.join(tempDir, '.gemini', 'settings.json')));
+    assert.ok(fs.existsSync(path.join(tempDir, '.codex', 'config.toml')));
+  });
+
+  test('refreshExistingMcpConfigs updates stale rostooling-mcp.js paths without creating missing files', () => {
+    const homeDir = path.join(tempDir, 'home');
+    const wsDir = path.join(tempDir, 'ws');
+    const stalePath = '/home/user/.antigravity-ide/extensions/rostooling.rostooling-languages-2.3.0/bin/rostooling-mcp.js';
+    const currentPath = path.join(extRoot, 'bin', 'rostooling-mcp.js');
+
+    fs.mkdirSync(path.join(homeDir, '.gemini', 'config'), { recursive: true });
+    fs.writeFileSync(
+      path.join(homeDir, '.gemini', 'config', 'mcp_config.json'),
+      JSON.stringify({ mcpServers: { rostooling: { command: 'node', args: [stalePath] }, other: { command: 'foo' } } }, null, 2)
+    );
+    fs.mkdirSync(path.join(wsDir, '.codex'), { recursive: true });
+    fs.writeFileSync(
+      path.join(wsDir, '.codex', 'config.toml'),
+      `[mcp_servers.rostooling]\ncommand = "node"\nargs = ["${stalePath}"]\n\n[mcp_servers.keep]\ncommand = "bar"\n`
+    );
+
+    const updated = AgentSkillInstaller.refreshExistingMcpConfigs(mockContext, { homeDir, workspaceDir: wsDir });
+    assert.strictEqual(updated, 2);
+
+    const agyMcp = JSON.parse(fs.readFileSync(path.join(homeDir, '.gemini', 'config', 'mcp_config.json'), 'utf8'));
+    assert.strictEqual(agyMcp.mcpServers.rostooling.args[0], currentPath);
+    assert.deepStrictEqual(agyMcp.mcpServers.other, { command: 'foo' });
+
+    const codexToml = fs.readFileSync(path.join(wsDir, '.codex', 'config.toml'), 'utf8');
+    assert.ok(codexToml.includes(currentPath));
+    assert.ok(!codexToml.includes(stalePath));
+    assert.ok(codexToml.includes('[mcp_servers.keep]'));
+
+    // Never creates files that were not already configured
+    assert.ok(!fs.existsSync(path.join(homeDir, '.claude.json')));
+    assert.ok(!fs.existsSync(path.join(wsDir, '.mcp.json')));
   });
 
   test('Safely overwrites pre-existing symlinks in destination without non-directory error', async () => {
