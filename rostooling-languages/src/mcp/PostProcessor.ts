@@ -461,8 +461,47 @@ export async function processAndWriteFiles(
 }
 
 /**
+ * Second safeguard ensuring {@link deletePrunedFiles} only deletes paths inside plugin-owned folders
+ * and never removes core-owned files (build files, launch files, resource markers, Python package
+ * modules, or C++/Python/pluginlib wrapper/runner/logic files).
+ */
+export function isPluginOwnedPrunePath(relPath: string): boolean {
+  const cleanRel = relPath.replace(/\\/g, '/').replace(/^DEFAULT_OUTPUT\/?/, '').replace(/^\/+/, '').trim();
+  if (!cleanRel || cleanRel.includes('..') || path.isAbsolute(cleanRel)) {
+    return false;
+  }
+  const segments = cleanRel.split('/').filter(Boolean);
+  if (segments.length < 3) {
+    return false;
+  }
+  const [pkg, second] = segments;
+  const fileName = segments[segments.length - 1];
+  if (second === 'resource' || second === pkg) {
+    return false;
+  }
+  if (second === 'launch' && segments.length < 4) {
+    return false;
+  }
+  if (
+    /(Wrapper|Node|Algorithm|Runner)\.(hpp|cpp)$/.test(fileName) ||
+    /_plugin(_wrapper)?\.(hpp|cpp)$/.test(fileName) ||
+    /_(wrapper|runner|logic)\.py$/.test(fileName)
+  ) {
+    return false;
+  }
+  return (
+    second === 'plugins' ||
+    second === 'config' ||
+    second === 'launch' ||
+    second === 'src' ||
+    second === 'include' ||
+    second === 'test'
+  );
+}
+
+/**
  * Deletes stale plugin files returned by Java generators within {@code srcGenDir}, ignoring
- * unsafe paths that attempt traversal outside {@code srcGenDir}.
+ * unsafe paths that attempt traversal outside {@code srcGenDir} or point outside plugin-owned folders.
  */
 export async function deletePrunedFiles(
   srcGenDir: string,
@@ -474,8 +513,8 @@ export async function deletePrunedFiles(
   }
   const resolvedRoot = path.resolve(srcGenDir);
   for (const rel of prunedFiles) {
-    const cleanRel = rel.replace(/^DEFAULT_OUTPUT\/?/, '');
-    if (!cleanRel || cleanRel.includes('..') || path.isAbsolute(cleanRel)) {
+    const cleanRel = rel.replace(/\\/g, '/').replace(/^DEFAULT_OUTPUT\/?/, '').replace(/^\/+/, '').trim();
+    if (!isPluginOwnedPrunePath(cleanRel)) {
       continue;
     }
     const targetFile = path.resolve(resolvedRoot, cleanRel);

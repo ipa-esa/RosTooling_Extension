@@ -540,6 +540,7 @@ export function registerPluginTools(
         coreFiles?: Record<string, string>;
         pluginFiles?: Record<string, string>;
         prunedFiles?: string[];
+        warnings?: string[];
         errors?: string[];
         conflictErrors?: string[];
         distro?: string;
@@ -596,6 +597,7 @@ export function registerPluginTools(
                 skippedFiles: postRes.skippedFiles,
                 pluginFiles: Object.keys(res.pluginFiles || {}).map((k) => k.replace(/^DEFAULT_OUTPUT\/?/, '')),
                 prunedFiles: prunedDeleted,
+                warnings: res.warnings || [],
                 errors: postRes.errors,
               },
               null,

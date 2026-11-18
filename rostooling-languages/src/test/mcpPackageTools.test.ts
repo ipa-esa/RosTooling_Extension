@@ -6,8 +6,15 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { HeadlessLspClient } from '../mcp/HeadlessLspClient.js';
+import { HeadlessLspClient } from '../mcp/HeadlessLspClient.js';
+import {
+  deletePrunedFiles,
+  isPluginOwnedPrunePath,
+  processAndWriteFiles,
+  scanExistingFiles,
+} from '../mcp/PostProcessor.js';
 import { syncDynamicPluginsWithServer, type PluginLspDeps } from '../mcp/pluginTools.js';
+import { pathToFileURL } from 'node:url';
 
 /**
  * End-to-end integration test for semantic .ros2 package authoring tools over MCP stdio,
@@ -905,6 +912,151 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
     } finally {
       await client.close();
       fs.rmSync(vscodeWs, { recursive: true, force: true });
+    }
+  });
+
+  test('no-plugin language="both" preserves edited logic files and keeps node files across generate_ros2_wrappers, generate_plugin_outputs, and extension command', async () => {
+    assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
+
+    // Safeguard check: PostProcessor never allows deleting core-owned paths
+    for (const corePath of [
+      'demo_pkg/demo_pkg/talker_logic.py',
+      'demo_pkg/include/demo_pkg/TalkerArtAlgorithm.hpp',
+      'demo_pkg/src/TalkerArtWrapper.cpp',
+      'demo_pkg/CMakeLists.txt',
+      'demo_pkg/package.xml',
+      'demo_pkg/launch/demo_sys.launch.py',
+      'demo_pkg/resource/demo_pkg',
+    ]) {
+      assert.strictEqual(isPluginOwnedPrunePath(corePath), false, `Must refuse core path: ${corePath}`);
+    }
+    assert.strictEqual(isPluginOwnedPrunePath('demo_pkg/plugins/de_example_extprobe/old.txt'), true);
+    assert.strictEqual(isPluginOwnedPrunePath('demo_sys/config/de_example_extprobe/old.yaml'), true);
+    assert.strictEqual(isPluginOwnedPrunePath('demo_sys/launch/de_example_extprobe/old.launch.py'), true);
+
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-both-shield-'));
+    const pkgPath = path.join(ws, 'both_shield.ros2');
+    fs.writeFileSync(
+      pkgPath,
+      [
+        'both_shield:',
+        '  artifacts:',
+        '    talker_art:',
+        '      node: talker',
+        '      publishers:',
+        '        chatter:',
+        '          type: "std_msgs/msg/String"',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const env = cleanPluginEnv();
+    env.ROS_GLSP_PORT = String(7900 + Math.floor(Math.random() * 400));
+    const client = new Client({ name: 'no-plugin-both-client', version: '1.0.0' });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: BIN_ARGS,
+        cwd: ws,
+        env,
+        stderr: process.env.RT_MCP_DEBUG ? 'inherit' : 'ignore',
+      })
+    );
+
+    const callJson = async (name: string, args: Record<string, unknown>) => {
+      const res = (await client.callTool({ name, arguments: args })) as {
+        content: { type: string; text: string }[];
+        isError?: boolean;
+      };
+      return {
+        isError: Boolean(res.isError),
+        body: JSON.parse(res.content[0].text) as Record<string, unknown>,
+      };
+    };
+
+    const pkgGenDir = path.join(ws, 'src-gen', 'both_shield');
+    const logicPyPath = path.join(pkgGenDir, 'both_shield', 'talker_logic.py');
+    const algoHppPath = path.join(pkgGenDir, 'include', 'both_shield', 'TalkerArtAlgorithm.hpp');
+    const customLogicPy = '# USER CUSTOM PYTHON LOGIC — MUST SURVIVE\n';
+    const customAlgoHpp = '// USER CUSTOM CPP ALGORITHM — MUST SURVIVE\n';
+
+    const lspClient = new HeadlessLspClient(undefined, JAR);
+
+    try {
+      // 1. Fresh "both" run via generate_ros2_wrappers leaves node files on disk
+      const freshBoth = await callJson('generate_ros2_wrappers', {
+        model_path: pkgPath,
+        language: 'both',
+        ros_distro: 'jazzy',
+        workspace_dir: ws,
+      });
+      assert.strictEqual(freshBoth.isError, false, JSON.stringify(freshBoth));
+      assert.deepStrictEqual(freshBoth.body.prunedFiles, [], JSON.stringify(freshBoth.body));
+      assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')), 'Fresh both must leave wrapper on disk');
+      assert.ok(fs.existsSync(logicPyPath), 'Fresh both must create talker_logic.py');
+
+      // 2. Generate with "python", edit talker_logic.py, and seed edited TalkerArtAlgorithm.hpp
+      const pyGen = await callJson('generate_ros2_wrappers', {
+        model_path: pkgPath,
+        language: 'python',
+        ros_distro: 'jazzy',
+        workspace_dir: ws,
+      });
+      assert.strictEqual(pyGen.isError, false, JSON.stringify(pyGen));
+      fs.writeFileSync(logicPyPath, customLogicPy, 'utf8');
+      fs.mkdirSync(path.dirname(algoHppPath), { recursive: true });
+      fs.writeFileSync(algoHppPath, customAlgoHpp, 'utf8');
+
+      // 3. Re-run generate_ros2_wrappers with "both"
+      const reBoth = await callJson('generate_ros2_wrappers', {
+        model_path: pkgPath,
+        language: 'both',
+        ros_distro: 'jazzy',
+        workspace_dir: ws,
+      });
+      assert.strictEqual(reBoth.isError, false, JSON.stringify(reBoth));
+      assert.deepStrictEqual(reBoth.body.prunedFiles, [], JSON.stringify(reBoth.body));
+      assert.strictEqual(fs.readFileSync(logicPyPath, 'utf8'), customLogicPy);
+      assert.strictEqual(fs.readFileSync(algoHppPath, 'utf8'), customAlgoHpp);
+      assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')));
+      assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_runner.py')));
+
+      // 4. Re-run generate_plugin_outputs with "both" (default)
+      const pluginBoth = await callJson('generate_plugin_outputs', {
+        model_path: pkgPath,
+        language: 'both',
+        ros_distro: 'jazzy',
+        workspace_dir: ws,
+      });
+      assert.strictEqual(pluginBoth.isError, false, JSON.stringify(pluginBoth));
+      assert.deepStrictEqual(pluginBoth.body.prunedFiles, [], JSON.stringify(pluginBoth.body));
+      assert.strictEqual(fs.readFileSync(logicPyPath, 'utf8'), customLogicPy);
+      assert.strictEqual(fs.readFileSync(algoHppPath, 'utf8'), customAlgoHpp);
+      assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')));
+
+      // 5. Re-run the extension command path directly (ros2.generateWrappersServer + deletePrunedFiles + processAndWriteFiles)
+      await lspClient.start(ws);
+      await lspClient.openDocument(pkgPath, 'ros2');
+      const srcGenDir = path.join(ws, 'src-gen');
+      const existing = await scanExistingFiles(pkgGenDir, 'both_shield');
+      const cmdRes = await lspClient.executeCommand<{
+        files?: Record<string, string>;
+        prunedFiles?: string[];
+        error?: string;
+      }>('ros2.generateWrappersServer', [pathToFileURL(pkgPath).href, ['talker_art'], 'both', 'jazzy', existing]);
+      assert.ok(!cmdRes.error, cmdRes.error);
+      assert.deepStrictEqual(cmdRes.prunedFiles, [], JSON.stringify(cmdRes.prunedFiles));
+      const deleted = await deletePrunedFiles(srcGenDir, cmdRes.prunedFiles);
+      assert.deepStrictEqual(deleted, []);
+      await processAndWriteFiles(srcGenDir, cmdRes.files || {}, false);
+      assert.strictEqual(fs.readFileSync(logicPyPath, 'utf8'), customLogicPy);
+      assert.strictEqual(fs.readFileSync(algoHppPath, 'utf8'), customAlgoHpp);
+      assert.ok(fs.existsSync(path.join(pkgGenDir, 'both_shield', 'talker_wrapper.py')));
+    } finally {
+      await lspClient.stop().catch(() => undefined);
+      await client.close();
+      fs.rmSync(ws, { recursive: true, force: true });
     }
   });
 });

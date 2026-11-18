@@ -545,7 +545,7 @@ export async function activate(context: ExtensionContext) {
             }
 
             console.log('Sending execute Command to server...');
-            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
+            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr, existingFiles]
             });
@@ -559,6 +559,9 @@ export async function activate(context: ExtensionContext) {
                 window.showErrorMessage(`Generation error: ${result.error}`);
             } else {
                 await deletePrunedFiles(srcGenUri.fsPath, result?.prunedFiles);
+                if (result?.warnings && result.warnings.length > 0) {
+                    window.showWarningMessage(`Generation warning: ${result.warnings.join('; ')}`);
+                }
                 if (count > 0) {
 
                 // Prune redundant build and setup files across generated packages
