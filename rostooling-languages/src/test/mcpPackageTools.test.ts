@@ -3,7 +3,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { HeadlessLspClient } from '../mcp/HeadlessLspClient.js';
+import { syncDynamicPluginsWithServer, type PluginLspDeps } from '../mcp/pluginTools.js';
 
 /**
  * End-to-end integration test for semantic .ros2 package authoring tools over MCP stdio,
@@ -404,5 +408,152 @@ suite('MCP semantic .ros2 package tools', function () {
     })) as Outcome;
     assert.strictEqual(remRes.success, true, JSON.stringify(remRes));
     assert.ok(!fs.readFileSync(extPkgPath, 'utf-8').includes('@custom_meta:'));
+  });
+
+  test('registers typed <plugin>__set_<block> tools from Ecore schema and writes validated blocks', async () => {
+    const typedPkgPath = path.join(dir, 'typed_ext_pkg.ros2');
+    await ok('ros2_add_artifact', {
+      package_path: typedPkgPath,
+      artifact_name: 'typed_bin',
+      node_name: 'typed_node',
+    });
+
+    const recordedCalls: Record<string, unknown>[] = [];
+    const mockClient = {
+      openDocument: async () => undefined,
+      executeCommand: async (command: string, args: unknown[]) => {
+        if (command === 'rostooling.listPluginTools') {
+          return {
+            plugins: [
+              {
+                id: 'de.example.audit',
+                version: '1.0.0',
+                documentationMarkdown: '# Audit Docs',
+                blocks: [
+                  {
+                    name: 'audit',
+                    setToolName: 'de_example_audit__set_audit',
+                    allowedLocations: ['NODE'],
+                    description: 'Audit metadata block',
+                    schema: {
+                      type: 'object',
+                      properties: {
+                        channel: { type: 'string' },
+                        rate_hz: { type: 'integer' },
+                        mode: { type: 'string', enum: ['sync', 'async'] },
+                        tags: { type: 'array', items: { type: 'string' } },
+                        rules: {
+                          type: 'array',
+                          description: "Array of items (or object map keyed by 'name')",
+                          items: {
+                            type: 'object',
+                            properties: {
+                              weight: { type: 'integer' },
+                            },
+                          },
+                        },
+                      },
+                      required: ['channel'],
+                    },
+                  },
+                ],
+              },
+            ],
+            tools: [],
+            loadErrors: [],
+          };
+        }
+        if (command === 'rostooling.setExtensionBlock') {
+          const req = (args?.[0] || {}) as Record<string, unknown>;
+          recordedCalls.push(req);
+          return call('ros_set_extension_block', {
+            model_path: String(req.modelPath || typedPkgPath),
+            block_name: String(req.blockName || 'audit'),
+            entries: (req.entries || {}) as Record<string, unknown>,
+            target_kind: typeof req.targetKind === 'string' ? req.targetKind : undefined,
+            target_name: typeof req.targetName === 'string' ? req.targetName : undefined,
+            artifact_name: typeof req.artifactName === 'string' ? req.artifactName : undefined,
+            remove: Boolean(req.remove),
+            workspace_dir: dir,
+          });
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      },
+    } as unknown as HeadlessLspClient;
+
+    const deps: PluginLspDeps = {
+      getClient: async () => mockClient,
+      workspaceDir: () => dir,
+      resolveWorkspaceDir: () => dir,
+      openCompanionFiles: async () => undefined,
+    };
+
+    const mcpServer = new McpServer({ name: 'typed-block-test', version: '1.0.0' });
+    const regTools = new Set<string>();
+    const regResources = new Set<string>();
+    await syncDynamicPluginsWithServer(mcpServer, mockClient, deps, regTools, regResources, false);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const testClient = new Client({ name: 'typed-block-client', version: '1.0.0' });
+    await Promise.all([mcpServer.connect(serverTransport), testClient.connect(clientTransport)]);
+
+    try {
+      const listed = await testClient.listTools();
+      const setAuditTool = listed.tools.find((t) => t.name === 'de_example_audit__set_audit');
+      assert.ok(setAuditTool, `Expected typed tool in: ${listed.tools.map((t) => t.name).join(', ')}`);
+
+      const inputSchema = setAuditTool.inputSchema as {
+        properties?: Record<string, Record<string, unknown>>;
+        required?: string[];
+      };
+      assert.ok(inputSchema.required?.includes('model_path'));
+      assert.ok(inputSchema.required?.includes('channel'));
+      assert.ok(!inputSchema.required?.includes('rate_hz'));
+      assert.strictEqual(inputSchema.properties?.channel?.type, 'string');
+      assert.strictEqual(inputSchema.properties?.rate_hz?.type, 'number');
+      assert.deepStrictEqual(inputSchema.properties?.mode?.enum, ['sync', 'async']);
+      assert.strictEqual(inputSchema.properties?.tags?.type, 'array');
+
+      const missingReqRes = (await testClient.callTool({
+        name: 'de_example_audit__set_audit',
+        arguments: {
+          model_path: typedPkgPath,
+          rate_hz: 10,
+        },
+      })) as { isError?: boolean };
+      assert.strictEqual(missingReqRes.isError, true, 'Missing required channel must fail MCP input validation');
+
+      const invokeRes = (await testClient.callTool({
+        name: 'de_example_audit__set_audit',
+        arguments: {
+          model_path: typedPkgPath,
+          target_kind: 'Node',
+          target_name: 'typed_node',
+          channel: 'telemetry',
+          rate_hz: 15,
+          mode: 'async',
+          tags: ['alpha', 'beta'],
+        },
+      })) as { isError?: boolean; content: { text: string }[] };
+      assert.notStrictEqual(invokeRes.isError, true, invokeRes.content[0].text);
+      assert.strictEqual(recordedCalls.length, 1);
+      assert.strictEqual(recordedCalls[0].blockName, 'audit');
+
+      const getRes = (await call('ros_get_extension_block', {
+        model_path: typedPkgPath,
+        block_name: 'audit',
+        target_kind: 'Node',
+        target_name: 'typed_node',
+        workspace_dir: dir,
+      })) as Outcome & { found: boolean; entries: Record<string, unknown> };
+      assert.strictEqual(getRes.found, true, JSON.stringify(getRes));
+      assert.strictEqual(getRes.entries.channel, 'telemetry');
+      assert.strictEqual(getRes.entries.rate_hz, 15);
+      assert.strictEqual(getRes.entries.mode, 'async');
+      assert.deepStrictEqual(getRes.entries.tags, ['alpha', 'beta']);
+    } finally {
+      await testClient.close();
+      await mcpServer.close();
+    }
   });
 });

@@ -22,6 +22,7 @@ export interface PluginLspDeps {
 
 interface ListedPluginBlock {
   name: string;
+  setToolName?: string;
   allowedLocations?: string[];
   description?: string;
   schema?: Record<string, unknown>;
@@ -59,9 +60,28 @@ function jsonSchemaPropToZod(prop: Record<string, unknown>): ZodTypeAny {
   } else if (type === 'integer' || type === 'number') {
     schema = z.number();
   } else if (type === 'array') {
-    schema = z.array(z.unknown());
+    const itemsSchema =
+      prop.items && typeof prop.items === 'object'
+        ? jsonSchemaPropToZod(prop.items as Record<string, unknown>)
+        : z.unknown();
+    const arrSchema = z.array(itemsSchema);
+    schema =
+      desc && desc.includes("keyed by 'name'")
+        ? z.union([arrSchema, z.record(z.string(), z.record(z.string(), z.unknown()))])
+        : arrSchema;
   } else if (type === 'object') {
-    schema = z.record(z.string(), z.unknown());
+    const nestedProps = prop.properties as Record<string, Record<string, unknown>> | undefined;
+    if (nestedProps && typeof nestedProps === 'object' && Object.keys(nestedProps).length > 0) {
+      const nestedReq = new Set<string>(Array.isArray(prop.required) ? prop.required.map(String) : []);
+      const nestedShape: Record<string, ZodTypeAny> = {};
+      for (const [nk, np] of Object.entries(nestedProps)) {
+        const nf = jsonSchemaPropToZod(np || {});
+        nestedShape[nk] = nestedReq.has(nk) ? nf : nf.optional();
+      }
+      schema = z.object(nestedShape).passthrough();
+    } else {
+      schema = z.record(z.string(), z.unknown());
+    }
   } else if (Array.isArray(prop.enum) && prop.enum.length > 0 && prop.enum.every((v) => typeof v === 'string')) {
     const vals = prop.enum as [string, ...string[]];
     schema = z.enum(vals);
@@ -71,7 +91,16 @@ function jsonSchemaPropToZod(prop: Record<string, unknown>): ZodTypeAny {
   return desc ? schema.describe(desc) : schema;
 }
 
-function jsonSchemaToZodShape(inputSchema?: Record<string, unknown>): Record<string, ZodTypeAny> {
+const SET_BLOCK_META_KEYS = new Set([
+  'model_path',
+  'target_kind',
+  'target_name',
+  'artifact_name',
+  'remove',
+  'workspace_dir',
+]);
+
+export function jsonSchemaToZodShape(inputSchema?: Record<string, unknown>): Record<string, ZodTypeAny> {
   const shape: Record<string, ZodTypeAny> = {
     model_path: z.string().optional().describe('Optional path to the target model file (.ros2 or .rossystem).'),
     workspace_dir: z.string().optional().describe('Optional ROS 2 workspace root directory.'),
@@ -91,6 +120,89 @@ function jsonSchemaToZodShape(inputSchema?: Record<string, unknown>): Record<str
     }
   }
   return shape;
+}
+
+export function buildTypedBlockSetZodShape(blockSchema?: Record<string, unknown>): Record<string, ZodTypeAny> {
+  const baseShape = jsonSchemaToZodShape(blockSchema);
+  const entryShape: Record<string, ZodTypeAny> = {};
+  for (const [k, field] of Object.entries(baseShape)) {
+    if (!SET_BLOCK_META_KEYS.has(k)) {
+      entryShape[k] = field;
+    }
+  }
+  return {
+    model_path: z.string().describe('Path to the .ros2 or .rossystem file.'),
+    ...entryShape,
+    target_kind: z
+      .enum(['System', 'RosNode', 'Node', 'Plugin', 'RosInterface'])
+      .optional()
+      .describe('Target metamodel element kind.'),
+    target_name: z.string().optional().describe('Name of the target element.'),
+    artifact_name: z.string().optional().describe('Optional enclosing Artifact name.'),
+    remove: z.boolean().optional().default(false).describe('If true, removes this @<block>: from the target element.'),
+    workspace_dir: z.string().optional().describe('Optional workspace root directory.'),
+  };
+}
+
+function sanitizeIdSegment(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9_-]/g, '_');
+}
+
+async function executeSetExtensionBlock(
+  deps: PluginLspDeps,
+  params: {
+    model_path: string;
+    block_name: string;
+    entries: Record<string, unknown>;
+    target_kind?: string;
+    target_name?: string;
+    artifact_name?: string;
+    remove?: boolean;
+    workspace_dir?: string;
+  }
+) {
+  const absModelPath = path.resolve(params.model_path);
+  if (!fs.existsSync(absModelPath)) {
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: JSON.stringify({ error: `Model file not found at: ${absModelPath}` }) }],
+    };
+  }
+  const rootDir = deps.resolveWorkspaceDir(absModelPath, params.workspace_dir);
+  const client = await deps.getClient(rootDir);
+  await deps.openCompanionFiles(client, path.dirname(absModelPath));
+  const currentText = await fsp.readFile(absModelPath, 'utf-8');
+  await client.openDocument(absModelPath, undefined, currentText);
+
+  const res = await client.executeCommand<{
+    success?: boolean;
+    updatedText?: string;
+    errors?: string[];
+    warnings?: string[];
+    error?: string;
+  }>('rostooling.setExtensionBlock', [
+    {
+      fileUri: pathToFileURL(absModelPath).href,
+      modelPath: absModelPath,
+      modelText: currentText,
+      blockName: params.block_name,
+      targetKind: params.target_kind,
+      targetName: params.target_name,
+      artifactName: params.artifact_name,
+      entries: params.entries,
+      remove: params.remove ?? false,
+    },
+  ]);
+
+  if (res?.success && typeof res.updatedText === 'string') {
+    await fsp.writeFile(absModelPath, res.updatedText, 'utf-8');
+    await client.openDocument(absModelPath, undefined, res.updatedText);
+  }
+
+  return {
+    ...(res?.success === false || res?.error ? { isError: true } : {}),
+    content: [{ type: 'text' as const, text: JSON.stringify(res, null, 2) }],
+  };
 }
 
 export async function syncDynamicPluginsWithServer(
@@ -127,6 +239,48 @@ export async function syncDynamicPluginsWithServer(
             },
           ],
         })
+      );
+    }
+
+    for (const block of plugin.blocks || []) {
+      const cleanBlockName = (block.name || '').replace(/^@+/, '');
+      if (!cleanBlockName) {
+        continue;
+      }
+      const setToolName =
+        block.setToolName || `${sanitizeIdSegment(plugin.id)}__set_${sanitizeIdSegment(cleanBlockName)}`;
+      if (registeredTools.has(setToolName)) {
+        continue;
+      }
+      registeredTools.add(setToolName);
+      addedTool = true;
+      const typedShape = buildTypedBlockSetZodShape(block.schema);
+      const allowedLocs =
+        block.allowedLocations && block.allowedLocations.length > 0
+          ? ` Allowed locations: ${block.allowedLocations.join(', ')}.`
+          : '';
+      server.tool(
+        setToolName,
+        `[${plugin.id}] Typed setter for @${cleanBlockName}: extension block.${block.description ? ` ${block.description}` : ''}${allowedLocs}`,
+        typedShape,
+        async (rawArgs: Record<string, unknown>) => {
+          const entries: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rawArgs)) {
+            if (!SET_BLOCK_META_KEYS.has(k) && v !== undefined) {
+              entries[k] = v;
+            }
+          }
+          return executeSetExtensionBlock(deps, {
+            model_path: String(rawArgs.model_path || ''),
+            block_name: cleanBlockName,
+            entries,
+            target_kind: typeof rawArgs.target_kind === 'string' ? rawArgs.target_kind : undefined,
+            target_name: typeof rawArgs.target_name === 'string' ? rawArgs.target_name : undefined,
+            artifact_name: typeof rawArgs.artifact_name === 'string' ? rawArgs.artifact_name : undefined,
+            remove: Boolean(rawArgs.remove),
+            workspace_dir: typeof rawArgs.workspace_dir === 'string' ? rawArgs.workspace_dir : undefined,
+          });
+        }
       );
     }
   }
@@ -308,50 +462,17 @@ export function registerPluginTools(
       remove: z.boolean().optional().default(false).describe('If true, removes the @<block>: from the target element.'),
       workspace_dir: z.string().optional().describe('Optional workspace root directory.'),
     },
-    async ({ model_path, block_name, entries, target_kind, target_name, artifact_name, remove, workspace_dir }) => {
-      const absModelPath = path.resolve(model_path);
-      if (!fs.existsSync(absModelPath)) {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: `Model file not found at: ${absModelPath}` }) }],
-        };
-      }
-      const rootDir = deps.resolveWorkspaceDir(absModelPath, workspace_dir);
-      const client = await deps.getClient(rootDir);
-      await deps.openCompanionFiles(client, path.dirname(absModelPath));
-      const currentText = await fsp.readFile(absModelPath, 'utf-8');
-      await client.openDocument(absModelPath, undefined, currentText);
-
-      const res = await client.executeCommand<{
-        success?: boolean;
-        updatedText?: string;
-        errors?: string[];
-        warnings?: string[];
-        error?: string;
-      }>('rostooling.setExtensionBlock', [
-        {
-          fileUri: pathToFileURL(absModelPath).href,
-          modelPath: absModelPath,
-          modelText: currentText,
-          blockName: block_name,
-          targetKind: target_kind,
-          targetName: target_name,
-          artifactName: artifact_name,
-          entries,
-          remove,
-        },
-      ]);
-
-      if (res?.success && typeof res.updatedText === 'string') {
-        await fsp.writeFile(absModelPath, res.updatedText, 'utf-8');
-        await client.openDocument(absModelPath, undefined, res.updatedText);
-      }
-
-      return {
-        ...(res?.success === false || res?.error ? { isError: true } : {}),
-        content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
-      };
-    }
+    async ({ model_path, block_name, entries, target_kind, target_name, artifact_name, remove, workspace_dir }) =>
+      executeSetExtensionBlock(deps, {
+        model_path,
+        block_name,
+        entries,
+        target_kind,
+        target_name,
+        artifact_name,
+        remove,
+        workspace_dir,
+      })
   );
 
   server.tool(
