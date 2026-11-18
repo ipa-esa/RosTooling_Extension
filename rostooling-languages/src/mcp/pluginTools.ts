@@ -529,6 +529,7 @@ export function registerPluginTools(
       }
 
       const pkgDir = path.join(srcGenDir, pkgName);
+      const outputRoot = isRosSystem ? srcGenDir : pkgDir;
       const client = await deps.getClient(rootDir);
       await deps.openCompanionFiles(client, path.dirname(absModelPath));
       await client.openDocument(absModelPath, isRosSystem ? 'rossystem' : 'ros2', docText);
@@ -553,6 +554,7 @@ export function registerPluginTools(
           language,
           distro: ros_distro,
           existingFiles,
+          outputRoot,
         },
       ]);
 

@@ -243,6 +243,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
           'both',
           ros_distro,
           existingFiles,
+          pkgDir,
         ]);
       } else {
         genResult = await client.executeCommand('ros2.generateWrappersServer', [
@@ -251,6 +252,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
           language,
           ros_distro,
           existingFiles,
+          pkgDir,
         ]);
       }
 
@@ -377,7 +379,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
       const modelUri = pathToFileURL(absModelPath).href;
       const genResult = await client.executeCommand<{ files?: Record<string, string>; prunedFiles?: string[]; warnings?: string[]; notices?: string[]; error?: string }>(
         'rossystem.generateCode',
-        [modelUri, existingFiles]
+        [modelUri, existingFiles, 'auto', srcGenDir]
       );
 
       if (genResult.error) {

@@ -855,6 +855,90 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
         ),
         'generate_rossystem_code must render plugin launch include'
       );
+
+      // 8. Verify outputRoot propagation & prune ordering via GenerationContext.readOwnedFile
+      // 8a. Rotate @probe profile fast -> slow on pkgPath; generate_plugin_outputs must read snapshot_fast.txt
+      // before deletePrunedFiles removes it from disk.
+      const rotateSetRes = await callJson('de_example_extprobe__set_probe', {
+        model_path: pkgPath,
+        target_kind: 'Node',
+        target_name: 'cam_node',
+        profile: 'slow',
+        interval_ms: 50,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(rotateSetRes.isError, false, JSON.stringify(rotateSetRes));
+      const rotateGenRes = await callJson('generate_plugin_outputs', {
+        model_path: pkgPath,
+        language: 'cpp',
+        ros_distro: 'jazzy',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(rotateGenRes.isError, false, JSON.stringify(rotateGenRes));
+      assert.deepStrictEqual(
+        rotateGenRes.body.notices,
+        [
+          "[de.example.extprobe] rotated probe profile from 'fast' (had_old=true) to 'slow'",
+          "[de.example.extprobe] probe profile 'slow' generated for probe_demo",
+        ],
+        JSON.stringify(rotateGenRes.body)
+      );
+      const prunedFiles = (rotateGenRes.body.prunedFiles || []) as string[];
+      assert.ok(
+        prunedFiles.some((p) => p.endsWith('plugins/de_example_extprobe/snapshot_fast.txt')),
+        `Expected snapshot_fast.txt in prunedFiles, got: ${JSON.stringify(prunedFiles)}`
+      );
+      assert.ok(
+        !fs.existsSync(path.join(pkgGenDir, 'plugins', 'de_example_extprobe', 'snapshot_fast.txt')),
+        'snapshot_fast.txt must be deleted from disk after generate_plugin_outputs'
+      );
+
+      // 8b. generate_ros2_wrappers re-run must pass pkgDir outputRoot and read probe_state.txt
+      const rawPkgReRun = await callJson('generate_ros2_wrappers', {
+        model_path: pkgPath,
+        language: 'cpp',
+        ros_distro: 'jazzy',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(rawPkgReRun.isError, false, JSON.stringify(rawPkgReRun));
+      assert.deepStrictEqual(
+        rawPkgReRun.body.notices,
+        [
+          "[de.example.extprobe] regenerated probe profile 'slow'",
+          "[de.example.extprobe] probe profile 'slow' generated for probe_demo",
+        ],
+        JSON.stringify(rawPkgReRun.body)
+      );
+
+      // 8c. Re-running generate_plugin_outputs and generate_rossystem_code without rmSync must pass sysGen parent (src-gen) as outputRoot
+      const sysReGenRes = await callJson('generate_plugin_outputs', {
+        model_path: sysPath,
+        ros_distro: 'jazzy',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(sysReGenRes.isError, false, JSON.stringify(sysReGenRes));
+      assert.deepStrictEqual(
+        sysReGenRes.body.notices,
+        [
+          '[de.example.extprobe] prev_system_profile=sys_hi',
+          "[de.example.extprobe] system probe 'sys_hi' generated",
+        ],
+        JSON.stringify(sysReGenRes.body)
+      );
+
+      const rawSysReGenRes = await callJson('generate_rossystem_code', {
+        model_path: sysPath,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(rawSysReGenRes.isError, false, JSON.stringify(rawSysReGenRes));
+      assert.deepStrictEqual(
+        rawSysReGenRes.body.notices,
+        [
+          '[de.example.extprobe] prev_system_profile=sys_hi',
+          "[de.example.extprobe] system probe 'sys_hi' generated",
+        ],
+        JSON.stringify(rawSysReGenRes.body)
+      );
     } finally {
       await client.close();
       fs.rmSync(wsDir, { recursive: true, force: true });

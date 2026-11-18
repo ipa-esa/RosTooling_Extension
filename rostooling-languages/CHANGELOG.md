@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Client Output Root Propagation (`outputRoot`)**:
+  - Passed `src-gen/<pkg>` (package generation) and `src-gen` (system generation) as the optional `outputRoot` argument across `extension.ts`, `server.ts`, and `pluginTools.ts` so plugins can read prior plugin-owned files via `GenerationContext.readOwnedFile(...)` before `deletePrunedFiles` runs.
 - **Plugin Notice Propagation (`notices`)**:
   - Surfaced `GenerationContext.addNotice(...)` messages in the `notices` field of `generate_ros2_wrappers`, `generate_rossystem_code`, and `generate_plugin_outputs` MCP responses and displayed them via `window.showInformationMessage` in VS Code without blocking output.
 - **Generic `@` Extension Blocks & Plugin MCP Tools**:

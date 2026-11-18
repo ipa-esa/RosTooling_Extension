@@ -134,10 +134,29 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
             return;
         }
         String safeProfile = sanitizeFileToken(profile);
+        String pf = context.pluginFolder();
+        String stateRel = "plugins/" + pf + "/probe_state.txt";
+        var prevState = context.readOwnedFile(stateRel);
+        if (prevState.isPresent()) {
+            String prevProfile = prevState.get().trim();
+            if (!prevProfile.isEmpty() && !prevProfile.equals(profile)) {
+                String oldSnapRel = "plugins/" + pf + "/snapshot_" + sanitizeFileToken(prevProfile) + ".txt";
+                var oldContent = context.readOwnedFile(oldSnapRel);
+                context.addNotice("rotated probe profile from '" + prevProfile + "' (had_old="
+                        + oldContent.isPresent() + ") to '" + profile + "'");
+                if (oldContent.isPresent()) {
+                    context.deleteStaleFile(oldSnapRel);
+                }
+            } else if (!prevProfile.isEmpty()) {
+                context.addNotice("regenerated probe profile '" + prevProfile + "'");
+            }
+        }
         String content = "profile=" + profile
                 + "\ndistro=" + context.rosDistro()
                 + "\ncxx_standard=" + context.ros2Distro().cxxStandard() + "\n";
         context.writeFile("plugins/de.example.extprobe/probe_" + safeProfile + ".txt", content);
+        context.writeFile("plugins/" + pf + "/snapshot_" + safeProfile + ".txt", content);
+        context.writeFile(stateRel, profile + "\n");
 
         PackageBuild pb = context.packageBuild();
         pb.addDepend("std_msgs");
@@ -203,6 +222,11 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
                 + "ros_nodes:\n" + String.join("\n", nodeLines) + "\n";
 
         String pf = context.pluginFolder();
+        var prevSysState = context.readOwnedFile("plugins/" + pf + "/system_state.txt");
+        if (prevSysState.isPresent()) {
+            context.addNotice("prev_system_profile=" + prevSysState.get().trim());
+        }
+        context.writeFile("plugins/" + pf + "/system_state.txt", profile + "\n");
         context.writeFile("config/" + pf + "/system_probe.yaml", yaml);
         String launchPy = "from launch import LaunchDescription\n\n"
                 + "def generate_launch_description():\n"

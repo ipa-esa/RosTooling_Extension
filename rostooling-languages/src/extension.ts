@@ -545,9 +545,10 @@ export async function activate(context: ExtensionContext) {
             }
 
             console.log('Sending execute Command to server...');
+            const sysSrcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
             const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], warnings?: string[], notices?: string[], error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
-                arguments: [targetUriStr, existingFiles]
+                arguments: [targetUriStr, existingFiles, 'auto', sysSrcGenUri.fsPath]
             });
 
             // Safe access
@@ -876,6 +877,7 @@ export async function activate(context: ExtensionContext) {
         const files: Record<string, string> = {};
         const prunedFiles: string[] = [];
         const notices: string[] = [];
+        const pkgOutputRoot = Uri.joinPath(srcGenUri, pkgName).fsPath;
 
         try {
             if (cppTargetNodes.length > 0 && pyTargetNodes.length === 0) {
@@ -886,7 +888,8 @@ export async function activate(context: ExtensionContext) {
                         resolvedTargetNodes.length > 0 ? cppTargetNodes : [],
                         'cpp',
                         hostDistro,
-                        existingFiles
+                        existingFiles,
+                        pkgOutputRoot
                     ]
                 });
                 if (result?.error) {
@@ -907,7 +910,8 @@ export async function activate(context: ExtensionContext) {
                         resolvedTargetNodes.length > 0 ? pyTargetNodes : [],
                         'python',
                         hostDistro,
-                        existingFiles
+                        existingFiles,
+                        pkgOutputRoot
                     ]
                 });
                 if (result?.error) {
@@ -929,7 +933,8 @@ export async function activate(context: ExtensionContext) {
                         cppTargetNodes,
                         'cpp',
                         hostDistro,
-                        existingFiles
+                        existingFiles,
+                        pkgOutputRoot
                     ]
                 });
                 if (resCpp?.error) {
@@ -955,7 +960,8 @@ export async function activate(context: ExtensionContext) {
                         pyTargetNodes,
                         'python',
                         hostDistro,
-                        updatedExisting
+                        updatedExisting,
+                        pkgOutputRoot
                     ]
                 });
                 if (resPy?.error) {
@@ -978,7 +984,8 @@ export async function activate(context: ExtensionContext) {
                         [],
                         fallbackLang,
                         hostDistro,
-                        existingFiles
+                        existingFiles,
+                        pkgOutputRoot
                     ]
                 });
                 if (result?.error) {
