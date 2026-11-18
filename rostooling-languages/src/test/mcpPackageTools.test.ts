@@ -557,3 +557,354 @@ suite('MCP semantic .ros2 package tools', function () {
     }
   });
 });
+
+suite('Standalone external plugin JAR integration (--plugins-dir & VS Code settings)', function () {
+  this.timeout(240000);
+  const TEST_PLUGIN_JAR = path.resolve(EXT_ROOT, '..', 'build', 'test-plugins', 'rostooling-test-plugins.jar');
+
+  function cleanPluginEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && k !== 'ROS_PLUGINS_DIR' && k !== 'ROS_PLUGINS_ENABLED') {
+        env[k] = v;
+      }
+    }
+    return env;
+  }
+
+  test('loads external plugin JAR via --plugins-dir/--enable-plugins and exercises validate, MCP tools, docs resource, package & system generation', async () => {
+    assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
+    assert.ok(fs.existsSync(TEST_PLUGIN_JAR), `External test plugin JAR missing at ${TEST_PLUGIN_JAR}`);
+
+    const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ext-cli-'));
+    const env = cleanPluginEnv();
+    env.ROS_GLSP_PORT = String(6900 + Math.floor(Math.random() * 500));
+
+    const cliArgs = [
+      ...BIN_ARGS,
+      '--plugins-dir',
+      TEST_PLUGIN_JAR,
+      '--enable-plugins',
+      'de.example.extprobe,de.example.extoverlap',
+    ];
+    const client = new Client({ name: 'ext-plugin-cli-client', version: '1.0.0' });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: cliArgs,
+        cwd: wsDir,
+        env,
+        stderr: process.env.RT_MCP_DEBUG ? 'inherit' : 'ignore',
+      })
+    );
+
+    const callJson = async (name: string, args: Record<string, unknown>) => {
+      const res = (await client.callTool({ name, arguments: args })) as {
+        content: { type: string; text: string }[];
+        isError?: boolean;
+      };
+      return {
+        isError: Boolean(res.isError),
+        body: JSON.parse(res.content[0].text) as Record<string, unknown>,
+      };
+    };
+
+    try {
+      // 1. Dynamic tools + typed set_<block> tools + docs resource registered from external JAR
+      const listedTools = await client.listTools();
+      const toolNames = listedTools.tools.map((t) => t.name);
+      for (const expected of [
+        'de_example_extprobe__inspect_probe',
+        'de_example_extprobe__set_probe',
+        'de_example_extoverlap__set_overlap',
+      ]) {
+        assert.ok(toolNames.includes(expected), `Missing dynamic tool ${expected} in: ${toolNames.join(', ')}`);
+      }
+
+      const setProbeDef = listedTools.tools.find((t) => t.name === 'de_example_extprobe__set_probe');
+      assert.ok(setProbeDef, 'Missing de_example_extprobe__set_probe tool');
+      const setProbeSchema = setProbeDef.inputSchema as {
+        properties?: Record<string, Record<string, unknown>>;
+        required?: string[];
+      };
+      assert.ok(setProbeSchema.required?.includes('profile'));
+      assert.strictEqual(setProbeSchema.properties?.interval_ms?.type, 'number');
+
+      const listedResources = await client.listResources();
+      const docsUri = 'rostooling://plugin/de.example.extprobe/docs';
+      assert.ok(
+        listedResources.resources.some((r) => r.uri === docsUri),
+        `Missing docs resource ${docsUri}`
+      );
+      const readDocs = await client.readResource({ uri: docsUri });
+      const docsText = String((readDocs.contents[0] as { text?: string }).text || '');
+      assert.ok(docsText.includes('# External Probe Plugin'), docsText);
+
+      // 2. Write .ros2 package with invalid @probe -> validate_ros_model reports EXTPROBE_INVALID_INTERVAL
+      const pkgPath = path.join(wsDir, 'probe_demo.ros2');
+      fs.writeFileSync(
+        pkgPath,
+        [
+          'probe_demo:',
+          '  artifacts:',
+          '    cam_art:',
+          '      node: cam_node',
+          '      parameters:',
+          '        cam_rate:',
+          '          type: Integer',
+          '          default: 10',
+          '      @probe:',
+          '        profile: "fast"',
+          '        interval_ms: -5',
+          '',
+        ].join('\n'),
+        'utf8'
+      );
+
+      const badVal = await callJson('validate_ros_model', {
+        model_path: pkgPath,
+        workspace_dir: wsDir,
+      });
+      const badDiags = (badVal.body.diagnostics as { message?: string }[]) || [];
+      assert.strictEqual(badVal.body.isValid, false, `Expected invalid @probe: ${JSON.stringify(badVal.body)}`);
+      assert.ok(
+        badDiags.some((d) => String(d.message || '').includes('interval_ms must be > 0')),
+        `Expected external plugin validation diagnostic: ${JSON.stringify(badDiags)}`
+      );
+
+      // 3. Fix @probe via schema-derived tool + add @overlap via ros_set_extension_block + round-trip ros_get_extension_block
+      const setProbeRes = await callJson('de_example_extprobe__set_probe', {
+        model_path: pkgPath,
+        target_kind: 'Node',
+        target_name: 'cam_node',
+        profile: 'fast',
+        interval_ms: 25,
+        enabled: true,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(setProbeRes.isError, false, JSON.stringify(setProbeRes));
+      assert.strictEqual(setProbeRes.body.success, true, JSON.stringify(setProbeRes.body));
+
+      const setOverlapRes = await callJson('ros_set_extension_block', {
+        model_path: pkgPath,
+        block_name: 'overlap',
+        entries: { note: 'merged' },
+        target_kind: 'Node',
+        target_name: 'cam_node',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(setOverlapRes.body.success, true, JSON.stringify(setOverlapRes.body));
+
+      const getProbeRes = await callJson('ros_get_extension_block', {
+        model_path: pkgPath,
+        block_name: 'probe',
+        target_kind: 'Node',
+        target_name: 'cam_node',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(getProbeRes.body.found, true, JSON.stringify(getProbeRes.body));
+      assert.strictEqual((getProbeRes.body.entries as Record<string, unknown>).profile, 'fast');
+      assert.strictEqual((getProbeRes.body.entries as Record<string, unknown>).interval_ms, 25);
+
+      const okVal = await callJson('validate_ros_model', {
+        model_path: pkgPath,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(okVal.body.isValid, true, JSON.stringify(okVal.body));
+
+      // 4. Invoke plugin custom tool (de_example_extprobe__inspect_probe)
+      const inspectRes = await callJson('de_example_extprobe__inspect_probe', {
+        model_path: pkgPath,
+        filePath: pkgPath,
+        label: 'ci-check',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(inspectRes.isError, false, JSON.stringify(inspectRes));
+      const inspectData = (inspectRes.body.data || {}) as Record<string, unknown>;
+      assert.strictEqual(inspectData.pluginId, 'de.example.extprobe');
+      assert.strictEqual(inspectData.label, 'ci-check');
+
+      // 5. Generate package outputs and verify merged PackageBuild entries from both external plugins
+      const pkgGenRes = await callJson('generate_plugin_outputs', {
+        model_path: pkgPath,
+        language: 'cpp',
+        ros_distro: 'jazzy',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(pkgGenRes.isError, false, JSON.stringify(pkgGenRes));
+      const pkgGenDir = path.join(wsDir, 'src-gen', 'probe_demo');
+      const probeTxt = fs.readFileSync(
+        path.join(pkgGenDir, 'plugins', 'de.example.extprobe', 'probe_fast.txt'),
+        'utf8'
+      );
+      assert.ok(probeTxt.includes('profile=fast') && probeTxt.includes('distro=jazzy'), probeTxt);
+      assert.ok(
+        fs.existsSync(path.join(pkgGenDir, 'plugins', 'de.example.extoverlap', 'overlap.txt')),
+        'Expected overlap.txt from ExternalOverlapPlugin'
+      );
+      const pkgXml = fs.readFileSync(path.join(pkgGenDir, 'package.xml'), 'utf8');
+      const cmakeTxt = fs.readFileSync(path.join(pkgGenDir, 'CMakeLists.txt'), 'utf8');
+      assert.strictEqual(
+        pkgXml.split('<depend>std_msgs</depend>').length - 1,
+        1,
+        `std_msgs dependency must deduplicate by set union:\n${pkgXml}`
+      );
+      assert.ok(pkgXml.includes('<depend>rclcpp</depend>'), pkgXml);
+      assert.strictEqual(
+        cmakeTxt.split('find_package(std_msgs REQUIRED)').length - 1,
+        1,
+        `std_msgs find_package must deduplicate by set union:\n${cmakeTxt}`
+      );
+      assert.ok(
+        cmakeTxt.indexOf('share/${PROJECT_NAME}/extprobe') <
+          cmakeTxt.indexOf('share/${PROJECT_NAME}/extoverlap'),
+        `install(DIRECTORY) rules must append in dependency/plugin order:\n${cmakeTxt}`
+      );
+
+      // 6. Author .rossystem referencing cam_node, set @probe on System, and generate system outputs
+      const sysPath = path.join(wsDir, 'probe_sys.rossystem');
+      fs.writeFileSync(
+        sysPath,
+        [
+          'probe_sys:',
+          '  nodes:',
+          '    cam_inst:',
+          '      from: "probe_demo.cam_node"',
+          '      parameters:',
+          '        - cam_rate: "cam_art::cam_rate"',
+          '          value: 20',
+          '',
+        ].join('\n'),
+        'utf8'
+      );
+
+      const sysSetRes = await callJson('de_example_extprobe__set_probe', {
+        model_path: sysPath,
+        target_kind: 'System',
+        target_name: 'probe_sys',
+        profile: 'sys_hi',
+        interval_ms: 40,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(sysSetRes.isError, false, JSON.stringify(sysSetRes));
+      assert.strictEqual(sysSetRes.body.success, true, JSON.stringify(sysSetRes.body));
+
+      const sysGenRes = await callJson('generate_plugin_outputs', {
+        model_path: sysPath,
+        ros_distro: 'jazzy',
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(sysGenRes.isError, false, JSON.stringify(sysGenRes));
+      const sysGenDir = path.join(wsDir, 'src-gen', 'probe_sys');
+      const sysProbeYaml = fs.readFileSync(
+        path.join(sysGenDir, 'config', 'de_example_extprobe', 'system_probe.yaml'),
+        'utf8'
+      );
+      assert.ok(sysProbeYaml.includes('profile: sys_hi'), sysProbeYaml);
+      assert.ok(sysProbeYaml.includes('resolved_packages: [probe_demo]'), sysProbeYaml);
+      assert.ok(sysProbeYaml.includes('resolved_nodes: [cam_node[cam_rate]]'), sysProbeYaml);
+      assert.ok(sysProbeYaml.includes('cam_inst') && sysProbeYaml.includes('params=[cam_rate]'), sysProbeYaml);
+      assert.ok(
+        fs.existsSync(path.join(sysGenDir, 'launch', 'de_example_extprobe', 'probe.launch.py')),
+        'Expected plugin launch file in launch/de_example_extprobe/'
+      );
+      const mainLaunch = fs.readFileSync(
+        path.join(sysGenDir, 'launch', 'probe_sys.launch.py'),
+        'utf8'
+      );
+      assert.ok(mainLaunch.includes('IncludeLaunchDescription('), mainLaunch);
+      assert.ok(mainLaunch.includes('/launch/de_example_extprobe/probe.launch.py'), mainLaunch);
+      assert.ok(mainLaunch.includes("TextSubstitution(text=\"sys_hi\")"), mainLaunch);
+
+      // 7. Verify generate_rossystem_code also invokes system plugins directly
+      fs.rmSync(sysGenDir, { recursive: true, force: true });
+      const rawSysGenRes = await callJson('generate_rossystem_code', {
+        model_path: sysPath,
+        workspace_dir: wsDir,
+      });
+      assert.strictEqual(rawSysGenRes.isError, false, JSON.stringify(rawSysGenRes));
+      assert.ok(
+        fs.existsSync(path.join(sysGenDir, 'config', 'de_example_extprobe', 'system_probe.yaml')),
+        'generate_rossystem_code must write plugin config YAML'
+      );
+      assert.ok(
+        fs.readFileSync(path.join(sysGenDir, 'launch', 'probe_sys.launch.py'), 'utf8').includes(
+          'IncludeLaunchDescription('
+        ),
+        'generate_rossystem_code must render plugin launch include'
+      );
+    } finally {
+      await client.close();
+      fs.rmSync(wsDir, { recursive: true, force: true });
+    }
+  });
+
+  test('loads external plugin JAR via .vscode/settings.json in workspace', async () => {
+    assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
+    assert.ok(fs.existsSync(TEST_PLUGIN_JAR), `External test plugin JAR missing at ${TEST_PLUGIN_JAR}`);
+
+    const vscodeWs = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ext-vscode-'));
+    fs.mkdirSync(path.join(vscodeWs, '.vscode'), { recursive: true });
+    fs.writeFileSync(
+      path.join(vscodeWs, '.vscode', 'settings.json'),
+      JSON.stringify(
+        {
+          'rostooling-languages.plugins.paths': [TEST_PLUGIN_JAR],
+          'rostooling-languages.plugins.enabled': ['de.example.extprobe'],
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+    const badPkgPath = path.join(vscodeWs, 'settings_probe.ros2');
+    fs.writeFileSync(
+      badPkgPath,
+      [
+        'settings_probe:',
+        '  artifacts:',
+        '    art1:',
+        '      node: node1',
+        '      @probe:',
+        '        profile: "vs"',
+        '        interval_ms: 0',
+        '',
+      ].join('\n'),
+      'utf8'
+    );
+
+    const env = cleanPluginEnv();
+    env.ROS_GLSP_PORT = String(7450 + Math.floor(Math.random() * 400));
+    const client = new Client({ name: 'ext-plugin-vscode-client', version: '1.0.0' });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: BIN_ARGS,
+        cwd: vscodeWs,
+        env,
+        stderr: process.env.RT_MCP_DEBUG ? 'inherit' : 'ignore',
+      })
+    );
+
+    try {
+      const toolNames = (await client.listTools()).tools.map((t) => t.name);
+      assert.ok(toolNames.includes('de_example_extprobe__inspect_probe'), toolNames.join(', '));
+      assert.ok(toolNames.includes('de_example_extprobe__set_probe'), toolNames.join(', '));
+      assert.ok(!toolNames.includes('de_example_extoverlap__set_overlap'), 'Unenabled plugin must remain inactive');
+
+      const valRes = (await client.callTool({
+        name: 'validate_ros_model',
+        arguments: { model_path: badPkgPath, workspace_dir: vscodeWs },
+      })) as { content: { type: string; text: string }[] };
+      const parsed = JSON.parse(valRes.content[0].text) as { isValid: boolean; diagnostics: { message?: string }[] };
+      assert.strictEqual(parsed.isValid, false, JSON.stringify(parsed));
+      assert.ok(
+        parsed.diagnostics.some((d) => String(d.message || '').includes('interval_ms must be > 0')),
+        JSON.stringify(parsed)
+      );
+    } finally {
+      await client.close();
+      fs.rmSync(vscodeWs, { recursive: true, force: true });
+    }
+  });
+});

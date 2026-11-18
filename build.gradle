@@ -68,6 +68,31 @@ dependencies {
     implementation "${project.ext.group}:${project.ext.group}.glsp:${project.ext.version}"
 }
 
+sourceSets {
+    testPlugin {
+        java.srcDirs = ['src/testPlugin/java']
+        resources.srcDirs = ['src/testPlugin/resources']
+        compileClasspath += files(configurations.compileClasspath.filter {
+            it.name.matches(/de\.fraunhofer\.ipa\.ros[-_].*/) ||
+            it.name.startsWith('de.fraunhofer.ipa.ros2.distro') ||
+            it.name.startsWith('org.eclipse.emf.ecore') ||
+            it.name.startsWith('org.eclipse.emf.common')
+        })
+    }
+}
+
+task testPluginJar(type: Jar) {
+    archiveBaseName = 'rostooling-test-plugins'
+    archiveVersion = ''
+    destinationDirectory = file("${buildDir}/test-plugins")
+    from(sourceSets.testPlugin.output) {
+        exclude 'META-INF/MANIFEST.MF'
+    }
+    manifest {
+        from('src/testPlugin/resources/META-INF/MANIFEST.MF')
+    }
+}
+
 shadowJar {
 	archiveClassifier = ''
     mergeServiceFiles()
@@ -98,6 +123,8 @@ shadowJar {
         }
     }
 }
+
+shadowJar.dependsOn testPluginJar
 
 configure(subprojects.findAll {it.name.startsWith('rostooling')}) {
     apply plugin: 'com.github.node-gradle.node'

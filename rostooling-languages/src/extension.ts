@@ -11,6 +11,7 @@ import { RosCustomEditorProvider } from './editor/RosCustomEditorProvider';
 import { RosCatalogueManager } from './model/RosCatalogueManager';
 import { AgentSkillInstaller } from './agent/AgentSkillInstaller';
 import { GlspClientBridge } from './glsp/GlspClientBridge';
+import { deletePrunedFiles } from './mcp/PostProcessor';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -544,7 +545,7 @@ export async function activate(context: ExtensionContext) {
             }
 
             console.log('Sending execute Command to server...');
-            const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+            const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                 command: 'rossystem.generateCode',
                 arguments: [targetUriStr, existingFiles]
             });
@@ -552,11 +553,13 @@ export async function activate(context: ExtensionContext) {
             // Safe access
             const files = result?.files || {};
             const count = Object.keys(files).length;
+            const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
 
             if (result?.error) {
                 window.showErrorMessage(`Generation error: ${result.error}`);
-            } else if (count > 0) {
-                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+            } else {
+                await deletePrunedFiles(srcGenUri.fsPath, result?.prunedFiles);
+                if (count > 0) {
 
                 // Prune redundant build and setup files across generated packages
                 const affectedPkgs = new Set<string>();
@@ -684,8 +687,9 @@ export async function activate(context: ExtensionContext) {
                 }
 
                 window.showInformationMessage(`Successfully generated and wrote ${writtenCount} file(s) to src-gen/`);
-            } else {
-                window.showInformationMessage('No files generated');
+                } else {
+                    window.showInformationMessage('No files generated');
+                }
             }
 
             console.log('Full result:', result);
@@ -863,10 +867,11 @@ export async function activate(context: ExtensionContext) {
             .map(n => n.artifactName);
 
         const files: Record<string, string> = {};
+        const prunedFiles: string[] = [];
 
         try {
             if (cppTargetNodes.length > 0 && pyTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -881,8 +886,9 @@ export async function activate(context: ExtensionContext) {
                     return;
                 }
                 Object.assign(files, result?.files || {});
+                prunedFiles.push(...(result?.prunedFiles || []));
             } else if (pyTargetNodes.length > 0 && cppTargetNodes.length === 0) {
-                const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -897,9 +903,10 @@ export async function activate(context: ExtensionContext) {
                     return;
                 }
                 Object.assign(files, result?.files || {});
+                prunedFiles.push(...(result?.prunedFiles || []));
             } else if (cppTargetNodes.length > 0 && pyTargetNodes.length > 0) {
                 // Hybrid package generation in single run
-                const resCpp = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                const resCpp = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -914,13 +921,14 @@ export async function activate(context: ExtensionContext) {
                     return;
                 }
                 Object.assign(files, resCpp?.files || {});
+                prunedFiles.push(...(resCpp?.prunedFiles || []));
 
                 const updatedExisting = Array.from(new Set([
                     ...existingFiles,
                     ...Object.keys(resCpp?.files || {}).map(p => p.replace(/^DEFAULT_OUTPUT\/?/, ''))
                 ]));
 
-                const resPy = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                const resPy = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -935,10 +943,11 @@ export async function activate(context: ExtensionContext) {
                     return;
                 }
                 Object.assign(files, resPy?.files || {});
+                prunedFiles.push(...(resPy?.prunedFiles || []));
             } else {
                 // Fallback for empty package
                 const fallbackLang = (nodeLangMap.values().next().value as string) || 'cpp';
-                const result = await lc.sendRequest<{ files?: Record<string, string>, error?: string }>('workspace/executeCommand', {
+                const result = await lc.sendRequest<{ files?: Record<string, string>, prunedFiles?: string[], error?: string }>('workspace/executeCommand', {
                     command: 'ros2.generateWrappersServer',
                     arguments: [
                         targetUriStr,
@@ -953,12 +962,14 @@ export async function activate(context: ExtensionContext) {
                     return;
                 }
                 Object.assign(files, result?.files || {});
+                prunedFiles.push(...(result?.prunedFiles || []));
             }
 
+            const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
+            await deletePrunedFiles(srcGenUri.fsPath, prunedFiles);
             const count = Object.keys(files).length;
 
             if (count > 0) {
-                const srcGenUri = Uri.joinPath(workspaceFolder.uri, 'src-gen');
 
                 // Automatically prune redundant build/setup files for each generated package
                 const affectedPkgs = new Set<string>();

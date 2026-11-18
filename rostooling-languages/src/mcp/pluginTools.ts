@@ -9,6 +9,7 @@ import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
 import { HeadlessLspClient } from './HeadlessLspClient.js';
 import {
   cleanOppositeLanguageFiles,
+  deletePrunedFiles,
   processAndWriteFiles,
   scanExistingFiles,
 } from './PostProcessor.js';
@@ -477,20 +478,22 @@ export function registerPluginTools(
 
   server.tool(
     'generate_plugin_outputs',
-    'Runs Phase A core generation and Phase B active plugin generators for a .ros2 package, applies single-author build merging, and writes outputs to src-gen/.',
+    'Runs Phase A core generation and Phase B active plugin generators for a .ros2 package or .rossystem system model, applies single-author build and launch merging, and writes outputs to src-gen/.',
     {
-      model_path: z.string().describe('Path to the .ros2 model file.'),
-      target_nodes: z.array(z.string()).optional().describe('Optional specific artifact/node/plugin names to generate.'),
+      model_path: z.string().describe('Path to the .ros2 package or .rossystem system model file.'),
+      target_nodes: z.array(z.string()).optional().describe('Optional specific artifact/node/plugin names to generate (used for .ros2 packages).'),
       language: z.enum(['cpp', 'python', 'both']).optional().default('both'),
       ros_distro: z.string().optional().default('auto'),
       workspace_dir: z.string().optional().describe('Workspace root containing src-gen/.'),
     },
     async ({ model_path, target_nodes, language, ros_distro, workspace_dir }) => {
       const absModelPath = path.resolve(model_path);
-      if (!fs.existsSync(absModelPath) || !absModelPath.endsWith('.ros2')) {
+      const isRos2 = absModelPath.endsWith('.ros2');
+      const isRosSystem = absModelPath.endsWith('.rossystem');
+      if (!fs.existsSync(absModelPath) || (!isRos2 && !isRosSystem)) {
         return {
           isError: true,
-          content: [{ type: 'text', text: JSON.stringify({ error: `Valid .ros2 file not found at: ${absModelPath}` }) }],
+          content: [{ type: 'text', text: JSON.stringify({ error: `Valid .ros2 or .rossystem file not found at: ${absModelPath}` }) }],
         };
       }
 
@@ -500,29 +503,36 @@ export function registerPluginTools(
 
       const docText = await fsp.readFile(absModelPath, 'utf-8');
       const [described] = await GlspClientBridge.getInstance().requestRosIndex([absModelPath]);
-      const pkg = described?.packages?.[0];
-      const pkgName = pkg?.name || path.basename(absModelPath, '.ros2');
-      const allNodesInFile = (pkg?.artifacts || []).map((a) => ({
-        artifactName: a.artifact,
-        nodeName: a.node,
-      }));
-      const nodesToProcess =
-        target_nodes && target_nodes.length > 0
-          ? allNodesInFile.filter((n) => target_nodes.includes(n.artifactName) || target_nodes.includes(n.nodeName))
-          : allNodesInFile;
+      let pkgName: string;
+      let existingFiles: string[];
+      if (isRos2) {
+        const pkg = described?.packages?.[0];
+        pkgName = pkg?.name || path.basename(absModelPath, '.ros2');
+        const allNodesInFile = (pkg?.artifacts || []).map((a) => ({
+          artifactName: a.artifact,
+          nodeName: a.node,
+        }));
+        const nodesToProcess =
+          target_nodes && target_nodes.length > 0
+            ? allNodesInFile.filter((n) => target_nodes.includes(n.artifactName) || target_nodes.includes(n.nodeName))
+            : allNodesInFile;
 
-      if (language === 'cpp' || language === 'python') {
-        for (const n of nodesToProcess) {
-          await cleanOppositeLanguageFiles(srcGenDir, pkgName, n, language);
+        if (language === 'cpp' || language === 'python') {
+          for (const n of nodesToProcess) {
+            await cleanOppositeLanguageFiles(srcGenDir, pkgName, n, language);
+          }
         }
+        existingFiles = await scanExistingFiles(path.join(srcGenDir, pkgName), pkgName);
+      } else {
+        const sysInfo = described?.system;
+        pkgName = (sysInfo?.name || path.basename(absModelPath, '.rossystem')).toLowerCase();
+        existingFiles = await scanExistingFiles(srcGenDir);
       }
 
       const pkgDir = path.join(srcGenDir, pkgName);
-      const existingFiles = await scanExistingFiles(pkgDir, pkgName);
-
       const client = await deps.getClient(rootDir);
       await deps.openCompanionFiles(client, path.dirname(absModelPath));
-      await client.openDocument(absModelPath, 'ros2', docText);
+      await client.openDocument(absModelPath, isRosSystem ? 'rossystem' : 'ros2', docText);
 
       const res = await client.executeCommand<{
         success?: boolean;
@@ -566,20 +576,8 @@ export function registerPluginTools(
         };
       }
 
-      const prunedDeleted: string[] = [];
-      for (const rel of res.prunedFiles || []) {
-        const cleanRel = rel.replace(/^DEFAULT_OUTPUT/, '');
-        if (!cleanRel || cleanRel.includes('..') || path.isAbsolute(cleanRel)) {
-          continue;
-        }
-        const targetFile = path.resolve(srcGenDir, cleanRel);
-        if (targetFile.startsWith(path.resolve(srcGenDir) + path.sep) && fs.existsSync(targetFile)) {
-          await fsp.unlink(targetFile).catch(() => undefined);
-          prunedDeleted.push(cleanRel);
-        }
-      }
-
-      const postRes = await processAndWriteFiles(srcGenDir, res.files || {}, false);
+      const prunedDeleted = await deletePrunedFiles(srcGenDir, res.prunedFiles);
+      const postRes = await processAndWriteFiles(srcGenDir, res.files || {}, isRosSystem);
 
       return {
         content: [
@@ -596,7 +594,7 @@ export function registerPluginTools(
                 skippedCount: postRes.skippedFiles.length,
                 writtenFiles: postRes.writtenFiles,
                 skippedFiles: postRes.skippedFiles,
-                pluginFiles: Object.keys(res.pluginFiles || {}).map((k) => k.replace(/^DEFAULT_OUTPUT/, '')),
+                pluginFiles: Object.keys(res.pluginFiles || {}).map((k) => k.replace(/^DEFAULT_OUTPUT\/?/, '')),
                 prunedFiles: prunedDeleted,
                 errors: postRes.errors,
               },

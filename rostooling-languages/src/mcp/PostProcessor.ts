@@ -459,3 +459,30 @@ export async function processAndWriteFiles(
 
   return result;
 }
+
+/**
+ * Deletes stale plugin files returned by Java generators within {@code srcGenDir}, ignoring
+ * unsafe paths that attempt traversal outside {@code srcGenDir}.
+ */
+export async function deletePrunedFiles(
+  srcGenDir: string,
+  prunedFiles?: string[]
+): Promise<string[]> {
+  const deleted: string[] = [];
+  if (!prunedFiles || prunedFiles.length === 0) {
+    return deleted;
+  }
+  const resolvedRoot = path.resolve(srcGenDir);
+  for (const rel of prunedFiles) {
+    const cleanRel = rel.replace(/^DEFAULT_OUTPUT\/?/, '');
+    if (!cleanRel || cleanRel.includes('..') || path.isAbsolute(cleanRel)) {
+      continue;
+    }
+    const targetFile = path.resolve(resolvedRoot, cleanRel);
+    if (targetFile.startsWith(resolvedRoot + path.sep) && fs.existsSync(targetFile)) {
+      await fsp.unlink(targetFile).catch(() => undefined);
+      deleted.push(cleanRel);
+    }
+  }
+  return deleted;
+}

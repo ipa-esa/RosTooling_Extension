@@ -12,6 +12,7 @@ import {
   processAndWriteFiles,
   scanExistingFiles,
   cleanOppositeLanguageFiles,
+  deletePrunedFiles,
 } from './PostProcessor.js';
 import { GlspClientBridge } from '../glsp/GlspClientBridge.js';
 import { registerSystemTools } from './systemTools.js';
@@ -232,7 +233,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
       const modelUri = pathToFileURL(absModelPath).href;
       const targetNodeNames = nodesToProcess.map(n => n.artifactName);
 
-      let genResult: { files?: Record<string, string>; error?: string; distro?: string } = {};
+      let genResult: { files?: Record<string, string>; prunedFiles?: string[]; error?: string; distro?: string } = {};
 
       if (language === 'both') {
         // Hybrid: C++ for first half, Python for remaining or custom per node
@@ -274,6 +275,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
 
       const files = genResult.files || {};
       const postRes = await processAndWriteFiles(srcGenDir, files, false);
+      const prunedDeleted = await deletePrunedFiles(srcGenDir, genResult.prunedFiles);
 
       return {
         content: [
@@ -292,6 +294,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 writtenFiles: postRes.writtenFiles,
                 skippedFiles: postRes.skippedFiles,
                 cleanedFiles: postRes.cleanedFiles,
+                prunedFiles: prunedDeleted,
                 errors: postRes.errors,
               },
               null,
@@ -369,7 +372,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
       await client.openDocument(absModelPath, 'rossystem');
 
       const modelUri = pathToFileURL(absModelPath).href;
-      const genResult = await client.executeCommand<{ files?: Record<string, string>; error?: string }>(
+      const genResult = await client.executeCommand<{ files?: Record<string, string>; prunedFiles?: string[]; error?: string }>(
         'rossystem.generateCode',
         [modelUri, existingFiles]
       );
@@ -395,6 +398,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
 
       const files = genResult.files || {};
       const postRes = await processAndWriteFiles(srcGenDir, files, true);
+      const prunedDeleted = await deletePrunedFiles(srcGenDir, genResult.prunedFiles);
 
       return {
         content: [
@@ -411,6 +415,7 @@ export function createConfiguredMcpServer(): CreatedMcpServer {
                 writtenFiles: postRes.writtenFiles,
                 skippedFiles: postRes.skippedFiles,
                 cleanedFiles: postRes.cleanedFiles,
+                prunedFiles: prunedDeleted,
                 errors: postRes.errors,
               },
               null,
