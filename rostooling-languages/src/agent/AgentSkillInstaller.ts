@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 
-export type AgentPlatform = 'claude' | 'antigravity' | 'cursor' | 'all';
+export type AgentPlatform = 'claude' | 'antigravity' | 'codex' | 'cursor' | 'gemini' | 'all';
 export type InstallScope = 'workspace' | 'global';
 
 export interface InstallResult {
@@ -200,31 +200,62 @@ export class AgentSkillInstaller {
         .map((d) => d.name);
 
       const shouldInstallClaude = options.platform === 'claude' || options.platform === 'all';
-      const shouldInstallUniversal = options.platform === 'antigravity' || options.platform === 'all';
+      const shouldInstallAntigravity = options.platform === 'antigravity' || options.platform === 'all';
+      const shouldInstallCodex = options.platform === 'codex' || options.platform === 'all';
       const shouldInstallCursor = options.platform === 'cursor' || options.platform === 'all';
+      const shouldInstallGemini = options.platform === 'gemini' || options.platform === 'all';
 
-      // 1. Install Universal Agent Skills (.agents/skills) -> Used by Antigravity, Claude Code, Cursor, Copilot
-      if (shouldInstallUniversal) {
-        const agentsDestDir = path.join(targetRoot, '.agents', 'skills');
-        fs.mkdirSync(agentsDestDir, { recursive: true });
-
+      const copySkillsInto = (destSkillsDir: string) => {
+        fs.mkdirSync(destSkillsDir, { recursive: true });
         for (const skillName of skillDirs) {
           const srcSkillPath = path.join(sourceDir, skillName);
-          const destSkillPath = path.join(agentsDestDir, skillName);
+          const destSkillPath = path.join(destSkillsDir, skillName);
           this.safeCopyDir(srcSkillPath, destSkillPath, scriptsDir);
         }
+      };
 
-        if (scriptsDir) {
-          const universalHooksOk = this.configureAntigravityHooks(targetRoot, scriptsDir);
-          if (universalHooksOk) {
-            hooksConfigured = true;
+      const agentsSkillsDir = path.join(targetRoot, '.agents', 'skills');
+      let copiedAgentsSkills = false;
+      const ensureAgentsSkills = () => {
+        if (!copiedAgentsSkills) {
+          copySkillsInto(agentsSkillsDir);
+          copiedAgentsSkills = true;
+        }
+      };
+
+      const mcpScript = this.resolveMcpScript(context);
+      const agyHome = options.customTargetRoot || os.homedir();
+
+      // 1. Antigravity (workspace: .agents/{skills,hooks.json}; global: ~/.gemini/config/{skills,hooks.json,mcp_config.json})
+      if (shouldInstallAntigravity) {
+        const agyBase = options.scope === 'global'
+          ? path.join(targetRoot, '.gemini', 'config')
+          : path.join(targetRoot, '.agents');
+        const agySkillsDir = path.join(agyBase, 'skills');
+        if (options.scope === 'workspace') {
+          ensureAgentsSkills();
+        } else {
+          copySkillsInto(agySkillsDir);
+        }
+
+        if (scriptsDir && this.configureAntigravityHooks(agyBase, scriptsDir)) {
+          hooksConfigured = true;
+        }
+        if (mcpScript) {
+          const agyMcpPath = path.join(agyHome, '.gemini', 'config', 'mcp_config.json');
+          if (this.upsertJsonMcpServer(agyMcpPath, mcpScript, true)) {
+            mcpConfigured = true;
           }
         }
 
-        installedPlatforms.push('Antigravity / Universal (.agents/skills & hooks.json)');
+        installedPlatforms.push(
+          options.scope === 'global'
+            ? 'Antigravity (~/.gemini/config/{skills,hooks.json,mcp_config.json})'
+            : 'Antigravity (.agents/skills, hooks.json, mcp_config.json)'
+        );
       }
 
-      // 2. Install Claude Code Commands (.claude/commands/) + .claude/skills/ + MCP config + hooks
+      // 2. Claude Code (.claude/commands, .claude/skills, .mcp.json or ~/.claude.json, .claude/hooks.json)
       if (shouldInstallClaude) {
         const claudeCommandsDir = path.join(targetRoot, '.claude', 'commands');
         const claudeSkillsDir = path.join(targetRoot, '.claude', 'skills');
@@ -254,21 +285,35 @@ export class AgentSkillInstaller {
           this.safeCopyDir(srcSkillPath, destClaudeSkill, scriptsDir);
         }
 
-        // Configure .mcp.json for Claude Code
-        mcpConfigured = this.configureMcpServer(context, targetRoot);
-
-        // Configure .claude/hooks.json for model validation
-        if (scriptsDir) {
-          const claudeHooksOk = this.configureClaudeHooks(targetRoot, scriptsDir);
-          if (claudeHooksOk) {
-            hooksConfigured = true;
-          }
+        const claudeMcpPath = options.scope === 'global'
+          ? path.join(targetRoot, '.claude.json')
+          : path.join(targetRoot, '.mcp.json');
+        if (mcpScript && this.upsertJsonMcpServer(claudeMcpPath, mcpScript, true)) {
+          mcpConfigured = true;
         }
 
-        installedPlatforms.push('Claude Code (.claude/commands, .mcp.json, hooks.json)');
+        // Configure .claude/hooks.json for model validation
+        if (scriptsDir && this.configureClaudeHooks(targetRoot, scriptsDir)) {
+          hooksConfigured = true;
+        }
+
+        installedPlatforms.push(
+          options.scope === 'global'
+            ? 'Claude Code (.claude/commands, ~/.claude.json, hooks.json)'
+            : 'Claude Code (.claude/commands, .mcp.json, hooks.json)'
+        );
       }
 
-      // 3. Install Cursor Rules (.cursor/rules/)
+      // 3. OpenAI Codex CLI (.agents/skills + .codex/config.toml)
+      if (shouldInstallCodex) {
+        ensureAgentsSkills();
+        if (mcpScript && this.upsertTomlMcpServer(path.join(targetRoot, '.codex', 'config.toml'), mcpScript, true)) {
+          mcpConfigured = true;
+        }
+        installedPlatforms.push('Codex CLI (.agents/skills, .codex/config.toml)');
+      }
+
+      // 4. Cursor (.cursor/rules + .cursor/mcp.json)
       if (shouldInstallCursor) {
         const cursorRulesDir = path.join(targetRoot, '.cursor', 'rules');
         fs.mkdirSync(cursorRulesDir, { recursive: true });
@@ -280,7 +325,19 @@ export class AgentSkillInstaller {
             this.safeCopyFile(srcSkillMd, destRule, scriptsDir);
           }
         }
-        installedPlatforms.push('Cursor (.cursor/rules)');
+        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.cursor', 'mcp.json'), mcpScript, true)) {
+          mcpConfigured = true;
+        }
+        installedPlatforms.push('Cursor (.cursor/rules, .cursor/mcp.json)');
+      }
+
+      // 5. Gemini CLI (.agents/skills + .gemini/settings.json)
+      if (shouldInstallGemini) {
+        ensureAgentsSkills();
+        if (mcpScript && this.upsertJsonMcpServer(path.join(targetRoot, '.gemini', 'settings.json'), mcpScript, true)) {
+          mcpConfigured = true;
+        }
+        installedPlatforms.push('Gemini CLI (.agents/skills, .gemini/settings.json)');
       }
 
       installedCount = skillDirs.length;
@@ -307,28 +364,55 @@ export class AgentSkillInstaller {
     }
   }
 
-  /**
-   * Configure or merge .mcp.json pointing to bundled rostooling-mcp.js
-   */
-  private static configureMcpServer(context: vscode.ExtensionContext, targetRoot: string): boolean {
+  private static resolveMcpScript(context: vscode.ExtensionContext): string | null {
     const mcpScript = context.asAbsolutePath(path.join('bin', 'rostooling-mcp.js'));
-    if (!fs.existsSync(mcpScript)) {
+    return fs.existsSync(mcpScript) ? mcpScript : null;
+  }
+
+  private static isBundledMcpScriptArg(arg: unknown): boolean {
+    return typeof arg === 'string' && path.basename(arg.trim()) === 'rostooling-mcp.js';
+  }
+
+  /**
+   * Merge or refresh the "rostooling" MCP server entry in a JSON config file (`mcpServers` map).
+   */
+  private static upsertJsonMcpServer(jsonPath: string, mcpScript: string, createIfMissing: boolean): boolean {
+    const exists = fs.existsSync(jsonPath);
+    if (!exists && !createIfMissing) {
       return false;
     }
 
-    const mcpJsonPath = path.join(targetRoot, '.mcp.json');
-    let mcpConfig: { mcpServers?: Record<string, { command: string; args: string[] }> } = {};
-
-    if (fs.existsSync(mcpJsonPath)) {
+    let mcpConfig: { mcpServers?: Record<string, { command?: string; args?: unknown[] }> } = {};
+    if (exists) {
       try {
-        mcpConfig = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8'));
+        const raw = fs.readFileSync(jsonPath, 'utf8').trim();
+        const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          mcpConfig = parsed as typeof mcpConfig;
+        }
       } catch {
+        if (!createIfMissing) {
+          return false;
+        }
         mcpConfig = {};
       }
     }
 
-    if (!mcpConfig.mcpServers || typeof mcpConfig.mcpServers !== 'object') {
+    if (!mcpConfig.mcpServers || typeof mcpConfig.mcpServers !== 'object' || Array.isArray(mcpConfig.mcpServers)) {
+      if (!createIfMissing) {
+        return false;
+      }
       mcpConfig.mcpServers = {};
+    }
+
+    const current = mcpConfig.mcpServers['rostooling'];
+    if (!createIfMissing) {
+      if (!current || current.command !== 'node' || !Array.isArray(current.args) || !this.isBundledMcpScriptArg(current.args[0])) {
+        return false;
+      }
+      if (current.args[0] === mcpScript) {
+        return false;
+      }
     }
 
     mcpConfig.mcpServers['rostooling'] = {
@@ -337,11 +421,110 @@ export class AgentSkillInstaller {
     };
 
     try {
-      fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf8');
+      fs.mkdirSync(path.dirname(jsonPath), { recursive: true });
+      fs.writeFileSync(jsonPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf8');
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Merge or refresh the `[mcp_servers.rostooling]` TOML table in Codex CLI's `config.toml`.
+   */
+  private static upsertTomlMcpServer(tomlPath: string, mcpScript: string, createIfMissing: boolean): boolean {
+    const exists = fs.existsSync(tomlPath);
+    if (!exists && !createIfMissing) {
+      return false;
+    }
+
+    const escaped = mcpScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const block = `[mcp_servers.rostooling]\ncommand = "node"\nargs = ["${escaped}"]\n`;
+    const raw = exists ? fs.readFileSync(tomlPath, 'utf8') : '';
+    const sectionRe = /^\[mcp_servers\.rostooling\]\s*(?:#.*)?$/m;
+    const match = sectionRe.exec(raw);
+
+    if (!createIfMissing) {
+      if (!match) {
+        return false;
+      }
+      const afterHeader = raw.slice(match.index);
+      const nextHeader = afterHeader.slice(match[0].length).search(/^\s*\[/m);
+      const sectionBody = nextHeader >= 0 ? afterHeader.slice(0, match[0].length + nextHeader) : afterHeader;
+      if (!sectionBody.includes('rostooling-mcp.js') || sectionBody === block || sectionBody.trim() === block.trim()) {
+        return false;
+      }
+    }
+
+    let updated: string;
+    if (match) {
+      const start = match.index;
+      const tail = raw.slice(start + match[0].length);
+      const nextHeaderRel = tail.search(/^\s*\[/m);
+      const end = nextHeaderRel >= 0 ? start + match[0].length + nextHeaderRel : raw.length;
+      const before = raw.slice(0, start);
+      const after = raw.slice(end);
+      const sep = after && !after.startsWith('\n') ? '\n' : '';
+      updated = `${before}${block}${sep}${after}`;
+    } else {
+      const trimmed = raw.replace(/\s+$/, '');
+      updated = trimmed ? `${trimmed}\n\n${block}` : block;
+    }
+
+    try {
+      fs.mkdirSync(path.dirname(tomlPath), { recursive: true });
+      fs.writeFileSync(tomlPath, updated, 'utf8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Refresh any already-configured `rostooling` MCP server entries so they point to this
+   * extension version's `bin/rostooling-mcp.js` (never creates new config files).
+   */
+  public static refreshExistingMcpConfigs(
+    context: vscode.ExtensionContext,
+    roots?: { homeDir?: string; workspaceDir?: string }
+  ): number {
+    const mcpScript = this.resolveMcpScript(context);
+    if (!mcpScript) {
+      return 0;
+    }
+    const homeDir = roots?.homeDir ?? os.homedir();
+    const workspaceDir = roots?.workspaceDir ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    const jsonCandidates = [
+      path.join(homeDir, '.gemini', 'config', 'mcp_config.json'),
+      path.join(homeDir, '.claude.json'),
+      path.join(homeDir, '.mcp.json'),
+      path.join(homeDir, '.cursor', 'mcp.json'),
+      path.join(homeDir, '.gemini', 'settings.json'),
+    ];
+    const tomlCandidates = [path.join(homeDir, '.codex', 'config.toml')];
+
+    if (workspaceDir) {
+      jsonCandidates.push(
+        path.join(workspaceDir, '.mcp.json'),
+        path.join(workspaceDir, '.cursor', 'mcp.json'),
+        path.join(workspaceDir, '.gemini', 'settings.json')
+      );
+      tomlCandidates.push(path.join(workspaceDir, '.codex', 'config.toml'));
+    }
+
+    let updated = 0;
+    for (const p of new Set(jsonCandidates)) {
+      if (this.upsertJsonMcpServer(p, mcpScript, false)) {
+        updated += 1;
+      }
+    }
+    for (const p of new Set(tomlCandidates)) {
+      if (this.upsertTomlMcpServer(p, mcpScript, false)) {
+        updated += 1;
+      }
+    }
+    return updated;
   }
 
   /**
@@ -406,12 +589,12 @@ export class AgentSkillInstaller {
   }
 
   /**
-   * Configure .agents/hooks.json for Antigravity & Universal agents pointing to bundled rosmodel_lint.py
+   * Configure `hooks.json` inside the given agent config directory (`.agents` or `~/.gemini/config`)
+   * pointing to bundled `rosmodel_lint.py`.
    */
-  private static configureAntigravityHooks(targetRoot: string, scriptsDir: string): boolean {
-    const agentsDir = path.join(targetRoot, '.agents');
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const hooksJsonPath = path.join(agentsDir, 'hooks.json');
+  private static configureAntigravityHooks(configDir: string, scriptsDir: string): boolean {
+    fs.mkdirSync(configDir, { recursive: true });
+    const hooksJsonPath = path.join(configDir, 'hooks.json');
 
     const escapedScriptsDir = scriptsDir.replace(/\\/g, '/');
     const lintScript = `${escapedScriptsDir}/rosmodel_lint.py`;
@@ -501,24 +684,34 @@ export class AgentSkillInstaller {
 
     const platformItems: PlatformChoice[] = [
       {
-        label: '$(hubot) All Platforms (Claude Code, Antigravity, Cursor)',
-        description: 'Install .agents/skills, .claude/commands, .cursor/rules, and validation hooks',
+        label: '$(hubot) All Platforms (Antigravity, Claude Code, Codex, Cursor, Gemini CLI)',
+        description: 'Install skills, validation hooks, and native MCP configs across all supported agents',
         platform: 'all',
       },
       {
-        label: '$(terminal) Claude Code (.claude/commands/ & .mcp.json & hooks.json)',
-        description: 'Slash commands (/ros-model, /ros-system-builder) and auto-lint hooks',
-        platform: 'claude',
-      },
-      {
-        label: '$(sparkle) Antigravity / Universal (.agents/skills & hooks.json)',
-        description: 'Universal agent skills and PostToolUse validation hooks',
+        label: '$(sparkle) Antigravity (skills, hooks.json & ~/.gemini/config/mcp_config.json)',
+        description: 'Workspace .agents/ or global ~/.gemini/config/ skills, hooks, and MCP config',
         platform: 'antigravity',
       },
       {
-        label: '$(code) Cursor (.cursor/rules/)',
-        description: 'MDC rule files for Cursor agentic workflow',
+        label: '$(terminal) Claude Code (.claude/commands, hooks.json & .mcp.json / ~/.claude.json)',
+        description: 'Slash commands, skills, MCP server, and PostToolUse lint hooks',
+        platform: 'claude',
+      },
+      {
+        label: '$(tools) OpenAI Codex CLI (.agents/skills & .codex/config.toml)',
+        description: 'Skills and [mcp_servers.rostooling] entry in config.toml',
+        platform: 'codex',
+      },
+      {
+        label: '$(code) Cursor (.cursor/rules & .cursor/mcp.json)',
+        description: 'MDC rules and Cursor MCP server config',
         platform: 'cursor',
+      },
+      {
+        label: '$(rocket) Gemini CLI (.agents/skills & .gemini/settings.json)',
+        description: 'Skills and mcpServers.rostooling entry in settings.json',
+        platform: 'gemini',
       },
     ];
 
