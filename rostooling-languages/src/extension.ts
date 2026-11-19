@@ -19,7 +19,6 @@ import {
 } from './plugins/pluginManager';
 import { PluginTreeItem, PluginsTreeDataProvider } from './plugins/pluginsTreeView';
 import { EffectivePluginConfig } from './plugins/pluginTrust';
-import { migrateLegacyTrustedChecksums } from './plugins/trustedPluginsStore';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -433,7 +432,7 @@ export async function activate(context: ExtensionContext) {
         lspStatusBarItem.show();
 
         const tLspStart = performance.now();
-        const started = client.start().then(() => {
+        const started = client.start().then(async () => {
             if (lc !== client) {
                 return;
             }
@@ -450,6 +449,12 @@ export async function activate(context: ExtensionContext) {
                 setTimeout(() => {
                     lspStatusBarItem.hide();
                 }, 5000);
+            }
+            if (!isTestRun) {
+                const restartedForMigration = await pluginController.runLegacyMigrationOnce();
+                if (restartedForMigration) {
+                    return;
+                }
             }
             pluginsTreeView.refresh();
             void pluginController.notifyIfBlockedByTrustOrNotices(effective);
@@ -645,22 +650,6 @@ export async function activate(context: ExtensionContext) {
             commands.executeCommand('workbench.action.reloadWindow');
         }
     });
-
-    if (!isTestRun) {
-        try {
-            const legacyCfg = workspace.getConfiguration('rostooling-languages');
-            const migrated = migrateLegacyTrustedChecksums({
-                legacyChecksums: legacyCfg.inspect<Record<string, string>>('plugins.trustedChecksums')?.globalValue,
-                rawPluginPaths: pluginController.evaluateEffectiveConfig(false).rawPaths,
-                workspaceDir: workspace.workspaceFolders?.[0]?.uri.fsPath,
-            });
-            if (migrated > 0) {
-                outputChannel.appendLine(`[Plugins] Migrated ${migrated} legacy trustedChecksums entry/entries into ~/.rostooling/trusted-plugins.json.`);
-            }
-        } catch (err) {
-            outputChannel.appendLine(`[Plugins warning] Legacy trust migration failed: ${err}`);
-        }
-    }
 
     void startLanguageClient();
 

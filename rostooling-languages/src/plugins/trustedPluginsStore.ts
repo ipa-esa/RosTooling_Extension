@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   collectPluginJarFiles,
@@ -20,56 +19,94 @@ export interface TrustedPluginsFile {
   approved: TrustedPluginEntry[];
 }
 
+export class TrustStoreError extends Error {
+  constructor(public readonly storePath: string, message: string) {
+    super(message);
+    this.name = 'TrustStoreError';
+  }
+}
+
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
-export function defaultTrustStorePath(homeDir = os.homedir()): string {
-  return path.join(homeDir, '.rostooling', 'trusted-plugins.json');
+interface RawTrustDocument extends Record<string, unknown> {
+  version: 1;
+  approved: unknown[];
+}
+
+function readRawTrustedPluginsDocument(storePath: string): {
+  status: 'missing' | 'valid';
+  document: RawTrustDocument;
+} {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(storePath, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { status: 'missing', document: { version: 1, approved: [] } };
+    }
+    throw new TrustStoreError(
+      storePath,
+      `Plugin approval file '${storePath}' could not be read and was not modified. Fix or remove it by hand.`
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new TrustStoreError(
+      storePath,
+      `Plugin approval file '${storePath}' contains invalid JSON and was not modified. Fix or remove it by hand.`
+    );
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new TrustStoreError(
+      storePath,
+      `Plugin approval file '${storePath}' is invalid and was not modified. Fix or remove it by hand.`
+    );
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (obj.version !== 1 || !Array.isArray(obj.approved)) {
+    throw new TrustStoreError(
+      storePath,
+      `Plugin approval file '${storePath}' has unsupported version or format and was not modified. Fix or remove it by hand.`
+    );
+  }
+
+  return { status: 'valid', document: obj as RawTrustDocument };
 }
 
 /**
- * Read an existing `trusted-plugins.json` file; returns an empty v1 structure if missing or invalid.
+ * Read known-valid entries from an existing `trusted-plugins.json` file; returns an empty list if missing,
+ * and throws `TrustStoreError` if the file exists but is unreadable, invalid JSON, or not version 1.
  */
 export function readTrustedPluginsFile(storePath: string): TrustedPluginsFile {
-  try {
-    if (!fs.existsSync(storePath)) {
-      return { version: 1, approved: [] };
+  const { document } = readRawTrustedPluginsDocument(storePath);
+  const entries: TrustedPluginEntry[] = [];
+  for (const item of document.approved) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
     }
-    const raw = fs.readFileSync(storePath, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { version: 1, approved: [] };
+    const rec = item as Record<string, unknown>;
+    const sha = typeof rec.sha256 === 'string' ? rec.sha256.trim().toLowerCase() : '';
+    if (!SHA256_HEX_RE.test(sha)) {
+      continue;
     }
-    const obj = parsed as Record<string, unknown>;
-    if (obj.version !== 1 || !Array.isArray(obj.approved)) {
-      return { version: 1, approved: [] };
-    }
-    const entries: TrustedPluginEntry[] = [];
-    for (const item of obj.approved) {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        continue;
-      }
-      const rec = item as Record<string, unknown>;
-      const sha = typeof rec.sha256 === 'string' ? rec.sha256.trim().toLowerCase() : '';
-      if (!SHA256_HEX_RE.test(sha)) {
-        continue;
-      }
-      entries.push({
-        sha256: sha,
-        fileName: typeof rec.fileName === 'string' ? rec.fileName.trim() : '',
-        id: typeof rec.id === 'string' ? rec.id.trim() : '',
-        approvedAt: typeof rec.approvedAt === 'string' ? rec.approvedAt.trim() : '',
-      });
-    }
-    return { version: 1, approved: entries };
-  } catch {
-    return { version: 1, approved: [] };
+    entries.push({
+      sha256: sha,
+      fileName: typeof rec.fileName === 'string' ? rec.fileName.trim() : '',
+      id: typeof rec.id === 'string' ? rec.id.trim() : '',
+      approvedAt: typeof rec.approvedAt === 'string' ? rec.approvedAt.trim() : '',
+    });
   }
+  return { version: 1, approved: entries };
 }
 
 /**
  * Atomically write `trusted-plugins.json` (temp file in target directory followed by `renameSync`).
  */
-export function writeTrustedPluginsFileAtomic(storePath: string, data: TrustedPluginsFile): void {
+export function writeTrustedPluginsFileAtomic(storePath: string, data: Record<string, unknown>): void {
   const dir = path.dirname(storePath);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmpName = `.trusted-plugins.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -79,42 +116,70 @@ export function writeTrustedPluginsFileAtomic(storePath: string, data: TrustedPl
   fs.renameSync(tmpPath, storePath);
 }
 
+function documentHasSha256(document: RawTrustDocument, sha256: string): boolean {
+  return document.approved.some(
+    (item) =>
+      item &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      typeof (item as Record<string, unknown>).sha256 === 'string' &&
+      String((item as Record<string, unknown>).sha256).trim().toLowerCase() === sha256
+  );
+}
+
 /**
- * Append a single verified JAR fingerprint entry to `trusted-plugins.json` unless its SHA-256
- * is already approved. Returns true if an entry was added.
+ * Append a single verified JAR fingerprint entry to `storePath`, preserving all existing entries
+ * and unknown fields verbatim. Throws `TrustStoreError` without writing if the file exists and is
+ * unreadable, corrupt JSON, or not version 1.
  */
 export function approveTrustedPluginEntry(
   storePath: string,
   entry: { sha256: string; fileName: string; id: string; approvedAt?: string }
 ): boolean {
+  if (!storePath || !storePath.trim()) {
+    throw new Error('Cannot approve plugin JAR: core did not provide an approval file path.');
+  }
   const sha = entry.sha256.trim().toLowerCase();
   if (!SHA256_HEX_RE.test(sha)) {
     throw new Error(`Invalid SHA-256 fingerprint: ${entry.sha256}`);
   }
-  const current = readTrustedPluginsFile(storePath);
-  if (current.approved.some((e) => e.sha256 === sha)) {
+
+  const { document } = readRawTrustedPluginsDocument(storePath);
+  if (documentHasSha256(document, sha)) {
     return false;
   }
-  current.approved.push({
-    sha256: sha,
-    fileName: entry.fileName.trim(),
-    id: entry.id.trim(),
-    approvedAt: entry.approvedAt || new Date().toISOString(),
-  });
-  writeTrustedPluginsFileAtomic(storePath, current);
+
+  const updated: RawTrustDocument = {
+    ...document,
+    version: 1,
+    approved: [
+      ...document.approved,
+      {
+        sha256: sha,
+        fileName: entry.fileName.trim(),
+        id: entry.id.trim(),
+        approvedAt: entry.approvedAt || new Date().toISOString(),
+      },
+    ],
+  };
+  writeTrustedPluginsFileAtomic(storePath, updated);
   return true;
 }
 
 /**
  * One-time idempotent migration from legacy user setting `rostooling-languages.plugins.trustedChecksums`
- * (`id -> sha256`) into `~/.rostooling/trusted-plugins.json`. Does not delete the legacy setting.
+ * (`id -> sha256`) into the core-reported `storePath`. Preserves all existing entries and unknown fields,
+ * and throws `TrustStoreError` without writing if `storePath` exists and is corrupt/unreadable/non-v1.
  */
 export function migrateLegacyTrustedChecksums(options: {
   legacyChecksums: unknown;
   rawPluginPaths: unknown;
   workspaceDir?: string;
-  storePath?: string;
+  storePath: string;
 }): number {
+  if (!options.storePath || !options.storePath.trim()) {
+    throw new Error('Cannot migrate legacy plugin checksums without core trustStorePath.');
+  }
   const raw = options.legacyChecksums;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return 0;
@@ -129,11 +194,8 @@ export function migrateLegacyTrustedChecksums(options: {
     return 0;
   }
 
-  const storePath = options.storePath || defaultTrustStorePath();
-  const current = readTrustedPluginsFile(storePath);
-  const existingShas = new Set(current.approved.map((e) => e.sha256));
+  const { document } = readRawTrustedPluginsDocument(options.storePath);
 
-  // Index JARs on configured paths by SHA-256 to recover fileName when present
   const resolvedPaths = resolvePluginPaths(normalizePluginSettingList(options.rawPluginPaths), {
     workspaceDir: options.workspaceDir,
   });
@@ -150,23 +212,25 @@ export function migrateLegacyTrustedChecksums(options: {
   }
 
   const now = new Date().toISOString();
-  let added = 0;
+  const appended: TrustedPluginEntry[] = [];
   for (const { id, sha256 } of pairs) {
-    if (existingShas.has(sha256)) {
+    if (documentHasSha256(document, sha256) || appended.some((e) => e.sha256 === sha256)) {
       continue;
     }
-    existingShas.add(sha256);
-    current.approved.push({
+    appended.push({
       sha256,
       fileName: fileNameBySha.get(sha256) ?? '',
       id,
       approvedAt: now,
     });
-    added += 1;
   }
 
-  if (added > 0) {
-    writeTrustedPluginsFileAtomic(storePath, current);
+  if (appended.length > 0) {
+    writeTrustedPluginsFileAtomic(options.storePath, {
+      ...document,
+      version: 1,
+      approved: [...document.approved, ...appended],
+    });
   }
-  return added;
+  return appended.length;
 }

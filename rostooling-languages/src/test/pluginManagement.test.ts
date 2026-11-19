@@ -21,6 +21,7 @@ import {
   approveTrustedPluginEntry,
   migrateLegacyTrustedChecksums,
   readTrustedPluginsFile,
+  TrustStoreError,
 } from '../plugins/trustedPluginsStore';
 
 suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function () {
@@ -30,6 +31,24 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
   const TEST_PLUGINS_DIR = path.resolve(EXT_ROOT, '..', 'build', 'test-plugins');
   const TEST_PROBE_JAR = path.join(TEST_PLUGINS_DIR, 'rostooling-test-plugins.jar');
   const SERVER_JAR = path.resolve(EXT_ROOT, 'server', 'rostooling_extension-2.5.0.jar');
+
+  function makeDummyPlugin(overrides: Partial<DiscoveredPlugin> = {}): DiscoveredPlugin {
+    return {
+      id: 'de.example.extprobe',
+      version: '1.0.0',
+      summary: 'Probe',
+      supportedCoreVersionRange: '[3.6.0,4.0.0)',
+      compatible: true,
+      enabled: false,
+      active: false,
+      sourceJarPath: TEST_PROBE_JAR,
+      loadError: '',
+      fileName: 'rostooling-test-plugins.jar',
+      sha256: 'd'.repeat(64),
+      approvalState: 'unapproved',
+      ...overrides,
+    };
+  }
 
   test('resolvePluginPaths handles absolute, relative, ${workspaceFolder}, and warns on missing paths', () => {
     const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-plugin-paths-'));
@@ -90,81 +109,250 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
     }
   });
 
-  test('approving writes exactly one atomic entry and approving U1 never approves U2', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-store-atomic-'));
+  test('missing file creates one entry, approving U1 never approves U2, and corrupt/unknown-version files are never overwritten', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-store-safety-'));
     try {
-      const storePath = path.join(tmpDir, '.rostooling', 'trusted-plugins.json');
-      const u1Path = path.join(tmpDir, 'u1.jar');
-      const u2Path = path.join(tmpDir, 'u2.jar');
-      fs.writeFileSync(u1Path, 'unlabeled-jar-u1');
-      fs.writeFileSync(u2Path, 'unlabeled-jar-u2');
-      const sha1 = computeFileSha256(u1Path);
-      const sha2 = computeFileSha256(u2Path);
+      const freshPath = path.join(tmpDir, 'fresh', 'trusted-plugins.json');
+      const u1Sha = '1'.repeat(64);
+      const u2Sha = '2'.repeat(64);
 
-      const addedFirst = approveTrustedPluginEntry(storePath, {
-        sha256: sha1,
-        fileName: 'u1.jar',
-        id: '',
-      });
-      assert.strictEqual(addedFirst, true);
-      const addedDup = approveTrustedPluginEntry(storePath, {
-        sha256: sha1,
-        fileName: 'u1.jar',
-        id: '',
-      });
-      assert.strictEqual(addedDup, false);
+      assert.strictEqual(
+        approveTrustedPluginEntry(freshPath, { sha256: u1Sha, fileName: 'u1.jar', id: '' }),
+        true
+      );
+      const parsedFresh = readTrustedPluginsFile(freshPath);
+      assert.strictEqual(parsedFresh.version, 1);
+      assert.strictEqual(parsedFresh.approved.length, 1);
+      assert.strictEqual(parsedFresh.approved[0].sha256, u1Sha);
+      assert.strictEqual(parsedFresh.approved.some((e) => e.sha256 === u2Sha), false);
 
-      const parsed = readTrustedPluginsFile(storePath);
-      assert.strictEqual(parsed.version, 1);
-      assert.strictEqual(parsed.approved.length, 1);
-      assert.strictEqual(parsed.approved[0].sha256, sha1);
-      assert.strictEqual(parsed.approved[0].fileName, 'u1.jar');
-      assert.strictEqual(parsed.approved.some((e) => e.sha256 === sha2), false);
+      // Corrupt JSON left byte-identical on approve and migrate
+      const corruptPath = path.join(tmpDir, 'corrupt-trusted-plugins.json');
+      const corruptContent = '{not-valid-json\n';
+      fs.writeFileSync(corruptPath, corruptContent, 'utf8');
+      assert.throws(
+        () => approveTrustedPluginEntry(corruptPath, { sha256: u1Sha, fileName: 'u1.jar', id: '' }),
+        (err: unknown) =>
+          err instanceof TrustStoreError &&
+          err.message.includes(corruptPath) &&
+          err.message.includes('Fix or remove it by hand')
+      );
+      assert.strictEqual(fs.readFileSync(corruptPath, 'utf8'), corruptContent);
+      assert.throws(
+        () =>
+          migrateLegacyTrustedChecksums({
+            legacyChecksums: { 'de.example.a': u1Sha },
+            rawPluginPaths: [],
+            storePath: corruptPath,
+          }),
+        TrustStoreError
+      );
+      assert.strictEqual(fs.readFileSync(corruptPath, 'utf8'), corruptContent);
+
+      // Unknown version left byte-identical untouched
+      const unknownVerPath = path.join(tmpDir, 'v9-trusted-plugins.json');
+      const unknownVerContent = '{\n  "version": 9,\n  "approved": []\n}\n';
+      fs.writeFileSync(unknownVerPath, unknownVerContent, 'utf8');
+      assert.throws(
+        () => approveTrustedPluginEntry(unknownVerPath, { sha256: u1Sha, fileName: 'u1.jar', id: '' }),
+        (err: unknown) => err instanceof TrustStoreError && err.message.includes(unknownVerPath)
+      );
+      assert.strictEqual(fs.readFileSync(unknownVerPath, 'utf8'), unknownVerContent);
+
+      // Existing entry with invalid sha256 and unknown fields survives new approval verbatim
+      const preservePath = path.join(tmpDir, 'preserve-trusted-plugins.json');
+      const originalRaw = {
+        version: 1,
+        topExtra: { owner: 'user' },
+        approved: [
+          {
+            sha256: 'not-a-valid-hex-digest',
+            fileName: 'legacy.jar',
+            id: 'de.example.custom',
+            customTag: 'keep-me-intact',
+          },
+        ],
+      };
+      fs.writeFileSync(preservePath, JSON.stringify(originalRaw, null, 2) + '\n', 'utf8');
+      assert.strictEqual(
+        approveTrustedPluginEntry(preservePath, { sha256: u2Sha, fileName: 'u2.jar', id: 'de.example.u2' }),
+        true
+      );
+      const afterPreserve = JSON.parse(fs.readFileSync(preservePath, 'utf8')) as {
+        version: number;
+        topExtra: unknown;
+        approved: Record<string, unknown>[];
+      };
+      assert.deepStrictEqual(afterPreserve.topExtra, { owner: 'user' });
+      assert.strictEqual(afterPreserve.approved.length, 2);
+      assert.deepStrictEqual(afterPreserve.approved[0], originalRaw.approved[0]);
+      assert.strictEqual(afterPreserve.approved[1].sha256, u2Sha);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  test('migration copies legacy trustedChecksums into trusted-plugins.json once and is idempotent', () => {
-    assert.ok(fs.existsSync(TEST_PROBE_JAR), `Missing test JAR at ${TEST_PROBE_JAR}`);
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-store-migrate-'));
+  test('missing core response aborts approval with error and writes nothing; corrupt approval file surfaces error in controller', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ctrl-errors-'));
     try {
-      const storePath = path.join(tmpDir, '.rostooling', 'trusted-plugins.json');
+      const errorsShown: string[] = [];
+      let approveCalls = 0;
+
+      // 1. No core response (LSP not ready) -> shows error, writes nothing
+      const offlineHost: PluginHostAdapter = {
+        isWorkspaceTrusted: () => true,
+        getWorkspaceDir: () => tmpDir,
+        inspectPaths: () => ({ workspaceValue: [TEST_PROBE_JAR] }),
+        inspectEnabled: () => ({ workspaceValue: [] }),
+        getLegacyGlobalTrustedChecksums: () => undefined,
+        approvePluginJar: async () => {
+          approveCalls += 1;
+        },
+        migrateLegacyChecksums: async () => 0,
+        updatePluginsSetting: async () => undefined,
+        isLspReady: () => false,
+        waitForLspReady: async () => false,
+        sendExecuteCommand: async <T = unknown>(): Promise<T> => ({}) as T,
+        restartServers: async () => undefined,
+        refreshMcpConfigs: async () => undefined,
+        refreshPluginsView: () => undefined,
+        log: () => undefined,
+        logWarning: () => undefined,
+        showInfo: async () => undefined,
+        showWarning: async () => undefined,
+        showError: async (msg) => {
+          errorsShown.push(msg);
+          return undefined;
+        },
+        showModalConfirm: async () => true,
+        pickQuickPick: async () => undefined,
+        pickScope: async () => 'workspace',
+        promptAddPluginPath: async () => undefined,
+        openPluginSettings: async () => undefined,
+        openTrustManagement: async () => undefined,
+        openMarkdownPreview: async () => undefined,
+      };
+      const offlineCtrl = new PluginManagerController(offlineHost);
+      const samplePlugin = makeDummyPlugin();
+      await offlineCtrl.approvePluginJarCommand(samplePlugin);
+      await offlineCtrl.enableSinglePlugin(samplePlugin);
+      assert.strictEqual(approveCalls, 0);
+      assert.strictEqual(errorsShown.length, 2);
+      assert.ok(errorsShown.every((m) => m.includes('did not report')));
+
+      // 2. Corrupt file at core-reported path -> controller shows error naming path, file stays byte-identical
+      const corruptPath = path.join(tmpDir, 'trusted-plugins.json');
+      const rawBytes = 'CORRUPT!';
+      fs.writeFileSync(corruptPath, rawBytes, 'utf8');
+      const corruptErrors: string[] = [];
+      const corruptCtrl = new PluginManagerController({
+        ...offlineHost,
+        isLspReady: () => true,
+        waitForLspReady: async () => true,
+        sendExecuteCommand: async <T = unknown>(): Promise<T> =>
+          ({ trustStorePath: corruptPath, plugins: [samplePlugin], notices: [] }) as unknown as T,
+        approvePluginJar: async (storePath, entry) => {
+          approveTrustedPluginEntry(storePath, entry);
+        },
+        showError: async (msg) => {
+          corruptErrors.push(msg);
+          return undefined;
+        },
+      });
+      await corruptCtrl.approvePluginJarCommand(samplePlugin);
+      assert.strictEqual(fs.readFileSync(corruptPath, 'utf8'), rawBytes);
+      assert.strictEqual(corruptErrors.length, 1);
+      assert.ok(corruptErrors[0].includes(corruptPath));
+      assert.ok(corruptErrors[0].includes('Fix or remove it by hand'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('approval and migration write strictly to core trustStorePath even when it differs from os.homedir()', async () => {
+    assert.ok(fs.existsSync(TEST_PROBE_JAR), `Missing test JAR at ${TEST_PROBE_JAR}`);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ctrl-core-path-'));
+    try {
+      // Simulate Java user.home differing completely from Node os.homedir()
+      const javaHome = path.join(tmpDir, 'java-user-home');
+      const coreTrustPath = path.join(javaHome, '.rostooling', 'trusted-plugins.json');
+      const fakeNodeHome = path.join(tmpDir, 'node-os-home');
       const probeSha = computeFileSha256(TEST_PROBE_JAR);
-      const otherSha = 'a'.repeat(64);
-      const legacy = {
-        'de.example.extprobe': probeSha,
-        'de.example.other': otherSha,
+      const legacySetting = { 'de.example.extprobe': probeSha };
+      let restarts = 0;
+      let mcpRefreshes = 0;
+      let viewRefreshes = 0;
+
+      const host: PluginHostAdapter = {
+        isWorkspaceTrusted: () => true,
+        getWorkspaceDir: () => tmpDir,
+        inspectPaths: () => ({ workspaceValue: [TEST_PROBE_JAR] }),
+        inspectEnabled: () => ({ workspaceValue: [] }),
+        getLegacyGlobalTrustedChecksums: () => legacySetting,
+        approvePluginJar: async (storePath, entry) => {
+          approveTrustedPluginEntry(storePath, entry);
+        },
+        migrateLegacyChecksums: async (opts) => migrateLegacyTrustedChecksums(opts),
+        updatePluginsSetting: async () => undefined,
+        isLspReady: () => true,
+        waitForLspReady: async () => true,
+        sendExecuteCommand: async <T = unknown>(command: string): Promise<T> => {
+          if (command === 'rostooling.listDiscoveredPlugins') {
+            return { trustStorePath: coreTrustPath, plugins: [], notices: [] } as unknown as T;
+          }
+          return {} as T;
+        },
+        restartServers: async () => {
+          restarts += 1;
+        },
+        refreshMcpConfigs: async () => {
+          mcpRefreshes += 1;
+        },
+        refreshPluginsView: () => {
+          viewRefreshes += 1;
+        },
+        log: () => undefined,
+        logWarning: () => undefined,
+        showInfo: async () => undefined,
+        showWarning: async () => undefined,
+        showError: async () => undefined,
+        showModalConfirm: async () => true,
+        pickQuickPick: async () => undefined,
+        pickScope: async () => 'workspace',
+        promptAddPluginPath: async () => undefined,
+        openPluginSettings: async () => undefined,
+        openTrustManagement: async () => undefined,
+        openMarkdownPreview: async () => undefined,
       };
 
-      const firstCount = migrateLegacyTrustedChecksums({
-        legacyChecksums: legacy,
-        rawPluginPaths: [TEST_PROBE_JAR],
-        workspaceDir: tmpDir,
-        storePath,
-      });
-      assert.strictEqual(firstCount, 2);
+      const controller = new PluginManagerController(host);
+      const restartedFirst = await controller.runLegacyMigrationOnce();
+      assert.strictEqual(restartedFirst, true);
+      assert.strictEqual(restarts, 1);
+      assert.strictEqual(mcpRefreshes, 1);
+      assert.strictEqual(viewRefreshes, 1);
+      assert.strictEqual(fs.existsSync(fakeNodeHome), false);
 
-      const fileAfterFirst = readTrustedPluginsFile(storePath);
-      assert.strictEqual(fileAfterFirst.approved.length, 2);
-      const probeEntry = fileAfterFirst.approved.find((e) => e.id === 'de.example.extprobe');
-      assert.strictEqual(probeEntry?.sha256, probeSha);
-      assert.strictEqual(probeEntry?.fileName, 'rostooling-test-plugins.jar');
-      const otherEntry = fileAfterFirst.approved.find((e) => e.id === 'de.example.other');
-      assert.strictEqual(otherEntry?.sha256, otherSha);
-      assert.strictEqual(otherEntry?.fileName, '');
+      const migratedStore = readTrustedPluginsFile(coreTrustPath);
+      assert.strictEqual(migratedStore.approved.length, 1);
+      assert.strictEqual(migratedStore.approved[0].sha256, probeSha);
+      assert.strictEqual(migratedStore.approved[0].fileName, 'rostooling-test-plugins.jar');
+      assert.strictEqual(legacySetting['de.example.extprobe'], probeSha, 'Legacy setting must not be deleted');
 
-      // Second run must be a no-op (idempotent) and preserve original entries
-      const mtimeBefore = fs.statSync(storePath).mtimeMs;
-      const secondCount = migrateLegacyTrustedChecksums({
-        legacyChecksums: legacy,
-        rawPluginPaths: [TEST_PROBE_JAR],
-        workspaceDir: tmpDir,
-        storePath,
-      });
-      assert.strictEqual(secondCount, 0);
-      assert.strictEqual(readTrustedPluginsFile(storePath).approved.length, 2);
-      assert.strictEqual(fs.statSync(storePath).mtimeMs, mtimeBefore);
+      // Second migration call is idempotent (no duplicate entry, no extra restart)
+      const restartedSecond = await controller.runLegacyMigrationOnce();
+      assert.strictEqual(restartedSecond, false);
+      assert.strictEqual(restarts, 1);
+      assert.strictEqual(readTrustedPluginsFile(coreTrustPath).approved.length, 1);
+
+      // Approve another JAR via Approve JAR action -> lands in coreTrustPath, never os.homedir()
+      const extraSha = 'e'.repeat(64);
+      await controller.approvePluginJarCommand(
+        makeDummyPlugin({ id: '', fileName: 'extra.jar', sha256: extraSha })
+      );
+      const updatedStore = readTrustedPluginsFile(coreTrustPath);
+      assert.strictEqual(updatedStore.approved.length, 2);
+      assert.ok(updatedStore.approved.some((e) => e.sha256 === extraSha && e.fileName === 'extra.jar'));
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -185,67 +373,48 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       const u2Sha = computeFileSha256(unlabeledJar2);
 
       const discovered: DiscoveredPlugin[] = [
-        {
-          id: 'de.example.extprobe',
-          version: '1.0.0',
-          summary: 'External probe plugin summary',
-          supportedCoreVersionRange: '[3.6.0,4.0.0)',
-          compatible: true,
-          enabled: false,
-          active: false,
+        makeDummyPlugin({
           sourceJarPath: probeJar,
-          loadError: '',
           fileName: 'extprobe.jar',
           sha256: probeSha,
-          approvalState: 'unapproved',
-        },
-        {
+        }),
+        makeDummyPlugin({
           id: 'de.example.future',
           version: '2.0.0',
           summary: 'Incompatible plugin',
           supportedCoreVersionRange: '[99.0.0,100.0.0)',
           compatible: false,
-          enabled: false,
-          active: false,
           sourceJarPath: '/tmp/future.jar',
-          loadError: '',
           fileName: 'future.jar',
           sha256: 'b'.repeat(64),
-          approvalState: 'unapproved',
-        },
-        {
+        }),
+        makeDummyPlugin({
           id: '',
           version: '',
           summary: '',
           supportedCoreVersionRange: '',
           compatible: false,
-          enabled: false,
-          active: false,
           sourceJarPath: unlabeledJar1,
           loadError: NO_METADATA_LOAD_ERROR,
           fileName: 'u1.jar',
           sha256: u1Sha,
-          approvalState: 'unapproved',
-        },
-        {
+        }),
+        makeDummyPlugin({
           id: '',
           version: '',
           summary: '',
           supportedCoreVersionRange: '',
           compatible: false,
-          enabled: false,
-          active: false,
           sourceJarPath: unlabeledJar2,
           loadError: NO_METADATA_LOAD_ERROR,
           fileName: 'u2.jar',
           sha256: u2Sha,
-          approvalState: 'unapproved',
-        },
+        }),
       ];
 
-      let globalPaths: string[] | undefined = [tmpDir];
-      let workspacePaths: string[] | undefined;
-      let globalEnabled: string[] | undefined;
+      const globalPaths: string[] | undefined = [tmpDir];
+      const workspacePaths: string[] | undefined = undefined;
+      const globalEnabled: string[] | undefined = undefined;
       let workspaceEnabled: string[] | undefined;
       let modalAccept = false;
       const chosenScope: 'workspace' | 'user' = 'workspace';
@@ -275,16 +444,14 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
         getWorkspaceDir: () => tmpDir,
         inspectPaths: () => ({ globalValue: globalPaths, workspaceValue: workspacePaths }),
         inspectEnabled: () => ({ globalValue: globalEnabled, workspaceValue: workspaceEnabled }),
+        getLegacyGlobalTrustedChecksums: () => undefined,
         approvePluginJar: async (storePath, entry) => {
           approveTrustedPluginEntry(storePath, entry);
         },
+        migrateLegacyChecksums: async () => 0,
         updatePluginsSetting: async (key, value, target) => {
-          if (key === 'plugins.paths') {
-            if (target === 'workspace') workspacePaths = [...value];
-            else globalPaths = [...value];
-          } else {
-            if (target === 'workspace') workspaceEnabled = [...value];
-            else globalEnabled = [...value];
+          if (key === 'plugins.enabled' && target === 'workspace') {
+            workspaceEnabled = [...value];
           }
         },
         isLspReady: () => true,
@@ -328,7 +495,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
 
       const controller = new PluginManagerController(host);
 
-      // 1. Picker shows fileName/sha256, lists U1 & U2 individually, gates incompatible; cancelling writes nothing
+      // 1. Cancel modal -> writes nothing
       modalAccept = false;
       await controller.managePlugins();
       assert.strictEqual(modalCalls.length, 1);
@@ -338,7 +505,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       assert.strictEqual(fs.existsSync(trustStorePath), false);
       assert.strictEqual(restarts, 0);
 
-      // 2. Confirm writes one entry to trustStorePath, saves enabled list, restarts
+      // 2. Confirm -> writes one entry to trustStorePath, saves enabled list, restarts
       modalAccept = true;
       await controller.managePlugins();
       const store1 = readTrustedPluginsFile(trustStorePath);
@@ -362,7 +529,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       assert.strictEqual(store2.approved.some((e) => e.sha256 === u2Sha), false);
       assert.strictEqual(restarts, 2);
 
-      // 4. Changed state in Core triggers changed modal on enable
+      // 4. Changed state triggers changed modal on enable
       discovered[0].approvalState = 'changed';
       discovered[0].sha256 = 'c'.repeat(64);
       const changedTree = buildPluginTreeDescriptors(discovered, controller.evaluateEffectiveConfig(false));
@@ -401,7 +568,8 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
         []
       )) as DiscoveredPluginsResponse;
       assert.ok(
-        typeof resp.trustStorePath === 'string' && resp.trustStorePath.endsWith(path.join('.rostooling', 'trusted-plugins.json')),
+        typeof resp.trustStorePath === 'string' &&
+          resp.trustStorePath.endsWith(path.join('.rostooling', 'trusted-plugins.json')),
         `Expected fixed trustStorePath, got ${JSON.stringify(resp)}`
       );
       assert.ok(Array.isArray(resp.plugins));

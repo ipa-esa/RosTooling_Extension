@@ -12,7 +12,7 @@ import {
 } from './pluginTrust.js';
 import {
   approveTrustedPluginEntry,
-  defaultTrustStorePath,
+  migrateLegacyTrustedChecksums,
 } from './trustedPluginsStore.js';
 
 export const PLUGIN_SETTINGS_SECTION = 'rostooling-languages';
@@ -27,10 +27,17 @@ export interface PluginHostAdapter {
   getWorkspaceDir(): string | undefined;
   inspectPaths(): ConfigInspectLike<string[]> | undefined;
   inspectEnabled(): ConfigInspectLike<string[]> | undefined;
+  getLegacyGlobalTrustedChecksums(): unknown;
   approvePluginJar(
     storePath: string,
     entry: { sha256: string; fileName: string; id: string }
   ): Promise<void>;
+  migrateLegacyChecksums(options: {
+    legacyChecksums: unknown;
+    rawPluginPaths: unknown;
+    workspaceDir?: string;
+    storePath: string;
+  }): Promise<number>;
   updatePluginsSetting(
     key: 'plugins.paths' | 'plugins.enabled',
     value: string[],
@@ -128,11 +135,26 @@ export class VsCodePluginHost implements PluginHostAdapter {
     return vscode.workspace.getConfiguration(PLUGIN_SETTINGS_SECTION).inspect<string[]>('plugins.enabled');
   }
 
+  public getLegacyGlobalTrustedChecksums(): unknown {
+    return vscode.workspace
+      .getConfiguration(PLUGIN_SETTINGS_SECTION)
+      .inspect<Record<string, string>>('plugins.trustedChecksums')?.globalValue;
+  }
+
   public async approvePluginJar(
     storePath: string,
     entry: { sha256: string; fileName: string; id: string }
   ): Promise<void> {
     approveTrustedPluginEntry(storePath, entry);
+  }
+
+  public async migrateLegacyChecksums(options: {
+    legacyChecksums: unknown;
+    rawPluginPaths: unknown;
+    workspaceDir?: string;
+    storePath: string;
+  }): Promise<number> {
+    return migrateLegacyTrustedChecksums(options);
   }
 
   public async updatePluginsSetting(
@@ -333,7 +355,7 @@ export class VsCodePluginHost implements PluginHostAdapter {
 export class PluginManagerController {
   private blockedTrustNoticeShown = false;
   private lastCoreNoticesKey = '';
-  private cachedTrustStorePath = defaultTrustStorePath();
+  private legacyMigrationAttempted = false;
 
   constructor(private readonly host: PluginHostAdapter) {}
 
@@ -350,6 +372,50 @@ export class PluginManagerController {
       }
     }
     return config;
+  }
+
+  /**
+   * Perform one-time migration from user-level `plugins.trustedChecksums` into the exact
+   * `trustStorePath` reported by core. Returns `true` if entries were migrated and servers
+   * were restarted cleanly.
+   */
+  public async runLegacyMigrationOnce(): Promise<boolean> {
+    if (this.legacyMigrationAttempted) {
+      return false;
+    }
+    const legacy = this.host.getLegacyGlobalTrustedChecksums();
+    if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy) || Object.keys(legacy).length === 0) {
+      this.legacyMigrationAttempted = true;
+      return false;
+    }
+
+    const resp = await this.listDiscoveredPluginsResponse();
+    if (!resp.trustStorePath) {
+      return false;
+    }
+
+    this.legacyMigrationAttempted = true;
+    const effective = this.evaluateEffectiveConfig(false);
+    try {
+      const migrated = await this.host.migrateLegacyChecksums({
+        legacyChecksums: legacy,
+        rawPluginPaths: effective.rawPaths,
+        workspaceDir: this.host.getWorkspaceDir(),
+        storePath: resp.trustStorePath,
+      });
+      if (migrated > 0) {
+        this.host.log(`Migrated ${migrated} legacy trustedChecksums entry/entries into ${resp.trustStorePath}.`);
+        await this.host.refreshMcpConfigs();
+        await this.host.restartServers();
+        this.host.refreshPluginsView();
+        return true;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.host.logWarning(message);
+      await this.host.showError(message);
+    }
+    return false;
   }
 
   public async notifyIfBlockedByTrustOrNotices(effective: EffectivePluginConfig): Promise<void> {
@@ -394,29 +460,23 @@ export class PluginManagerController {
     if (!this.host.isLspReady()) {
       const becameReady = await this.host.waitForLspReady();
       if (!becameReady) {
-        return { trustStorePath: this.cachedTrustStorePath, plugins: [], notices: [] };
+        return { trustStorePath: '', plugins: [], notices: [] };
       }
     }
-    const raw = await this.host.sendExecuteCommand<unknown>(LIST_DISCOVERED_PLUGINS_CMD, []);
-    let trustStorePath = this.cachedTrustStorePath;
-    let rawList: unknown[] = [];
-    let notices: string[] = [];
+    let raw: unknown;
+    try {
+      raw = await this.host.sendExecuteCommand<unknown>(LIST_DISCOVERED_PLUGINS_CMD, []);
+    } catch {
+      return { trustStorePath: '', plugins: [], notices: [] };
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { trustStorePath: '', plugins: [], notices: [] };
+    }
 
-    if (Array.isArray(raw)) {
-      rawList = raw;
-    } else if (raw && typeof raw === 'object') {
-      const obj = raw as Record<string, unknown>;
-      if (typeof obj.trustStorePath === 'string' && obj.trustStorePath.trim()) {
-        trustStorePath = obj.trustStorePath.trim();
-        this.cachedTrustStorePath = trustStorePath;
-      }
-      if (Array.isArray(obj.plugins)) {
-        rawList = obj.plugins;
-      }
-      if (Array.isArray(obj.notices)) {
-        notices = obj.notices.map((n) => String(n)).filter(Boolean);
-      }
-    }
+    const obj = raw as Record<string, unknown>;
+    const trustStorePath = typeof obj.trustStorePath === 'string' ? obj.trustStorePath.trim() : '';
+    const rawList = Array.isArray(obj.plugins) ? obj.plugins : [];
+    const notices = Array.isArray(obj.notices) ? obj.notices.map((n) => String(n)).filter(Boolean) : [];
 
     const plugins: DiscoveredPlugin[] = rawList
       .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
@@ -620,8 +680,13 @@ export class PluginManagerController {
 
   public async approvePluginJarCommand(plugin: DiscoveredPlugin): Promise<void> {
     const resp = await this.listDiscoveredPluginsResponse();
-    const storePath = resp.trustStorePath || this.cachedTrustStorePath;
-    const confirmed = await this.confirmAndApproveJar(plugin, storePath);
+    if (!resp.trustStorePath) {
+      await this.host.showError(
+        'Cannot approve plugin JAR: RosTooling language server is not running or did not report trustStorePath.'
+      );
+      return;
+    }
+    const confirmed = await this.confirmAndApproveJar(plugin, resp.trustStorePath);
     if (!confirmed) {
       return;
     }
@@ -651,11 +716,18 @@ export class PluginManagerController {
     }
 
     const effective = this.evaluateEffectiveConfig(false);
-    const resp = await this.listDiscoveredPluginsResponse();
-    const storePath = resp.trustStorePath || this.cachedTrustStorePath;
-    const confirmed = await this.confirmAndApproveJar(plugin, storePath);
-    if (!confirmed) {
-      return;
+    if (plugin.sourceJarPath && plugin.approvalState !== 'approved') {
+      const resp = await this.listDiscoveredPluginsResponse();
+      if (!resp.trustStorePath) {
+        await this.host.showError(
+          'Cannot approve plugin JAR: RosTooling language server is not running or did not report trustStorePath.'
+        );
+        return;
+      }
+      const confirmed = await this.confirmAndApproveJar(plugin, resp.trustStorePath);
+      if (!confirmed) {
+        return;
+      }
     }
 
     const nextIds = normalizePluginSettingList([...effective.enabledIds, plugin.id]);
@@ -781,6 +853,12 @@ export class PluginManagerController {
     if (!plugin.sourceJarPath || plugin.approvalState === 'approved') {
       return true;
     }
+    if (!trustStorePath || !trustStorePath.trim()) {
+      await this.host.showError(
+        'Cannot approve plugin JAR: RosTooling language server did not report an approval file path.'
+      );
+      return false;
+    }
     const fileName = plugin.fileName || path.basename(plugin.sourceJarPath);
     const sha256 = plugin.sha256;
     if (!sha256) {
@@ -811,11 +889,17 @@ export class PluginManagerController {
     if (!accepted) {
       return false;
     }
-    await this.host.approvePluginJar(trustStorePath, {
-      sha256,
-      fileName,
-      id: plugin.id,
-    });
-    return true;
+    try {
+      await this.host.approvePluginJar(trustStorePath, {
+        sha256,
+        fileName,
+        id: plugin.id,
+      });
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.host.showError(msg);
+      return false;
+    }
   }
 }
