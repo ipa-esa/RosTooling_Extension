@@ -3,10 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { buildMcpPluginCliArgs } from '../plugins/pluginPaths.js';
-import {
-  computeEffectivePluginConfig,
-  normalizeTrustedChecksums,
-} from '../plugins/pluginTrust.js';
+import { computeEffectivePluginConfig } from '../plugins/pluginTrust.js';
 
 export type AgentPlatform = 'claude' | 'antigravity' | 'codex' | 'cursor' | 'gemini' | 'all';
 export type InstallScope = 'workspace' | 'global';
@@ -398,11 +395,8 @@ export class AgentSkillInstaller {
         workspaceDir,
         pathsInspect: cfg.inspect<string[]>('plugins.paths'),
         enabledInspect: cfg.inspect<string[]>('plugins.enabled'),
-        trustedChecksums: normalizeTrustedChecksums(
-          cfg.inspect<Record<string, string>>('plugins.trustedChecksums')?.globalValue
-        ),
       });
-      return buildMcpPluginCliArgs(effective.resolvedPaths, effective.approvedEnabledIds);
+      return buildMcpPluginCliArgs(effective.resolvedPaths, effective.enabledIds);
     } catch {
       return [];
     }

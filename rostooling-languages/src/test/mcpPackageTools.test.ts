@@ -14,6 +14,8 @@ import {
   scanExistingFiles,
 } from '../mcp/PostProcessor.js';
 import { syncDynamicPluginsWithServer, type PluginLspDeps } from '../mcp/pluginTools.js';
+import { computeFileSha256 } from '../plugins/pluginPaths.js';
+import { approveTrustedPluginEntry } from '../plugins/trustedPluginsStore.js';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -581,13 +583,48 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
     return env;
   }
 
+  function createScratchApprovedEnv(jars: { jarPath: string; id: string }[]): {
+    env: Record<string, string>;
+    cleanup: () => void;
+  } {
+    const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-mcp-trust-home-'));
+    const trustPath = path.join(scratchHome, '.rostooling', 'trusted-plugins.json');
+    for (const j of jars) {
+      approveTrustedPluginEntry(trustPath, {
+        sha256: computeFileSha256(j.jarPath),
+        fileName: path.basename(j.jarPath),
+        id: j.id,
+      });
+    }
+    const realJava = HeadlessLspClient.findJavaExecutable();
+    const binDir = path.join(scratchHome, 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    const javaShim = path.join(binDir, 'java');
+    fs.writeFileSync(
+      javaShim,
+      `#!/bin/sh\nexec "${realJava}" "-Duser.home=${scratchHome}" "$@"\n`,
+      { encoding: 'utf8', mode: 0o755 }
+    );
+    const env = cleanPluginEnv();
+    env.ROSMODEL_JAVA = javaShim;
+    env.PATH = `${binDir}${path.delimiter}${env.PATH || ''}`;
+    return {
+      env,
+      cleanup: () => fs.rmSync(scratchHome, { recursive: true, force: true }),
+    };
+  }
+
   test('loads external plugin JAR via --plugins-dir/--enable-plugins and exercises validate, MCP tools, docs resource, package & system generation', async () => {
     assert.ok(process.env.RT_MCP_BIN || fs.existsSync(JAR), `GLSP server JAR missing at ${JAR}`);
     assert.ok(fs.existsSync(TEST_PLUGIN_JAR), `External test plugin JAR missing at ${TEST_PLUGIN_JAR}`);
     assert.ok(fs.existsSync(TEST_OVERLAP_PLUGIN_JAR), `External overlap plugin JAR missing at ${TEST_OVERLAP_PLUGIN_JAR}`);
 
     const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-ext-cli-'));
-    const env = cleanPluginEnv();
+    const approvedEnv = createScratchApprovedEnv([
+      { jarPath: TEST_PLUGIN_JAR, id: 'de.example.extprobe' },
+      { jarPath: TEST_OVERLAP_PLUGIN_JAR, id: 'de.example.extoverlap' },
+    ]);
+    const env = approvedEnv.env;
     env.ROS_GLSP_PORT = String(6900 + Math.floor(Math.random() * 500));
 
     const cliArgs = [
@@ -944,6 +981,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       );
     } finally {
       await client.close();
+      approvedEnv.cleanup();
       fs.rmSync(wsDir, { recursive: true, force: true });
     }
   });
@@ -982,7 +1020,10 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       'utf8'
     );
 
-    const env = cleanPluginEnv();
+    const approvedEnv = createScratchApprovedEnv([
+      { jarPath: TEST_PLUGIN_JAR, id: 'de.example.extprobe' },
+    ]);
+    const env = approvedEnv.env;
     env.ROS_GLSP_PORT = String(7450 + Math.floor(Math.random() * 400));
     const client = new Client({ name: 'ext-plugin-vscode-client', version: '1.0.0' });
     await client.connect(
@@ -1013,6 +1054,7 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       );
     } finally {
       await client.close();
+      approvedEnv.cleanup();
       fs.rmSync(vscodeWs, { recursive: true, force: true });
     }
   });

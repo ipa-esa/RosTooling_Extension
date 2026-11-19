@@ -19,6 +19,7 @@ import {
 } from './plugins/pluginManager';
 import { PluginTreeItem, PluginsTreeDataProvider } from './plugins/pluginsTreeView';
 import { EffectivePluginConfig } from './plugins/pluginTrust';
+import { migrateLegacyTrustedChecksums } from './plugins/trustedPluginsStore';
 
 function checkJavaVersion(javaExecutable: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -361,10 +362,9 @@ export async function activate(context: ExtensionContext) {
         const pluginsDirProp =
             effective.resolvedPaths.join(path.delimiter) ||
             (effective.pathsSource === 'none' && !effective.blockedByWorkspaceTrust ? initialEnvPluginsDir : '');
-        const hasPendingChecksum = effective.untrustedChecksumIds.length > 0 || effective.changedChecksumIds.length > 0;
         const pluginsEnabledProp =
-            effective.approvedEnabledIds.join(',') ||
-            (effective.enabledSource === 'none' && !effective.blockedByWorkspaceTrust && !hasPendingChecksum
+            effective.enabledIds.join(',') ||
+            (effective.enabledSource === 'none' && !effective.blockedByWorkspaceTrust
                 ? initialEnvPluginsEnabled
                 : '');
 
@@ -452,7 +452,7 @@ export async function activate(context: ExtensionContext) {
                 }, 5000);
             }
             pluginsTreeView.refresh();
-            void pluginController.notifyIfBlockedByTrustOrChecksum(effective);
+            void pluginController.notifyIfBlockedByTrustOrNotices(effective);
         }).catch((error) => {
             if (lc !== client) {
                 return;
@@ -645,6 +645,22 @@ export async function activate(context: ExtensionContext) {
             commands.executeCommand('workbench.action.reloadWindow');
         }
     });
+
+    if (!isTestRun) {
+        try {
+            const legacyCfg = workspace.getConfiguration('rostooling-languages');
+            const migrated = migrateLegacyTrustedChecksums({
+                legacyChecksums: legacyCfg.inspect<Record<string, string>>('plugins.trustedChecksums')?.globalValue,
+                rawPluginPaths: pluginController.evaluateEffectiveConfig(false).rawPaths,
+                workspaceDir: workspace.workspaceFolders?.[0]?.uri.fsPath,
+            });
+            if (migrated > 0) {
+                outputChannel.appendLine(`[Plugins] Migrated ${migrated} legacy trustedChecksums entry/entries into ~/.rostooling/trusted-plugins.json.`);
+            }
+        } catch (err) {
+            outputChannel.appendLine(`[Plugins warning] Legacy trust migration failed: ${err}`);
+        }
+    }
 
     void startLanguageClient();
 
@@ -1311,6 +1327,12 @@ export async function activate(context: ExtensionContext) {
     safeRegisterCommand('rostooling.enablePlugin', async (item?: PluginTreeItem) => {
         if (item?.plugin) {
             await pluginController.enableSinglePlugin(item.plugin);
+        }
+    });
+
+    safeRegisterCommand('rostooling.approvePluginJar', async (item?: PluginTreeItem) => {
+        if (item?.plugin) {
+            await pluginController.approvePluginJarCommand(item.plugin);
         }
     });
 

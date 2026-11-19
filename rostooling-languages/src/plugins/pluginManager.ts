@@ -1,18 +1,19 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import {
-  collectPluginJarFiles,
-  computeFileSha256,
-  normalizePluginSettingList,
-} from './pluginPaths.js';
+import { normalizePluginSettingList } from './pluginPaths.js';
 import {
   computeEffectivePluginConfig,
   ConfigInspectLike,
   DiscoveredPlugin,
+  DiscoveredPluginsResponse,
   EffectivePluginConfig,
-  normalizeTrustedChecksums,
+  PluginApprovalState,
   SettingScopeSource,
 } from './pluginTrust.js';
+import {
+  approveTrustedPluginEntry,
+  defaultTrustStorePath,
+} from './trustedPluginsStore.js';
 
 export const PLUGIN_SETTINGS_SECTION = 'rostooling-languages';
 export const LIST_DISCOVERED_PLUGINS_CMD = 'rostooling.listDiscoveredPlugins';
@@ -26,8 +27,10 @@ export interface PluginHostAdapter {
   getWorkspaceDir(): string | undefined;
   inspectPaths(): ConfigInspectLike<string[]> | undefined;
   inspectEnabled(): ConfigInspectLike<string[]> | undefined;
-  getGlobalTrustedChecksums(): Record<string, string>;
-  setGlobalTrustedChecksum(pluginId: string, sha256: string): Promise<void>;
+  approvePluginJar(
+    storePath: string,
+    entry: { sha256: string; fileName: string; id: string }
+  ): Promise<void>;
   updatePluginsSetting(
     key: 'plugins.paths' | 'plugins.enabled',
     value: string[],
@@ -125,20 +128,11 @@ export class VsCodePluginHost implements PluginHostAdapter {
     return vscode.workspace.getConfiguration(PLUGIN_SETTINGS_SECTION).inspect<string[]>('plugins.enabled');
   }
 
-  public getGlobalTrustedChecksums(): Record<string, string> {
-    const inspect = vscode.workspace
-      .getConfiguration(PLUGIN_SETTINGS_SECTION)
-      .inspect<Record<string, string>>('plugins.trustedChecksums');
-    return normalizeTrustedChecksums(inspect?.globalValue);
-  }
-
-  public async setGlobalTrustedChecksum(pluginId: string, sha256: string): Promise<void> {
-    this.callbacks.beginInternalConfigUpdate();
-    const current = this.getGlobalTrustedChecksums();
-    current[pluginId] = sha256.toLowerCase();
-    await vscode.workspace
-      .getConfiguration(PLUGIN_SETTINGS_SECTION)
-      .update('plugins.trustedChecksums', current, vscode.ConfigurationTarget.Global);
+  public async approvePluginJar(
+    storePath: string,
+    entry: { sha256: string; fileName: string; id: string }
+  ): Promise<void> {
+    approveTrustedPluginEntry(storePath, entry);
   }
 
   public async updatePluginsSetting(
@@ -338,7 +332,8 @@ export class VsCodePluginHost implements PluginHostAdapter {
 
 export class PluginManagerController {
   private blockedTrustNoticeShown = false;
-  private unconfirmedNoticeKey = '';
+  private lastCoreNoticesKey = '';
+  private cachedTrustStorePath = defaultTrustStorePath();
 
   constructor(private readonly host: PluginHostAdapter) {}
 
@@ -348,7 +343,6 @@ export class PluginManagerController {
       workspaceDir: this.host.getWorkspaceDir(),
       pathsInspect: this.host.inspectPaths(),
       enabledInspect: this.host.inspectEnabled(),
-      trustedChecksums: this.host.getGlobalTrustedChecksums(),
     });
     if (logWarnings) {
       for (const w of config.warnings) {
@@ -358,7 +352,7 @@ export class PluginManagerController {
     return config;
   }
 
-  public async notifyIfBlockedByTrustOrChecksum(effective: EffectivePluginConfig): Promise<void> {
+  public async notifyIfBlockedByTrustOrNotices(effective: EffectivePluginConfig): Promise<void> {
     if (effective.blockedByWorkspaceTrust && !this.blockedTrustNoticeShown) {
       this.blockedTrustNoticeShown = true;
       const choice = await this.host.showWarning(
@@ -370,53 +364,96 @@ export class PluginManagerController {
       }
     }
 
-    const pendingIds = [...effective.untrustedChecksumIds, ...effective.changedChecksumIds];
-    const key = `${effective.untrustedChecksumIds.join(',')}|${effective.changedChecksumIds.join(',')}`;
-    if (pendingIds.length > 0 && key !== this.unconfirmedNoticeKey) {
-      this.unconfirmedNoticeKey = key;
-      const parts: string[] = [];
-      if (effective.untrustedChecksumIds.length > 0) {
-        parts.push(`awaiting trust confirmation: ${effective.untrustedChecksumIds.join(', ')}`);
-      }
-      if (effective.changedChecksumIds.length > 0) {
-        parts.push(`JAR checksum changed (re-confirm required): ${effective.changedChecksumIds.join(', ')}`);
-      }
-      const action = await this.host.showWarning(
-        `RosTooling plugins blocked (${parts.join('; ')}). Open Manage Plugins to review and confirm.`,
-        'Manage Plugins'
+    if (!this.host.isLspReady()) {
+      return;
+    }
+    try {
+      const resp = await this.listDiscoveredPluginsResponse();
+      const unapprovedEnabled = resp.plugins.filter(
+        (p) => p.sourceJarPath && p.approvalState !== 'approved' && (p.enabled || effective.enabledIds.includes(p.id))
       );
-      if (action === 'Manage Plugins') {
-        await this.managePlugins();
+      const noticeKey = `${resp.notices.join('|')}#${unapprovedEnabled.map((p) => p.sha256).join(',')}`;
+      if (resp.notices.length > 0 && noticeKey !== this.lastCoreNoticesKey) {
+        this.lastCoreNoticesKey = noticeKey;
+        for (const n of resp.notices) {
+          this.host.logWarning(n);
+        }
+        if (unapprovedEnabled.length > 0 || effective.enabledIds.length > 0) {
+          const action = await this.host.showWarning(resp.notices[0], 'Manage Plugins');
+          if (action === 'Manage Plugins') {
+            await this.managePlugins();
+          }
+        }
       }
-    } else if (pendingIds.length === 0) {
-      this.unconfirmedNoticeKey = '';
+    } catch {
+      // Ignore startup query failure
     }
   }
 
-  public async listDiscoveredPlugins(): Promise<DiscoveredPlugin[]> {
+  public async listDiscoveredPluginsResponse(): Promise<DiscoveredPluginsResponse> {
     if (!this.host.isLspReady()) {
       const becameReady = await this.host.waitForLspReady();
       if (!becameReady) {
-        return [];
+        return { trustStorePath: this.cachedTrustStorePath, plugins: [], notices: [] };
       }
     }
     const raw = await this.host.sendExecuteCommand<unknown>(LIST_DISCOVERED_PLUGINS_CMD, []);
-    if (!Array.isArray(raw)) {
-      return [];
+    let trustStorePath = this.cachedTrustStorePath;
+    let rawList: unknown[] = [];
+    let notices: string[] = [];
+
+    if (Array.isArray(raw)) {
+      rawList = raw;
+    } else if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.trustStorePath === 'string' && obj.trustStorePath.trim()) {
+        trustStorePath = obj.trustStorePath.trim();
+        this.cachedTrustStorePath = trustStorePath;
+      }
+      if (Array.isArray(obj.plugins)) {
+        rawList = obj.plugins;
+      }
+      if (Array.isArray(obj.notices)) {
+        notices = obj.notices.map((n) => String(n)).filter(Boolean);
+      }
     }
-    return raw
+
+    const plugins: DiscoveredPlugin[] = rawList
       .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-      .map((item) => ({
-        id: String(item.id ?? ''),
-        version: String(item.version ?? ''),
-        summary: String(item.summary ?? ''),
-        supportedCoreVersionRange: String(item.supportedCoreVersionRange ?? ''),
-        compatible: Boolean(item.compatible),
-        enabled: Boolean(item.enabled),
-        active: Boolean(item.active),
-        sourceJarPath: String(item.sourceJarPath ?? ''),
-        loadError: String(item.loadError ?? ''),
-      }));
+      .map((item) => {
+        const sourceJarPath = String(item.sourceJarPath ?? '');
+        const rawState = String(item.approvalState ?? '');
+        const approvalState: PluginApprovalState =
+          rawState === 'approved' || rawState === 'unapproved' || rawState === 'changed'
+            ? rawState
+            : sourceJarPath
+              ? 'unapproved'
+              : 'approved';
+        const fileName = String(
+          item.fileName ?? (sourceJarPath ? path.basename(sourceJarPath) : '')
+        );
+        return {
+          id: String(item.id ?? ''),
+          version: String(item.version ?? ''),
+          summary: String(item.summary ?? ''),
+          supportedCoreVersionRange: String(item.supportedCoreVersionRange ?? ''),
+          compatible: Boolean(item.compatible),
+          enabled: Boolean(item.enabled),
+          active: Boolean(item.active),
+          sourceJarPath,
+          loadError: String(item.loadError ?? ''),
+          fileName,
+          sha256: String(item.sha256 ?? ''),
+          approvalState,
+        };
+      });
+
+    return { trustStorePath, plugins, notices };
+  }
+
+  public async listDiscoveredPlugins(): Promise<DiscoveredPlugin[]> {
+    const resp = await this.listDiscoveredPluginsResponse();
+    return resp.plugins;
   }
 
   public async managePlugins(): Promise<void> {
@@ -435,16 +472,21 @@ export class PluginManagerController {
     }
 
     const effective = this.evaluateEffectiveConfig(false);
-    const plugins = await this.listDiscoveredPlugins();
-    const pendingTrustSet = new Set([...effective.untrustedChecksumIds, ...effective.changedChecksumIds]);
+    const { trustStorePath, plugins } = await this.listDiscoveredPluginsResponse();
 
     const items: PluginQuickPickItem[] = plugins.map((plugin) => {
       const isIncompatible = !plugin.compatible;
-      const hasError = plugin.loadError !== '';
-      const tickable = Boolean(plugin.id) && !isIncompatible && !hasError;
+      const isUnapprovedActivationMsg =
+        Boolean(plugin.sourceJarPath) &&
+        plugin.approvalState !== 'approved' &&
+        (plugin.loadError.includes('unapproved') || plugin.loadError.includes('changed'));
+      const hasBlockingError = plugin.loadError !== '' && !isUnapprovedActivationMsg;
+      const tickable = Boolean(plugin.id) && !isIncompatible && !hasBlockingError;
+      const fileLabel = plugin.fileName || (plugin.sourceJarPath ? path.basename(plugin.sourceJarPath) : '');
+
       const untickReason = !plugin.id
-        ? plugin.loadError || NO_METADATA_LOAD_ERROR
-        : hasError
+        ? `Unlabeled JAR '${fileLabel}' (${plugin.approvalState}). Use Approve JAR in the RosTooling Plugins view and configure its ID in settings.`
+        : hasBlockingError
           ? `Plugin '${plugin.id}' failed to load: ${plugin.loadError}`
           : isIncompatible
             ? `Plugin '${plugin.id}' requires RosTooling core ${plugin.supportedCoreVersionRange}.`
@@ -454,14 +496,14 @@ export class PluginManagerController {
       if (plugin.version) {
         statusParts.push(`v${plugin.version}`);
       }
-      if (hasError) {
+      if (hasBlockingError) {
         statusParts.push(`Error: ${plugin.loadError}`);
       } else if (isIncompatible) {
         statusParts.push(`Incompatible (requires ${plugin.supportedCoreVersionRange})`);
-      } else if (effective.changedChecksumIds.includes(plugin.id)) {
-        statusParts.push('Checksum changed — confirm to re-enable');
-      } else if (effective.untrustedChecksumIds.includes(plugin.id)) {
-        statusParts.push('Confirmation required');
+      } else if (plugin.sourceJarPath && plugin.approvalState === 'changed') {
+        statusParts.push('Changed — confirm to re-enable');
+      } else if (plugin.sourceJarPath && plugin.approvalState === 'unapproved') {
+        statusParts.push('Unapproved — confirm to enable');
       } else if (plugin.active) {
         statusParts.push('Active');
       } else if (plugin.enabled) {
@@ -470,18 +512,29 @@ export class PluginManagerController {
         statusParts.push('Disabled');
       }
 
-      const jarLine = plugin.sourceJarPath
-        ? `JAR: ${plugin.sourceJarPath}`
-        : 'Source: Built-in / Classpath';
+      const jarParts: string[] = [];
+      if (fileLabel) {
+        jarParts.push(fileLabel);
+      }
+      if (plugin.sha256) {
+        jarParts.push(`sha256:${plugin.sha256.slice(0, 12)}…`);
+      }
+      if (plugin.sourceJarPath) {
+        jarParts.push(`JAR: ${plugin.sourceJarPath}`);
+      } else {
+        jarParts.push('Source: Built-in / Classpath');
+      }
+      const jarLine = jarParts.join(' · ');
       const detail = plugin.summary ? `${plugin.summary} — ${jarLine}` : jarLine;
 
       return {
-        label: plugin.id || path.basename(plugin.sourceJarPath) || '(plugin without metadata)',
+        label: plugin.id || fileLabel || '(plugin without metadata)',
         description: statusParts.join(' · '),
         detail,
         picked:
           tickable &&
-          (effective.approvedEnabledIds.includes(plugin.id) || (plugin.active && !pendingTrustSet.has(plugin.id))),
+          plugin.approvalState === 'approved' &&
+          (effective.enabledIds.includes(plugin.id) || plugin.active),
         plugin,
         tickable,
         untickReason,
@@ -531,28 +584,47 @@ export class PluginManagerController {
       .map((s) => s.plugin?.id)
       .filter((id): id is string => Boolean(id));
 
-    const approvedFinalIds = await this.confirmChecksumsForEnabledIds(nextEnabledIds, plugins, effective);
-    if (!approvedFinalIds) {
+    const approvedOk = await this.confirmApprovalsForEnabledIds(
+      nextEnabledIds,
+      plugins,
+      trustStorePath
+    );
+    if (!approvedOk) {
       return;
     }
 
-    // Preserve any explicitly entered non-discovered IDs unless user removed everything? Only discovered IDs are controlled here;
-    // keep order de-duplicated.
+    const hadUnapprovedPreviously = plugins.some(
+      (p) => nextEnabledIds.includes(p.id) && p.sourceJarPath && p.approvalState !== 'approved'
+    );
     const unchanged =
-      approvedFinalIds.length === effective.approvedEnabledIds.length &&
-      approvedFinalIds.every((id, idx) => id === effective.approvedEnabledIds[idx]);
-    if (unchanged && effective.untrustedChecksumIds.length === 0 && effective.changedChecksumIds.length === 0) {
+      nextEnabledIds.length === effective.enabledIds.length &&
+      nextEnabledIds.every((id, idx) => id === effective.enabledIds[idx]);
+    if (unchanged && !hadUnapprovedPreviously) {
       return;
     }
 
-    const preferredSource =
-      effective.enabledSource !== 'none' ? effective.enabledSource : effective.pathsSource;
-    const scope = await this.host.pickScope(preferredSource);
-    if (!scope) {
-      return;
+    if (!unchanged) {
+      const preferredSource =
+        effective.enabledSource !== 'none' ? effective.enabledSource : effective.pathsSource;
+      const scope = await this.host.pickScope(preferredSource);
+      if (!scope) {
+        return;
+      }
+      await this.host.updatePluginsSetting('plugins.enabled', nextEnabledIds, scope);
     }
 
-    await this.host.updatePluginsSetting('plugins.enabled', approvedFinalIds, scope);
+    await this.host.refreshMcpConfigs();
+    await this.host.restartServers();
+    this.host.refreshPluginsView();
+  }
+
+  public async approvePluginJarCommand(plugin: DiscoveredPlugin): Promise<void> {
+    const resp = await this.listDiscoveredPluginsResponse();
+    const storePath = resp.trustStorePath || this.cachedTrustStorePath;
+    const confirmed = await this.confirmAndApproveJar(plugin, storePath);
+    if (!confirmed) {
+      return;
+    }
     await this.host.refreshMcpConfigs();
     await this.host.restartServers();
     this.host.refreshPluginsView();
@@ -569,18 +641,24 @@ export class PluginManagerController {
       );
       return;
     }
-    if (plugin.loadError) {
+    const isUnapprovedActivationMsg =
+      Boolean(plugin.sourceJarPath) &&
+      plugin.approvalState !== 'approved' &&
+      (plugin.loadError.includes('unapproved') || plugin.loadError.includes('changed'));
+    if (plugin.loadError && !isUnapprovedActivationMsg) {
       await this.host.showWarning(`Plugin '${plugin.id}' has a load error: ${plugin.loadError}`);
       return;
     }
 
     const effective = this.evaluateEffectiveConfig(false);
-    const confirmed = await this.confirmPluginJarChecksum(plugin);
+    const resp = await this.listDiscoveredPluginsResponse();
+    const storePath = resp.trustStorePath || this.cachedTrustStorePath;
+    const confirmed = await this.confirmAndApproveJar(plugin, storePath);
     if (!confirmed) {
       return;
     }
 
-    const nextIds = normalizePluginSettingList([...effective.rawEnabledIds, plugin.id]);
+    const nextIds = normalizePluginSettingList([...effective.enabledIds, plugin.id]);
     const preferredSource =
       effective.enabledSource !== 'none' ? effective.enabledSource : effective.pathsSource;
     const scope = await this.host.pickScope(preferredSource);
@@ -599,7 +677,7 @@ export class PluginManagerController {
       return;
     }
     const effective = this.evaluateEffectiveConfig(false);
-    const nextIds = effective.rawEnabledIds.filter((id) => id !== plugin.id);
+    const nextIds = effective.enabledIds.filter((id) => id !== plugin.id);
     const preferredSource =
       effective.enabledSource !== 'none' ? effective.enabledSource : effective.pathsSource;
     const scope = await this.host.pickScope(preferredSource);
@@ -614,7 +692,7 @@ export class PluginManagerController {
   }
 
   public async showPluginLoadError(plugin: DiscoveredPlugin): Promise<void> {
-    const label = plugin.id || path.basename(plugin.sourceJarPath) || 'plugin';
+    const label = plugin.id || plugin.fileName || path.basename(plugin.sourceJarPath) || 'plugin';
     const message = plugin.loadError
       ? `${label}: ${plugin.loadError}`
       : !plugin.compatible
@@ -673,65 +751,54 @@ export class PluginManagerController {
     await this.managePlugins();
   }
 
-  private async confirmChecksumsForEnabledIds(
+  private async confirmApprovalsForEnabledIds(
     targetIds: string[],
     plugins: DiscoveredPlugin[],
-    effective: EffectivePluginConfig
-  ): Promise<string[] | undefined> {
-    const trusted = this.host.getGlobalTrustedChecksums();
+    trustStorePath: string
+  ): Promise<boolean> {
     const byId = new Map<string, DiscoveredPlugin>();
     for (const p of plugins) {
       if (p.id && !byId.has(p.id)) {
         byId.set(p.id, p);
       }
     }
-
-    const approved: string[] = [];
     for (const id of targetIds) {
       const plugin = byId.get(id);
-      if (plugin) {
-        const ok = await this.confirmPluginJarChecksum(plugin, trusted);
+      if (plugin && plugin.sourceJarPath && plugin.approvalState !== 'approved') {
+        const ok = await this.confirmAndApproveJar(plugin, trustStorePath);
         if (!ok) {
-          return undefined;
+          return false;
         }
-        approved.push(id);
-      } else if (effective.approvedEnabledIds.includes(id)) {
-        approved.push(id);
       }
     }
-    return approved;
+    return true;
   }
 
-  private async confirmPluginJarChecksum(
+  private async confirmAndApproveJar(
     plugin: DiscoveredPlugin,
-    trustedMap = this.host.getGlobalTrustedChecksums()
+    trustStorePath: string
   ): Promise<boolean> {
-    const jarPath = plugin.sourceJarPath || this.findFallbackNoMetaJar(plugin.id);
-    if (!jarPath) {
+    if (!plugin.sourceJarPath || plugin.approvalState === 'approved') {
       return true;
     }
-    let sha256: string;
-    try {
-      sha256 = computeFileSha256(jarPath);
-    } catch (err) {
-      await this.host.showError(`Unable to compute SHA-256 checksum for '${jarPath}': ${String(err)}`);
+    const fileName = plugin.fileName || path.basename(plugin.sourceJarPath);
+    const sha256 = plugin.sha256;
+    if (!sha256) {
+      await this.host.showError(`Unable to approve '${fileName}': SHA-256 fingerprint unavailable from core.`);
       return false;
     }
-    const recorded = trustedMap[plugin.id];
-    if (recorded && recorded.toLowerCase() === sha256.toLowerCase()) {
-      return true;
-    }
 
-    const isChange = Boolean(recorded);
+    const isChange = plugin.approvalState === 'changed';
+    const labelName = plugin.id || fileName;
     const header = isChange
-      ? `The JAR checksum for RosTooling plugin '${plugin.id}' has changed. Confirm enabling this plugin?`
-      : `Enable RosTooling plugin '${plugin.id}'?`;
+      ? `JAR '${fileName}' for RosTooling plugin '${labelName}' has changed. Approve this JAR?`
+      : `Approve RosTooling plugin JAR '${fileName}'?`;
     const detail = [
-      `Plugin ID: ${plugin.id}`,
+      `File: ${fileName}`,
+      `Plugin ID: ${plugin.id || '(unlabeled)'}`,
       `Version: ${plugin.version || '(unspecified)'}`,
-      `JAR path: ${jarPath}`,
+      `JAR path: ${plugin.sourceJarPath}`,
       `SHA-256: ${sha256}`,
-      ...(isChange ? [`Previous SHA-256: ${recorded}`] : []),
       '',
       PLUGIN_TRUST_WARNING,
     ].join('\n');
@@ -739,22 +806,16 @@ export class PluginManagerController {
     const accepted = await this.host.showModalConfirm(
       header,
       detail,
-      isChange ? 'Confirm New Checksum & Enable' : 'Trust & Enable'
+      isChange ? 'Approve Changed JAR' : 'Approve JAR'
     );
     if (!accepted) {
       return false;
     }
-    await this.host.setGlobalTrustedChecksum(plugin.id, sha256);
-    trustedMap[plugin.id] = sha256.toLowerCase();
+    await this.host.approvePluginJar(trustStorePath, {
+      sha256,
+      fileName,
+      id: plugin.id,
+    });
     return true;
-  }
-
-  private findFallbackNoMetaJar(pluginId: string): string | undefined {
-    const effective = this.evaluateEffectiveConfig(false);
-    const jars = collectPluginJarFiles(effective.resolvedPaths);
-    if (jars.length === 1 && pluginId) {
-      return jars[0];
-    }
-    return undefined;
   }
 }

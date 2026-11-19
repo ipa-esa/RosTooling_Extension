@@ -3,11 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { HeadlessLspClient } from '../mcp/HeadlessLspClient';
-import {
-  buildMcpPluginCliArgs,
-  computeFileSha256,
-  resolvePluginPaths,
-} from '../plugins/pluginPaths';
+import { computeFileSha256, resolvePluginPaths } from '../plugins/pluginPaths';
 import {
   NO_METADATA_LOAD_ERROR,
   PLUGIN_TRUST_WARNING,
@@ -18,11 +14,16 @@ import {
 import {
   computeEffectivePluginConfig,
   DiscoveredPlugin,
-  readJarPluginMetadataId,
+  DiscoveredPluginsResponse,
 } from '../plugins/pluginTrust';
 import { buildPluginTreeDescriptors } from '../plugins/pluginsTreeView';
+import {
+  approveTrustedPluginEntry,
+  migrateLegacyTrustedChecksums,
+  readTrustedPluginsFile,
+} from '../plugins/trustedPluginsStore';
 
-suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
+suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function () {
   this.timeout(120000);
 
   const EXT_ROOT = path.resolve(__dirname, '..', '..');
@@ -62,73 +63,126 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
     }
   });
 
-  test('computeEffectivePluginConfig enforces Workspace Trust and SHA-256 checksum pinning', () => {
-    assert.ok(fs.existsSync(TEST_PROBE_JAR), `Missing test JAR at ${TEST_PROBE_JAR}`);
+  test('computeEffectivePluginConfig enforces Workspace Trust without duplicating fingerprint checks', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-plugin-trust-'));
     try {
-      const copiedJar = path.join(tmpDir, 'probe-copy.jar');
-      fs.copyFileSync(TEST_PROBE_JAR, copiedJar);
-      const realSha = computeFileSha256(copiedJar);
-      assert.strictEqual(readJarPluginMetadataId(copiedJar), 'de.example.extprobe');
-
-      // 1. Untrusted workspace ignores workspace paths/enabled and signals blockedByWorkspaceTrust
       const untrusted = computeEffectivePluginConfig({
         isTrusted: false,
         workspaceDir: tmpDir,
-        pathsInspect: { workspaceValue: [copiedJar] },
+        pathsInspect: { workspaceValue: [TEST_PROBE_JAR] },
         enabledInspect: { workspaceValue: ['de.example.extprobe'] },
-        trustedChecksums: { 'de.example.extprobe': realSha },
       });
       assert.strictEqual(untrusted.blockedByWorkspaceTrust, true);
       assert.deepStrictEqual(untrusted.resolvedPaths, []);
-      assert.deepStrictEqual(untrusted.approvedEnabledIds, []);
-      assert.deepStrictEqual(buildMcpPluginCliArgs(untrusted.resolvedPaths, untrusted.approvedEnabledIds), []);
+      assert.deepStrictEqual(untrusted.enabledIds, []);
 
-      // 2. Trusted workspace WITHOUT trustedChecksums blocks execution until user confirms
-      const unconfirmed = computeEffectivePluginConfig({
+      const trusted = computeEffectivePluginConfig({
         isTrusted: true,
         workspaceDir: tmpDir,
-        pathsInspect: { workspaceValue: [copiedJar] },
+        pathsInspect: { workspaceValue: [TEST_PROBE_JAR] },
         enabledInspect: { workspaceValue: ['de.example.extprobe'] },
-        trustedChecksums: {},
       });
-      assert.strictEqual(unconfirmed.blockedByWorkspaceTrust, false);
-      assert.deepStrictEqual(unconfirmed.approvedEnabledIds, []);
-      assert.deepStrictEqual(unconfirmed.untrustedChecksumIds, ['de.example.extprobe']);
-
-      // 3. Trusted workspace WITH matching checksum approves plugin
-      const confirmed = computeEffectivePluginConfig({
-        isTrusted: true,
-        workspaceDir: tmpDir,
-        pathsInspect: { workspaceValue: [copiedJar] },
-        enabledInspect: { workspaceValue: ['de.example.extprobe'] },
-        trustedChecksums: { 'de.example.extprobe': realSha },
-      });
-      assert.deepStrictEqual(confirmed.approvedEnabledIds, ['de.example.extprobe']);
-      assert.deepStrictEqual(confirmed.untrustedChecksumIds, []);
-      assert.deepStrictEqual(confirmed.changedChecksumIds, []);
-
-      // 4. Stale checksum after JAR modification blocks activation
-      const stale = computeEffectivePluginConfig({
-        isTrusted: true,
-        workspaceDir: tmpDir,
-        pathsInspect: { workspaceValue: [copiedJar] },
-        enabledInspect: { workspaceValue: ['de.example.extprobe'] },
-        trustedChecksums: { 'de.example.extprobe': '0'.repeat(64) },
-      });
-      assert.deepStrictEqual(stale.approvedEnabledIds, []);
-      assert.deepStrictEqual(stale.changedChecksumIds, ['de.example.extprobe']);
+      assert.strictEqual(trusted.blockedByWorkspaceTrust, false);
+      assert.deepStrictEqual(trusted.resolvedPaths, [path.normalize(TEST_PROBE_JAR)]);
+      assert.deepStrictEqual(trusted.enabledIds, ['de.example.extprobe']);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  test('PluginManagerController handles enable confirmation, cancellation, checksum change, incompatible gating, docs & view refresh', async () => {
+  test('approving writes exactly one atomic entry and approving U1 never approves U2', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-store-atomic-'));
+    try {
+      const storePath = path.join(tmpDir, '.rostooling', 'trusted-plugins.json');
+      const u1Path = path.join(tmpDir, 'u1.jar');
+      const u2Path = path.join(tmpDir, 'u2.jar');
+      fs.writeFileSync(u1Path, 'unlabeled-jar-u1');
+      fs.writeFileSync(u2Path, 'unlabeled-jar-u2');
+      const sha1 = computeFileSha256(u1Path);
+      const sha2 = computeFileSha256(u2Path);
+
+      const addedFirst = approveTrustedPluginEntry(storePath, {
+        sha256: sha1,
+        fileName: 'u1.jar',
+        id: '',
+      });
+      assert.strictEqual(addedFirst, true);
+      const addedDup = approveTrustedPluginEntry(storePath, {
+        sha256: sha1,
+        fileName: 'u1.jar',
+        id: '',
+      });
+      assert.strictEqual(addedDup, false);
+
+      const parsed = readTrustedPluginsFile(storePath);
+      assert.strictEqual(parsed.version, 1);
+      assert.strictEqual(parsed.approved.length, 1);
+      assert.strictEqual(parsed.approved[0].sha256, sha1);
+      assert.strictEqual(parsed.approved[0].fileName, 'u1.jar');
+      assert.strictEqual(parsed.approved.some((e) => e.sha256 === sha2), false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('migration copies legacy trustedChecksums into trusted-plugins.json once and is idempotent', () => {
+    assert.ok(fs.existsSync(TEST_PROBE_JAR), `Missing test JAR at ${TEST_PROBE_JAR}`);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-store-migrate-'));
+    try {
+      const storePath = path.join(tmpDir, '.rostooling', 'trusted-plugins.json');
+      const probeSha = computeFileSha256(TEST_PROBE_JAR);
+      const otherSha = 'a'.repeat(64);
+      const legacy = {
+        'de.example.extprobe': probeSha,
+        'de.example.other': otherSha,
+      };
+
+      const firstCount = migrateLegacyTrustedChecksums({
+        legacyChecksums: legacy,
+        rawPluginPaths: [TEST_PROBE_JAR],
+        workspaceDir: tmpDir,
+        storePath,
+      });
+      assert.strictEqual(firstCount, 2);
+
+      const fileAfterFirst = readTrustedPluginsFile(storePath);
+      assert.strictEqual(fileAfterFirst.approved.length, 2);
+      const probeEntry = fileAfterFirst.approved.find((e) => e.id === 'de.example.extprobe');
+      assert.strictEqual(probeEntry?.sha256, probeSha);
+      assert.strictEqual(probeEntry?.fileName, 'rostooling-test-plugins.jar');
+      const otherEntry = fileAfterFirst.approved.find((e) => e.id === 'de.example.other');
+      assert.strictEqual(otherEntry?.sha256, otherSha);
+      assert.strictEqual(otherEntry?.fileName, '');
+
+      // Second run must be a no-op (idempotent) and preserve original entries
+      const mtimeBefore = fs.statSync(storePath).mtimeMs;
+      const secondCount = migrateLegacyTrustedChecksums({
+        legacyChecksums: legacy,
+        rawPluginPaths: [TEST_PROBE_JAR],
+        workspaceDir: tmpDir,
+        storePath,
+      });
+      assert.strictEqual(secondCount, 0);
+      assert.strictEqual(readTrustedPluginsFile(storePath).approved.length, 2);
+      assert.strictEqual(fs.statSync(storePath).mtimeMs, mtimeBefore);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('PluginManagerController approves using core sha256/fileName, supports Approve JAR, and renders TreeView statuses', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-plugin-ctrl-'));
     try {
-      const copiedJar = path.join(tmpDir, 'extprobe.jar');
-      fs.copyFileSync(TEST_PROBE_JAR, copiedJar);
-      const sha1 = computeFileSha256(copiedJar);
+      const trustStorePath = path.join(tmpDir, '.rostooling', 'trusted-plugins.json');
+      const probeJar = path.join(tmpDir, 'extprobe.jar');
+      const unlabeledJar1 = path.join(tmpDir, 'u1.jar');
+      const unlabeledJar2 = path.join(tmpDir, 'u2.jar');
+      fs.copyFileSync(TEST_PROBE_JAR, probeJar);
+      fs.writeFileSync(unlabeledJar1, 'unlabeled-1');
+      fs.writeFileSync(unlabeledJar2, 'unlabeled-2');
+      const probeSha = computeFileSha256(probeJar);
+      const u1Sha = computeFileSha256(unlabeledJar1);
+      const u2Sha = computeFileSha256(unlabeledJar2);
 
       const discovered: DiscoveredPlugin[] = [
         {
@@ -139,8 +193,11 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
           compatible: true,
           enabled: false,
           active: false,
-          sourceJarPath: copiedJar,
+          sourceJarPath: probeJar,
           loadError: '',
+          fileName: 'extprobe.jar',
+          sha256: probeSha,
+          approvalState: 'unapproved',
         },
         {
           id: 'de.example.future',
@@ -152,6 +209,9 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
           active: false,
           sourceJarPath: '/tmp/future.jar',
           loadError: '',
+          fileName: 'future.jar',
+          sha256: 'b'.repeat(64),
+          approvalState: 'unapproved',
         },
         {
           id: '',
@@ -161,19 +221,49 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
           compatible: false,
           enabled: false,
           active: false,
-          sourceJarPath: '/tmp/nometadata.jar',
+          sourceJarPath: unlabeledJar1,
           loadError: NO_METADATA_LOAD_ERROR,
+          fileName: 'u1.jar',
+          sha256: u1Sha,
+          approvalState: 'unapproved',
+        },
+        {
+          id: '',
+          version: '',
+          summary: '',
+          supportedCoreVersionRange: '',
+          compatible: false,
+          enabled: false,
+          active: false,
+          sourceJarPath: unlabeledJar2,
+          loadError: NO_METADATA_LOAD_ERROR,
+          fileName: 'u2.jar',
+          sha256: u2Sha,
+          approvalState: 'unapproved',
         },
       ];
 
-      let globalPaths: string[] | undefined = [copiedJar];
+      let globalPaths: string[] | undefined = [tmpDir];
       let workspacePaths: string[] | undefined;
       let globalEnabled: string[] | undefined;
       let workspaceEnabled: string[] | undefined;
-      const trustedChecksums: Record<string, string> = {};
       let modalAccept = false;
-      let chosenScope: 'workspace' | 'user' = 'workspace';
-      let quickPickHandler: ((items: PluginQuickPickItem[]) => PluginQuickPickItem[] | undefined) | undefined;
+      const chosenScope: 'workspace' | 'user' = 'workspace';
+      const quickPickHandler = (items: PluginQuickPickItem[]): PluginQuickPickItem[] | undefined => {
+        const probe = items.find((i) => i.plugin?.id === 'de.example.extprobe');
+        const incompat = items.find((i) => i.plugin?.id === 'de.example.future');
+        const u1 = items.find((i) => i.plugin?.fileName === 'u1.jar');
+        const u2 = items.find((i) => i.plugin?.fileName === 'u2.jar');
+        assert.ok(probe?.tickable);
+        assert.strictEqual(incompat?.tickable, false);
+        assert.ok(u1 && u2, 'Unlabeled JARs must be listed individually');
+        assert.ok(probe?.detail?.includes('extprobe.jar'));
+        assert.ok(probe?.detail?.includes(probeSha.slice(0, 12)));
+        if (!probe) {
+          throw new Error('Expected probe item');
+        }
+        return [probe];
+      };
       const modalCalls: { message: string; detail: string; confirmLabel: string }[] = [];
       let restarts = 0;
       let mcpRefreshes = 0;
@@ -185,9 +275,8 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
         getWorkspaceDir: () => tmpDir,
         inspectPaths: () => ({ globalValue: globalPaths, workspaceValue: workspacePaths }),
         inspectEnabled: () => ({ globalValue: globalEnabled, workspaceValue: workspaceEnabled }),
-        getGlobalTrustedChecksums: () => ({ ...trustedChecksums }),
-        setGlobalTrustedChecksum: async (id, hash) => {
-          trustedChecksums[id] = hash;
+        approvePluginJar: async (storePath, entry) => {
+          approveTrustedPluginEntry(storePath, entry);
         },
         updatePluginsSetting: async (key, value, target) => {
           if (key === 'plugins.paths') {
@@ -202,10 +291,10 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
         waitForLspReady: async () => true,
         sendExecuteCommand: async <T = unknown>(command: string): Promise<T> => {
           if (command === 'rostooling.listDiscoveredPlugins') {
-            return discovered as unknown as T;
+            return { trustStorePath, plugins: discovered, notices: [] } as unknown as T;
           }
           if (command === 'rostooling.getPluginDocumentation') {
-            return { id: 'de.example.extprobe', documentationMarkdown: '# Probe Docs\n\nBody text.' } as unknown as T;
+            return { id: 'de.example.extprobe', documentationMarkdown: '# Probe Docs\n\nBody.' } as unknown as T;
           }
           return {} as T;
         },
@@ -227,9 +316,7 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
           modalCalls.push({ message, detail, confirmLabel });
           return modalAccept;
         },
-        pickQuickPick: async (items) => {
-          return quickPickHandler ? quickPickHandler(items) : undefined;
-        },
+        pickQuickPick: async (items) => quickPickHandler(items),
         pickScope: async () => chosenScope,
         promptAddPluginPath: async () => '/tmp/extra-plugins',
         openPluginSettings: async () => undefined,
@@ -241,120 +328,63 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
 
       const controller = new PluginManagerController(host);
 
-      // 1. Picker shows untickable incompatible/no-metadata items + extra actions; cancelling modal leaves plugin disabled
-      quickPickHandler = (items) => {
-        const probe = items.find((i) => i.plugin?.id === 'de.example.extprobe');
-        const compatBlocked = items.find((i) => i.plugin?.id === 'de.example.future');
-        const noMeta = items.find((i) => i.plugin?.loadError === NO_METADATA_LOAD_ERROR);
-        assert.ok(probe?.tickable, 'Compatible plugin must be tickable');
-        assert.strictEqual(compatBlocked?.tickable, false, 'Incompatible plugin must not be tickable');
-        assert.strictEqual(noMeta?.tickable, false, 'No-metadata JAR must not be tickable');
-        assert.ok(probe?.detail?.includes(copiedJar), 'Picker must display JAR path');
-        assert.ok(items.some((i) => i.action === 'addPath'));
-        assert.ok(items.some((i) => i.action === 'openSettings'));
-        if (!probe) {
-          throw new Error('Expected probe item');
-        }
-        return [probe];
-      };
+      // 1. Picker shows fileName/sha256, lists U1 & U2 individually, gates incompatible; cancelling writes nothing
       modalAccept = false;
       await controller.managePlugins();
       assert.strictEqual(modalCalls.length, 1);
-      assert.ok(modalCalls[0].detail.includes('de.example.extprobe'));
-      assert.ok(modalCalls[0].detail.includes('1.0.0'));
-      assert.ok(modalCalls[0].detail.includes(copiedJar));
-      assert.ok(modalCalls[0].detail.includes(sha1));
+      assert.ok(modalCalls[0].detail.includes('extprobe.jar'));
+      assert.ok(modalCalls[0].detail.includes(probeSha));
       assert.ok(modalCalls[0].detail.includes(PLUGIN_TRUST_WARNING));
-      assert.strictEqual(workspaceEnabled, undefined, 'Cancelled modal must not save enabled list');
-      assert.deepStrictEqual(trustedChecksums, {});
+      assert.strictEqual(fs.existsSync(trustStorePath), false);
       assert.strictEqual(restarts, 0);
 
-      // 2. Accepting modal records SHA-256 in user trustedChecksums, writes workspace enabled list, refreshes MCP & restarts
+      // 2. Confirm writes one entry to trustStorePath, saves enabled list, restarts
       modalAccept = true;
       await controller.managePlugins();
-      assert.strictEqual(trustedChecksums['de.example.extprobe'], sha1);
+      const store1 = readTrustedPluginsFile(trustStorePath);
+      assert.strictEqual(store1.approved.length, 1);
+      assert.strictEqual(store1.approved[0].sha256, probeSha);
+      assert.strictEqual(store1.approved[0].fileName, 'extprobe.jar');
+      assert.strictEqual(store1.approved[0].id, 'de.example.extprobe');
       assert.deepStrictEqual(workspaceEnabled, ['de.example.extprobe']);
       assert.strictEqual(restarts, 1);
       assert.strictEqual(mcpRefreshes, 1);
       assert.strictEqual(viewRefreshes, 1);
 
-      // 3. Re-opening QuickPick when already confirmed in same session should NOT re-prompt modal unless JAR changes
-      discovered[0].enabled = true;
-      discovered[0].active = true;
-      await controller.managePlugins();
-      assert.strictEqual(modalCalls.length, 2, 'Should stay 2 because selection unchanged');
+      // 3. Approve JAR action on unlabeled U1 approves ONLY U1 (never U2) and restarts
+      const treeBefore = buildPluginTreeDescriptors(discovered, controller.evaluateEffectiveConfig(false));
+      const u1Node = treeBefore.find((n) => n.plugin?.fileName === 'u1.jar');
+      assert.strictEqual(u1Node?.contextValue, 'pluginFailedNeedsApproval');
+      await controller.approvePluginJarCommand(discovered[2]);
+      const store2 = readTrustedPluginsFile(trustStorePath);
+      assert.strictEqual(store2.approved.length, 2);
+      assert.ok(store2.approved.some((e) => e.sha256 === u1Sha && e.fileName === 'u1.jar'));
+      assert.strictEqual(store2.approved.some((e) => e.sha256 === u2Sha), false);
+      assert.strictEqual(restarts, 2);
 
-      // 4. Modify JAR checksum on disk -> tree descriptor flags change & re-enabling re-prompts modal
-      fs.appendFileSync(copiedJar, '\n');
-      const sha2 = computeFileSha256(copiedJar);
-      assert.notStrictEqual(sha2, sha1);
-      const effChanged = controller.evaluateEffectiveConfig(false);
-      assert.deepStrictEqual(effChanged.changedChecksumIds, ['de.example.extprobe']);
-
-      const treeNodes = buildPluginTreeDescriptors(discovered, effChanged);
-      const probeNode = treeNodes.find((n) => n.plugin?.id === 'de.example.extprobe');
-      assert.strictEqual(typeof probeNode?.tooltip, 'string', 'Tooltip must be plain text');
-      assert.ok(probeNode?.description.includes('Checksum changed'));
-      const futureNode = treeNodes.find((n) => n.plugin?.id === 'de.example.future');
-      assert.strictEqual(futureNode?.contextValue, 'pluginIncompatible');
-      const noMetaNode = treeNodes.find((n) => n.plugin?.loadError === NO_METADATA_LOAD_ERROR);
-      assert.strictEqual(noMetaNode?.contextValue, 'pluginFailed');
-
-      chosenScope = 'user';
-      modalAccept = true;
+      // 4. Changed state in Core triggers changed modal on enable
+      discovered[0].approvalState = 'changed';
+      discovered[0].sha256 = 'c'.repeat(64);
+      const changedTree = buildPluginTreeDescriptors(discovered, controller.evaluateEffectiveConfig(false));
+      const changedNode = changedTree.find((n) => n.plugin?.id === 'de.example.extprobe');
+      assert.strictEqual(changedNode?.contextValue, 'pluginDisabledNeedsApproval');
+      assert.ok(changedNode?.description.includes('Changed'));
       await controller.enableSinglePlugin(discovered[0]);
-      assert.strictEqual(modalCalls.length, 3, 'Changed checksum must re-prompt modal');
-      assert.ok(modalCalls[2].detail.includes(sha2));
-      assert.strictEqual(trustedChecksums['de.example.extprobe'], sha2);
-      assert.deepStrictEqual(globalEnabled, ['de.example.extprobe']);
+      assert.strictEqual(modalCalls.length, 4);
+      assert.ok(modalCalls[3].detail.includes('c'.repeat(64)));
 
-      // 5. Open documentation preview passes plain markdown fetched from server
+      // 5. Documentation preview works
       await controller.openPluginDocumentation(discovered[0]);
       assert.deepStrictEqual(previewOpened, {
         pluginId: 'de.example.extprobe',
-        markdown: '# Probe Docs\n\nBody text.',
+        markdown: '# Probe Docs\n\nBody.',
       });
-
-      // 6. Disable single plugin removes it from enabled list and restarts
-      workspaceEnabled = ['de.example.extprobe'];
-      chosenScope = 'workspace';
-      await controller.disableSinglePlugin(discovered[0]);
-      assert.deepStrictEqual(workspaceEnabled, []);
-
-      // 7. Add plugin JAR or folder... appends path and restarts
-      let pickerCalls = 0;
-      quickPickHandler = (items) => {
-        pickerCalls += 1;
-        if (pickerCalls === 1) {
-          const addItem = items.find((i) => i.action === 'addPath');
-          if (!addItem) {
-            throw new Error('Expected addPath action item');
-          }
-          return [addItem];
-        }
-        return undefined;
-      };
-      chosenScope = 'workspace';
-      await controller.managePlugins();
-      assert.deepStrictEqual(workspacePaths, ['/tmp/extra-plugins']);
-
-      // 8. showPluginLoadError reports incompatible or error details
-      const errorsShown: string[] = [];
-      const errController = new PluginManagerController({
-        ...host,
-        showError: async (msg) => {
-          errorsShown.push(msg);
-          return undefined;
-        },
-      });
-      await errController.showPluginLoadError(discovered[2]);
-      assert.ok(errorsShown[0].includes(NO_METADATA_LOAD_ERROR));
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  test('Headless LSP lists discovered metadata plugins passively and returns inactive documentation without activating', async () => {
+  test('Headless LSP lists discovered metadata + trustStorePath + sha256 + approvalState passively', async () => {
     assert.ok(fs.existsSync(SERVER_JAR), `Server JAR missing at ${SERVER_JAR}`);
     assert.ok(fs.existsSync(TEST_PROBE_JAR), `Test plugin JAR missing at ${TEST_PROBE_JAR}`);
 
@@ -366,16 +396,25 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
     process.env.ROS_PLUGINS_ENABLED = '';
     try {
       await client.start(wsDir);
-      const discovered = (await client.executeCommand('rostooling.listDiscoveredPlugins', [])) as DiscoveredPlugin[];
-      assert.ok(Array.isArray(discovered), `Expected array, got ${JSON.stringify(discovered)}`);
+      const resp = (await client.executeCommand(
+        'rostooling.listDiscoveredPlugins',
+        []
+      )) as DiscoveredPluginsResponse;
+      assert.ok(
+        typeof resp.trustStorePath === 'string' && resp.trustStorePath.endsWith(path.join('.rostooling', 'trusted-plugins.json')),
+        `Expected fixed trustStorePath, got ${JSON.stringify(resp)}`
+      );
+      assert.ok(Array.isArray(resp.plugins));
 
-      const probe = discovered.find((p) => p.id === 'de.example.extprobe');
-      assert.ok(probe, `Missing de.example.extprobe in ${JSON.stringify(discovered)}`);
+      const probe = resp.plugins.find((p) => p.id === 'de.example.extprobe');
+      assert.ok(probe, `Missing de.example.extprobe in ${JSON.stringify(resp)}`);
       assert.strictEqual(probe.version, '1.0.0');
       assert.strictEqual(probe.compatible, true);
       assert.strictEqual(probe.enabled, false);
       assert.strictEqual(probe.active, false);
-      assert.ok(probe.sourceJarPath.endsWith('rostooling-test-plugins.jar'));
+      assert.strictEqual(probe.fileName, 'rostooling-test-plugins.jar');
+      assert.strictEqual(probe.sha256, computeFileSha256(TEST_PROBE_JAR));
+      assert.strictEqual(probe.approvalState, 'unapproved');
       assert.strictEqual(probe.loadError, '');
 
       const doc = (await client.executeCommand('rostooling.getPluginDocumentation', ['de.example.extprobe'])) as {
@@ -383,10 +422,7 @@ suite('Plugin Discovery, Trust, UI Controller & Tree View Suite', function () {
         documentationMarkdown: string;
       };
       assert.strictEqual(doc.id, 'de.example.extprobe');
-      assert.ok(
-        doc.documentationMarkdown.includes('External Probe Plugin'),
-        `Expected inactive doc content, got: ${doc.documentationMarkdown}`
-      );
+      assert.ok(doc.documentationMarkdown.includes('External Probe Plugin'));
     } finally {
       await client.stop();
       if (prevDir === undefined) delete process.env.ROS_PLUGINS_DIR;

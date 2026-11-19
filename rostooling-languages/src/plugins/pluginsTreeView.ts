@@ -5,8 +5,10 @@ import { DiscoveredPlugin, EffectivePluginConfig } from './pluginTrust.js';
 
 export type PluginTreeContextValue =
   | 'pluginEnabled'
-  | 'pluginDisabled'
-  | 'pluginFailed'
+  | 'pluginDisabledApproved'
+  | 'pluginDisabledNeedsApproval'
+  | 'pluginFailedApproved'
+  | 'pluginFailedNeedsApproval'
   | 'pluginIncompatible'
   | 'pluginNotice'
   | 'pluginEmpty';
@@ -47,39 +49,45 @@ export function buildPluginTreeDescriptors(
   }
 
   for (const plugin of plugins) {
-    const label = plugin.id || path.basename(plugin.sourceJarPath) || '(plugin without metadata)';
+    const fileLabel = plugin.fileName || (plugin.sourceJarPath ? path.basename(plugin.sourceJarPath) : '');
+    const label = plugin.id || fileLabel || '(plugin without metadata)';
     const versionPart = plugin.version ? `v${plugin.version}` : '';
-    const changedChecksum = Boolean(plugin.id && effective.changedChecksumIds.includes(plugin.id));
-    const untrustedChecksum = Boolean(plugin.id && effective.untrustedChecksumIds.includes(plugin.id));
+    const hasJar = Boolean(plugin.sourceJarPath);
+    const needsApproval = hasJar && plugin.approvalState !== 'approved';
+    const isChanged = hasJar && plugin.approvalState === 'changed';
 
     let statusText: string;
     let iconId: string;
     let contextValue: PluginTreeContextValue;
 
     if (plugin.loadError) {
-      statusText = `Failed: ${plugin.loadError}`;
-      iconId = 'warning';
-      contextValue = 'pluginFailed';
+      statusText = isChanged
+        ? `Changed — approve JAR (${plugin.loadError})`
+        : needsApproval
+          ? `Unapproved (${plugin.loadError})`
+          : `Failed: ${plugin.loadError}`;
+      iconId = needsApproval ? 'shield' : 'warning';
+      contextValue = needsApproval ? 'pluginFailedNeedsApproval' : 'pluginFailedApproved';
     } else if (!plugin.compatible) {
       statusText = `Incompatible (${plugin.supportedCoreVersionRange || 'version mismatch'})`;
       iconId = 'error';
       contextValue = 'pluginIncompatible';
-    } else if (changedChecksum) {
-      statusText = 'Checksum changed — re-confirm';
+    } else if (isChanged) {
+      statusText = 'Changed — approve JAR';
       iconId = 'shield';
-      contextValue = 'pluginDisabled';
-    } else if (untrustedChecksum) {
-      statusText = 'Confirmation required';
+      contextValue = 'pluginDisabledNeedsApproval';
+    } else if (needsApproval) {
+      statusText = 'Unapproved';
       iconId = 'shield';
-      contextValue = 'pluginDisabled';
-    } else if (plugin.active || (plugin.id && effective.approvedEnabledIds.includes(plugin.id))) {
+      contextValue = 'pluginDisabledNeedsApproval';
+    } else if (plugin.active || (plugin.id && effective.enabledIds.includes(plugin.id))) {
       statusText = 'Enabled';
       iconId = 'pass-filled';
       contextValue = 'pluginEnabled';
     } else {
       statusText = 'Disabled';
       iconId = 'circle-large-outline';
-      contextValue = 'pluginDisabled';
+      contextValue = 'pluginDisabledApproved';
     }
 
     const description = [versionPart, statusText].filter(Boolean).join(' · ');
@@ -87,6 +95,13 @@ export function buildPluginTreeDescriptors(
       `${label}${plugin.version ? ` (${plugin.version})` : ''}`,
       `Status: ${statusText}`,
     ];
+    if (fileLabel) {
+      tooltipLines.push(`File: ${fileLabel}`);
+    }
+    if (plugin.sha256) {
+      tooltipLines.push(`SHA-256: ${plugin.sha256}`);
+    }
+    tooltipLines.push(`Approval: ${plugin.approvalState}`);
     if (plugin.summary) {
       tooltipLines.push(`Summary: ${plugin.summary}`);
     }
@@ -162,7 +177,7 @@ export class PluginsTreeDataProvider implements vscode.TreeDataProvider<PluginTr
       return [];
     }
     const effective = this.controller.evaluateEffectiveConfig(false);
-    const plugins = await this.controller.listDiscoveredPlugins();
+    const { plugins } = await this.controller.listDiscoveredPluginsResponse();
     const descriptors = buildPluginTreeDescriptors(plugins, effective);
     return descriptors.map((d) => new PluginTreeItem(d));
   }
