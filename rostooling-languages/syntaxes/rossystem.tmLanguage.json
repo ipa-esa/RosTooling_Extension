@@ -14,7 +14,7 @@
         },
         {
           "comment": "Top-level identifier or primary system keywords",
-          "begin": "^(\\s*)(fromFile|nodes|threads|from|plugins|processes|subSystems|interfaces|parameters|connections|namespace|[a-zA-Z][a-zA-Z0-9_]*):\\s*(?=#|$)",
+          "begin": "^(\\s*)(fromFile|nodes|threads|from|slots|processes|subSystems|interfaces|parameters|connections|namespace|[a-zA-Z][a-zA-Z0-9_]*):\\s*(?=#|$)",
           "beginCaptures": {
             "2": { "name": "entity.name.class.ros2" }
           },
@@ -45,7 +45,7 @@
         },
         {
           "comment": "Restricted Keywords: Inline values",
-          "begin": "^(\\s*)((fromFile|nodes|threads|from|plugins|namespace):)\\s*(?=\\S)",
+          "begin": "^(\\s*)((fromFile|nodes|threads|from|namespace):)\\s*(?=\\S)",
           "beginCaptures": {
             "2": { "name": "keyword.control.rossystem" }
           },
