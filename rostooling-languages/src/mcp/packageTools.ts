@@ -147,12 +147,33 @@ function describeArtifact(artEl: GModelElement): Record<string, unknown> {
   };
 }
 
+interface ParsedPluginBase {
+  id: string;
+  name: string;
+  ref: string;
+  class: string;
+  header: string;
+  loader: string;
+}
+
+function pluginBases(graph: GGraph): Omit<ParsedPluginBase, 'id'>[] {
+  const pkg = packageElements(graph)[0];
+  return parseJsonArray<ParsedPluginBase>(pkg?.args?.pluginBasesJson).map((b) => ({
+    name: b.name,
+    ref: b.ref,
+    class: b.class,
+    header: b.header,
+    loader: b.loader,
+  }));
+}
+
 function describePackage(graph: GGraph): Record<string, unknown> {
   const pkg = packageElements(graph)[0];
   return {
     name: pkg?.args?.packageName,
     kind: pkg?.args?.packageKind,
     ...(pkg?.args?.fromGitRepo ? { fromGitRepo: pkg.args.fromGitRepo } : {}),
+    ...(pluginBases(graph).length ? { pluginBases: pluginBases(graph) } : {}),
     artifacts: artifactElements(graph).map(describeArtifact),
   };
 }
@@ -269,7 +290,6 @@ export async function addPlugin(
     artifact_name: string;
     plugin_name: string;
     implements?: string;
-    loader?: 'pluginlib' | 'external';
     package_name?: string;
     from_git_repo?: string;
   }
@@ -308,7 +328,6 @@ export async function addPlugin(
       key: `${p.artifact_name}::${p.plugin_name}`,
       value: JSON.stringify({
         implements: p.implements || '',
-        loader: p.loader || 'pluginlib',
       }),
     });
     const { changed, graph, markers } = await commitModel(bridge, s);
@@ -332,6 +351,59 @@ export async function addPlugin(
   });
 }
 
+export async function addPluginBase(
+  bridge: Bridge,
+  p: {
+    package_path: string;
+    name: string;
+    class: string;
+    header: string;
+    loader?: string;
+    package_name?: string;
+  }
+): Promise<ToolOutcome> {
+  return withPackage(bridge, p.package_path, false, async (s) => {
+    if (pluginBases(s.graph).some((b) => b.name === p.name)) {
+      return failOutcome(s, `Plugin base '${p.name}' already exists in ${path.basename(s.file)}.`, {
+        pluginBases: pluginBases(s.graph),
+      });
+    }
+    if (p.package_name) {
+      await runOperation(bridge, s, {
+        kind: 'editRosProperty',
+        elementId: 'root',
+        property: 'name',
+        value: p.package_name,
+      });
+    }
+    await runOperation(bridge, s, {
+      kind: 'editRosProperty',
+      elementId: 'root',
+      property: 'addPluginBase',
+      key: p.name,
+      value: JSON.stringify({
+        class: p.class,
+        header: p.header,
+        loader: p.loader || 'pluginlib',
+      }),
+    });
+    const { changed, graph, markers } = await commitModel(bridge, s);
+    const created = pluginBases(graph).find((b) => b.name === p.name);
+    const m = summarizeMarkers(markers);
+    if (!created) {
+      return failOutcome(s, `Plugin base '${p.name}' was not created.`, m);
+    }
+    return {
+      success: m.errors.length === 0,
+      file: s.file,
+      created: !s.existed,
+      changed,
+      pluginBase: created,
+      ...m,
+    };
+  });
+}
+
 export async function addPluginSlot(
   bridge: Bridge,
   p: {
@@ -341,6 +413,7 @@ export async function addPluginSlot(
     base: string;
     parameter: string;
     format?: 'class' | 'library';
+    multiple?: boolean;
     default_plugin?: string;
   }
 ): Promise<ToolOutcome> {
@@ -367,6 +440,7 @@ export async function addPluginSlot(
         base: p.base,
         parameter: p.parameter,
         ...(p.format ? { format: p.format } : {}),
+        ...(p.multiple ? { multiple: 'true' } : {}),
         ...(p.default_plugin ? { default: p.default_plugin } : {}),
       }),
     });
@@ -777,14 +851,30 @@ export function registerPackageTools(
   );
 
   server.tool(
-    'ros2_add_plugin',
-    'Adds a ROS 2 plugin definition (`pluginlib` or `external`) to an artifact in a .ros2 model, creating the .ros2 file and node-less library artifact if needed. Follow up with ros2_add_interface / ros2_add_parameter targeting plugin_name.',
+    'ros2_add_plugin_base',
+    'Declares a plugin base under `pluginbases:` in a .ros2 package model, creating the file if needed. A base is the C++ interface plugins implement and host slots accept; reference it elsewhere as "<package>.<Base>". RosTooling never generates the base class: the header is written by hand or comes from another package.',
     {
       package_path: packagePath,
-      artifact_name: z.string().describe('Artifact identifier hosting the plugin library, e.g. "planner_plugins".'),
-      plugin_name: z.string().describe('Plugin class/model name, e.g. "StraightLine".'),
-      implements: z.string().optional().describe('C++ qualified base class (required for pluginlib plugins and any plugin attached to a host pluginslot in .rossystem), e.g. "nav2_core::GlobalPlanner".'),
-      loader: z.enum(['pluginlib', 'external']).optional().describe('Plugin loading mechanism: "pluginlib" (default) or "external".'),
+      name: z.string().describe('Base name in the model, e.g. "GlobalPlanner".'),
+      class: z.string().describe('Namespace-qualified C++ class, e.g. "nav2_core::GlobalPlanner".'),
+      header: z.string().describe('Header that declares the class, e.g. "nav2_core/global_planner.hpp".'),
+      loader: z
+        .string()
+        .optional()
+        .describe('Loader id: "pluginlib" (default, built into core) or a loader registered by an enabled plugin (ros_list_plugins lists them).'),
+      package_name: z.string().optional().describe('Optional declared package name on line 1 (lowercase [a-z0-9_]).'),
+    },
+    async (p) => asMcpResult(await addPluginBase(getBridge(), p))
+  );
+
+  server.tool(
+    'ros2_add_plugin',
+    'Adds a plugin to a node-less library artifact in a .ros2 model, creating the file and artifact if needed. The plugin implements a base declared with ros2_add_plugin_base; the base decides how it is loaded. Follow up with ros2_add_interface / ros2_add_parameter targeting plugin_name.',
+    {
+      package_path: packagePath,
+      artifact_name: z.string().describe('Library artifact holding the plugins, e.g. "planner_plugins". An artifact holds a node or plugins, never both.'),
+      plugin_name: z.string().describe('Plugin name, e.g. "StraightLine".'),
+      implements: z.string().optional().describe('The base it implements, as "<package>.<Base>", e.g. "nav2_core.GlobalPlanner".'),
       package_name: z.string().optional().describe('Optional declared package name on line 1 (lowercase [a-z0-9_]).'),
       from_git_repo: z.string().optional().describe('Optional upstream Git repository URL for fromGitRepo:.'),
     },
@@ -793,15 +883,16 @@ export function registerPackageTools(
 
   server.tool(
     'ros2_add_plugin_slot',
-    'Declares a `pluginslots` entry on an existing host node in a .ros2 model linking a C++ base class (`base`) and selection parameter (`parameter`).',
+    'Declares a `pluginslots` entry on a host node in a .ros2 model: the base it accepts and the parameter that names the loaded plugin(s). For pluginlib bases the generated host loads the plugins and hands them to the logic. Attach plugins per system with ros_attach_plugins.',
     {
       package_path: packagePath,
       artifact: z.string().describe('Host artifact or node name in the .ros2 model, e.g. "planner_server".'),
-      name: z.string().describe('Slot identifier, e.g. "global_planner".'),
-      base: z.string().describe('C++ qualified base class accepted by this slot, e.g. "nav2_core::GlobalPlanner".'),
-      parameter: z.string().describe('Parameter name on the host node selecting active plugin(s), e.g. "planner_plugin".'),
-      format: z.enum(['class', 'library']).optional().describe('Emitted parameter value format for matched plugins: "class" (default, pkg::Class) or "library" (deduplicated library artifact target name).'),
-      default_plugin: z.string().optional().describe('Optional default plugin identifier for the slot.'),
+      name: z.string().describe('Slot name, e.g. "planner".'),
+      base: z.string().describe('Accepted base as "<package>.<Base>", e.g. "nav2_core.GlobalPlanner".'),
+      parameter: z.string().describe('Parameter the slot owns and fills with the plugin name(s), e.g. "planner_plugin". It must not also be a node parameter.'),
+      format: z.enum(['class', 'library']).optional().describe('Parameter value per plugin: "class" (default, "<package>::<Plugin>") or "library" (the plugin\'s library artifact).'),
+      multiple: z.boolean().optional().describe('Set true when the slot takes several plugins; the parameter is then a list.'),
+      default_plugin: z.string().optional().describe('Plugin used when a system attaches none, as "<package>.<Plugin>"; it must implement the base.'),
     },
     async (p) => asMcpResult(await addPluginSlot(getBridge(), p))
   );
@@ -872,7 +963,7 @@ export function registerPackageTools(
 
   server.tool(
     'ros2_set_property',
-    'Updates a semantic property on a package ("root" or package name), artifact/node, interface ("<artifact>.<iface>"), or parameter ("<artifact>.<param>") in a .ros2 model via the Java GLSP/Xtext server (e.g. property="type", "name", "fromGitRepo", "isLifecycle", "default", "value", "namespace", "activeStates").',
+    'Updates a semantic property on a package ("root" or package name), plugin base ("<Base>": "name", "class", "header", "loader"), artifact/node, plugin ("<Plugin>": "implements"), plugin slot ("<artifact>.<slot>": "base", "parameter", "format", "multiple", "default"), interface ("<artifact>.<iface>"), or parameter ("<artifact>.<param>") in a .ros2 model via the Java GLSP/Xtext server (e.g. property="type", "name", "fromGitRepo", "isLifecycle", "default", "value", "namespace", "activeStates").',
     {
       package_path: packagePath,
       target: z.string().describe('Element identifier or name: "root" (package), "<artifact>", "<artifact>.<interface>", or "<artifact>.<parameter>".'),

@@ -2,11 +2,13 @@ package de.example.extprobe;
 
 import de.fraunhofer.ipa.ros.plugin.spi.BlockDescriptor;
 import de.fraunhofer.ipa.ros.plugin.spi.HookLocation;
+import de.fraunhofer.ipa.ros.plugin.spi.LoaderDescriptor;
 import de.fraunhofer.ipa.ros.plugin.spi.MergeStrategy;
 import de.fraunhofer.ipa.ros.plugin.spi.PackageBuild;
 import de.fraunhofer.ipa.ros.plugin.spi.PackageGenerationContext;
 import de.fraunhofer.ipa.ros.plugin.spi.PluginToolDescriptor;
 import de.fraunhofer.ipa.ros.plugin.spi.RosToolingPlugin;
+import de.fraunhofer.ipa.ros.plugin.spi.SchemaHints;
 import de.fraunhofer.ipa.ros.plugin.spi.SystemGenerationContext;
 import de.fraunhofer.ipa.ros.plugin.spi.ToolResult;
 import de.fraunhofer.ipa.ros.plugin.spi.ValidationContext;
@@ -55,16 +57,23 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
 
         EClass cls = ef.createEClass();
         cls.setName("ProbeBlock");
+        SchemaHints.set(cls, SchemaHints.HELP, "Settings of the external probe.");
 
         EAttribute profileAttr = ef.createEAttribute();
         profileAttr.setName("profile");
         profileAttr.setEType(EcorePackage.Literals.ESTRING);
         profileAttr.setLowerBound(1);
+        SchemaHints.set(profileAttr, SchemaHints.LABEL, "Profile");
+        SchemaHints.set(profileAttr, SchemaHints.HELP, "Which probe profile to generate.");
+        SchemaHints.set(profileAttr, SchemaHints.ORDER, "1");
+        SchemaHints.set(profileAttr, SchemaHints.CHOICES, "fast, thorough");
         cls.getEStructuralFeatures().add(profileAttr);
 
         EAttribute intervalAttr = ef.createEAttribute();
         intervalAttr.setName("interval_ms");
         intervalAttr.setEType(EcorePackage.Literals.EINT);
+        SchemaHints.set(intervalAttr, SchemaHints.LABEL, "Interval (ms)");
+        SchemaHints.set(intervalAttr, SchemaHints.ORDER, "2");
         cls.getEStructuralFeatures().add(intervalAttr);
 
         EAttribute enabledAttr = ef.createEAttribute();
@@ -99,6 +108,11 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
     }
 
     @Override
+    public List<LoaderDescriptor> loaders() {
+        return List.of(new LoaderDescriptor("probe", "Test loader: writes one file per plugin"));
+    }
+
+    @Override
     public void validate(final ValidationContext context) {
         if (context.typedBlock() == null) {
             return;
@@ -124,11 +138,10 @@ public final class ExternalProbePlugin implements RosToolingPlugin {
                     profile = stringFeature(nodeTyped, "profile");
                 }
             }
-            for (Plugin pl : art.getPlugins()) {
-                if ("ExtProbeExternal".equals(pl.getName())) {
-                    context.claimExternalPluginRegistration(pl);
-                }
-            }
+        }
+        for (Plugin pl : context.loaderPlugins()) {
+            context.writeFile("plugins/" + context.pluginFolder() + "/loads_" + sanitizeFileToken(pl.getName()) + ".txt",
+                    pl.getName() + "\n");
         }
         if (profile == null) {
             return;

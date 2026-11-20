@@ -54,6 +54,23 @@ function portsOf(node: GModelElement): GModelElement[] {
   return walk(node, (e) => e.type in PORT_KIND);
 }
 
+interface NodeSlot {
+  slot: string;
+  base: string;
+  multiple: boolean;
+  plugins: string[];
+}
+
+/** The host's plugin slots with the plugins this system attaches to each. */
+function nodeSlots(node: GModelElement): NodeSlot[] {
+  try {
+    const parsed = JSON.parse(String(node.args?.slotsJson || '[]'));
+    return Array.isArray(parsed) ? (parsed as NodeSlot[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function describeNode(node: GModelElement): Record<string, unknown> {
   // parametersJson: {name: value} of the node type's declared parameters, overridden by the
   // instance's values.
@@ -68,11 +85,13 @@ function describeNode(node: GModelElement): Record<string, unknown> {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+  const slots = nodeSlots(node);
   return {
     name: node.args?.nodeName,
     from: node.args?.from,
     namespace: node.args?.namespace || undefined,
     ...(plugins.length ? { plugins } : {}),
+    ...(slots.length ? { slots } : {}),
     interfaces: portsOf(node).map((p) => ({
       ref: `${node.args?.nodeName}.${p.args?.interfaceName}`,
       kind: PORT_KIND[p.type],
@@ -167,6 +186,43 @@ export async function addNode(
     }
     const m = summarizeMarkers(markers);
     return { success: m.errors.length === 0, file: s.file, created: !s.existed, changed, node: describeNode(node), ...m };
+  });
+}
+
+export async function attachPlugins(
+  bridge: Bridge,
+  p: { system_path: string; node: string; slot: string; plugins: string[] }
+): Promise<ToolOutcome> {
+  return withSystem(bridge, p.system_path, true, async (s) => {
+    const node = findNode(s.graph, p.node);
+    if (!node) {
+      return fail(s, `Unknown node '${p.node}'.`, { nodes: systemNodes(s.graph).map((n) => n.args?.nodeName) });
+    }
+    const slots = nodeSlots(node);
+    if (!slots.some((sl) => sl.slot === p.slot)) {
+      return fail(s, `Node '${p.node}' (from ${node.args?.from}) has no plugin slot '${p.slot}'.`, { slots });
+    }
+    await runOperation(bridge, s, {
+      kind: 'editRosProperty',
+      elementId: p.node,
+      property: 'slot',
+      key: p.slot,
+      value: p.plugins.join(','),
+    });
+    const { changed, graph, markers } = await commit(bridge, s);
+    const after = findNode(graph, p.node);
+    const m = summarizeMarkers(markers);
+    const attached = after ? nodeSlots(after).find((sl) => sl.slot === p.slot) : undefined;
+    const missing = p.plugins.filter(
+      (ref) => !(attached?.plugins || []).some((a) => a === ref || a.endsWith(`.${ref}`))
+    );
+    if (missing.length > 0) {
+      return fail(s, `Plugin(s) not found in the workspace: ${missing.join(', ')}. Name them as "<package>.<Plugin>".`, {
+        slot: attached,
+        ...m,
+      });
+    }
+    return { success: m.errors.length === 0, file: s.file, changed, node: after ? describeNode(after) : undefined, ...m };
   });
 }
 
@@ -467,11 +523,23 @@ export function registerSystemTools(server: McpServer, getBridge: () => Bridge =
       node_name: z.string().describe('Instance name in the system, e.g. "lidar".'),
       from: z.string().describe('Node type as "<package>.<node>", e.g. "nav_pkg.lidar_node" (package and node names from the .ros2 model).'),
       namespace: z.string().optional().describe('Optional ROS namespace for this instance.'),
-      plugins: z.array(z.string()).optional().describe('Optional plugin references attached to this host node (e.g. ["my_plugins.StraightLine"]).'),
+      plugins: z.array(z.string()).optional().describe('Optional plugins to attach (e.g. ["my_plugins.StraightLine"]); each goes to the first slot whose base it implements. Use ros_attach_plugins to choose the slot.'),
       system_name: z.string().optional().describe('Optional system name (defaults to the file name for a new file).'),
       from_file: z.string().optional().describe('Optional launch file path for `fromFile:` (recommended for valid Xtext models, e.g. "my_bringup/launch/app.launch.py").'),
     },
     async (p) => asResult(await addNode(getBridge(), p))
+  );
+
+  server.tool(
+    'ros_attach_plugins',
+    'Sets the plugins attached to one plugin slot of a node instance in a .rossystem (`slots: <slot>: [pkg.Plugin, ...]`), replacing the slot\'s current list; an empty list detaches all and the host falls back to the slot default. Each plugin must implement the slot\'s base, and a slot without `multiple` takes one plugin; the result lists validation errors. ros_add_node returns each node\'s slots.',
+    {
+      system_path: systemPath,
+      node: z.string().describe('Node instance name, e.g. "planner".'),
+      slot: z.string().describe('Slot name declared by the node type, e.g. "planner".'),
+      plugins: z.array(z.string()).describe('Plugins as "<package>.<Plugin>", in load order, e.g. ["demo_planners.Smooth"].'),
+    },
+    async (p) => asResult(await attachPlugins(getBridge(), p))
   );
 
   server.tool(

@@ -60,7 +60,12 @@ export function buildPluginTreeDescriptors(
     let iconId: string;
     let contextValue: PluginTreeContextValue;
 
-    if (plugin.loadError) {
+    if (hasJar && !plugin.id) {
+      // No metadata: core never loads the JAR, so approving it would change nothing.
+      statusText = 'Cannot load: no plugin metadata';
+      iconId = 'error';
+      contextValue = 'pluginIncompatible';
+    } else if (plugin.loadError) {
       statusText = isChanged
         ? `Changed — approve JAR (${plugin.loadError})`
         : needsApproval

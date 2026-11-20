@@ -348,7 +348,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       // Approve another JAR via Approve JAR action -> lands in coreTrustPath, never os.homedir()
       const extraSha = 'e'.repeat(64);
       await controller.approvePluginJarCommand(
-        makeDummyPlugin({ id: '', fileName: 'extra.jar', sha256: extraSha })
+        makeDummyPlugin({ id: 'de.example.extra', fileName: 'extra.jar', sha256: extraSha })
       );
       const updatedStore = readTrustedPluginsFile(coreTrustPath);
       assert.strictEqual(updatedStore.approved.length, 2);
@@ -518,16 +518,18 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       assert.strictEqual(mcpRefreshes, 1);
       assert.strictEqual(viewRefreshes, 1);
 
-      // 3. Approve JAR action on unlabeled U1 approves ONLY U1 (never U2) and restarts
+      // 3. A JAR without metadata never loads (it declares no pluginApiVersionRange): it offers no
+      //    approval, and the Approve JAR action writes nothing and restarts nothing
       const treeBefore = buildPluginTreeDescriptors(discovered, controller.evaluateEffectiveConfig(false));
       const u1Node = treeBefore.find((n) => n.plugin?.fileName === 'u1.jar');
-      assert.strictEqual(u1Node?.contextValue, 'pluginFailedNeedsApproval');
+      assert.strictEqual(u1Node?.contextValue, 'pluginIncompatible');
+      const modalsBeforeU1 = modalCalls.length;
       await controller.approvePluginJarCommand(discovered[2]);
       const store2 = readTrustedPluginsFile(trustStorePath);
-      assert.strictEqual(store2.approved.length, 2);
-      assert.ok(store2.approved.some((e) => e.sha256 === u1Sha && e.fileName === 'u1.jar'));
-      assert.strictEqual(store2.approved.some((e) => e.sha256 === u2Sha), false);
-      assert.strictEqual(restarts, 2);
+      assert.strictEqual(store2.approved.length, 1);
+      assert.strictEqual(store2.approved.some((e) => e.sha256 === u1Sha || e.sha256 === u2Sha), false);
+      assert.strictEqual(modalCalls.length, modalsBeforeU1);
+      assert.strictEqual(restarts, 1);
 
       // 4. Changed state triggers changed modal on enable
       discovered[0].approvalState = 'changed';
@@ -537,8 +539,8 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       assert.strictEqual(changedNode?.contextValue, 'pluginDisabledNeedsApproval');
       assert.ok(changedNode?.description.includes('Changed'));
       await controller.enableSinglePlugin(discovered[0]);
-      assert.strictEqual(modalCalls.length, 4);
-      assert.ok(modalCalls[3].detail.includes('c'.repeat(64)));
+      assert.strictEqual(modalCalls.length, modalsBeforeU1 + 1);
+      assert.ok(modalCalls[modalsBeforeU1].detail.includes('c'.repeat(64)));
 
       // 5. Documentation preview works
       await controller.openPluginDocumentation(discovered[0]);

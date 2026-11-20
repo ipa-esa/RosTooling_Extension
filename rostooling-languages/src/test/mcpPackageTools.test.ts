@@ -273,52 +273,68 @@ suite('MCP semantic .ros2 package tools', function () {
       fields: [{ name: 'ok', type: 'bool' }],
     });
 
-    const hostPath = path.join(dir, 'plug_host_pkg.ros2');
-    await ok('ros2_add_artifact', {
-      package_path: hostPath,
-      artifact_name: 'host_bin',
-      node_name: 'host_node',
+    // Bases: the interfaces plugins implement and slots accept.
+    const corePath = path.join(dir, 'plug_core.ros2');
+    const baseRes = (await ok('ros2_add_plugin_base', {
+      package_path: corePath,
+      name: 'Planner',
+      class: 'plug_core::Planner',
+      header: 'plug_core/planner.hpp',
+    })) as Outcome & { pluginBase?: { ref: string; loader: string } };
+    assert.strictEqual(baseRes.pluginBase?.ref, 'plug_core.Planner', JSON.stringify(baseRes));
+    assert.strictEqual(baseRes.pluginBase?.loader, 'pluginlib');
+    await ok('ros2_add_plugin_base', {
+      package_path: corePath,
+      name: 'Critic',
+      class: 'plug_core::Critic',
+      header: 'plug_core/critic.hpp',
     });
-    await ok('ros2_add_parameter', {
-      package_path: hostPath,
-      artifact: 'host_bin',
-      name: 'active_plugin',
-      type: 'String',
+    const dup = await call('ros2_add_plugin_base', {
+      package_path: corePath,
+      name: 'Critic',
+      class: 'plug_core::Critic',
+      header: 'plug_core/critic.hpp',
     });
-    await ok('ros2_add_parameter', {
-      package_path: hostPath,
-      artifact: 'host_bin',
-      name: 'leaf_libraries',
-      type: 'Array',
+    assert.strictEqual(dup.success, false, JSON.stringify(dup));
+    await ok('ros2_set_property', {
+      package_path: corePath,
+      target: 'Critic',
+      property: 'header',
+      value: 'plug_core/critics/critic.hpp',
     });
-    await ok('ros2_add_plugin_slot', {
-      package_path: hostPath,
-      artifact: 'host_bin',
-      name: 'planner',
-      base: 'nav2_core::GlobalPlanner',
-      parameter: 'active_plugin',
-    });
-    await ok('ros2_add_plugin_slot', {
-      package_path: hostPath,
-      artifact: 'host_bin',
-      name: 'leaves',
-      base: 'custom_core::LeafBase',
-      parameter: 'leaf_libraries',
-      format: 'library',
-    });
-    const hostText = fs.readFileSync(hostPath, 'utf-8');
-    assert.ok(hostText.includes('pluginslots:'), hostText);
-    assert.ok(hostText.includes('base: "nav2_core::GlobalPlanner"'), hostText);
-    assert.ok(hostText.includes('format: library'), hostText);
+    const coreText = fs.readFileSync(corePath, 'utf-8');
+    assert.ok(coreText.includes('pluginbases:'), coreText);
+    assert.ok(coreText.includes('class: "plug_core::Planner"'), coreText);
+    assert.ok(coreText.includes('header: "plug_core/critics/critic.hpp"'), coreText);
+    assert.ok(coreText.includes('loader: pluginlib'), coreText);
 
-    const plugPath = path.join(dir, 'plug_lib_pkg.ros2');
-    await ok('ros2_add_plugin', {
-      package_path: plugPath,
-      artifact_name: 'planner_lib',
-      plugin_name: 'StraightLine',
-      implements: 'nav2_core::GlobalPlanner',
-      loader: 'pluginlib',
+    // An unregistered loader is reported by validation.
+    const unknownLoader = await call('ros2_add_plugin_base', {
+      package_path: path.join(dir, 'plug_other_core.ros2'),
+      name: 'Other',
+      class: 'plug_other_core::Other',
+      header: 'plug_other_core/other.hpp',
+      loader: 'nobody',
     });
+    assert.strictEqual(unknownLoader.success, false, JSON.stringify(unknownLoader));
+    assert.ok(JSON.stringify(unknownLoader).includes('nobody'), JSON.stringify(unknownLoader));
+    fs.rmSync(path.join(dir, 'plug_other_core.ros2'), { force: true });
+
+    // Plugins implementing the bases.
+    const plugPath = path.join(dir, 'plug_lib_pkg.ros2');
+    for (const [name, base] of [
+      ['StraightLine', 'plug_core.Planner'],
+      ['Smooth', 'plug_core.Planner'],
+      ['GoalCritic', 'plug_core.Critic'],
+      ['AlignCritic', 'plug_core.Critic'],
+    ]) {
+      await ok('ros2_add_plugin', {
+        package_path: plugPath,
+        artifact_name: base === 'plug_core.Planner' ? 'planners' : 'critics',
+        plugin_name: name,
+        implements: base,
+      });
+    }
     await ok('ros2_add_interface', {
       package_path: plugPath,
       artifact: 'StraightLine',
@@ -326,31 +342,120 @@ suite('MCP semantic .ros2 package tools', function () {
       name: 'plan_status',
       type: 'plug_msgs/msg/Status',
     });
-    await ok('ros2_add_plugin', {
-      package_path: plugPath,
-      artifact_name: 'planner_lib',
-      plugin_name: 'ExternalHelper',
-      loader: 'external',
-    });
     const plugText = fs.readFileSync(plugPath, 'utf-8');
     assert.ok(plugText.includes('plugins:'), plugText);
-    assert.ok(plugText.includes('implements: "nav2_core::GlobalPlanner"'), plugText);
-    assert.ok(plugText.includes('loader: external'), plugText);
+    assert.ok(plugText.includes('implements: plug_core.Planner'), plugText);
 
+    // A host with a single and a multiple slot.
+    const hostPath = path.join(dir, 'plug_host_pkg.ros2');
+    await ok('ros2_add_artifact', {
+      package_path: hostPath,
+      artifact_name: 'host_bin',
+      node_name: 'host_node',
+    });
+    await ok('ros2_add_plugin_slot', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'planner',
+      base: 'plug_core.Planner',
+      parameter: 'planner_plugin',
+      default_plugin: 'plug_lib_pkg.StraightLine',
+    });
+    const slotRes = (await ok('ros2_add_plugin_slot', {
+      package_path: hostPath,
+      artifact: 'host_bin',
+      name: 'critics',
+      base: 'plug_core.Critic',
+      parameter: 'critic_plugins',
+      multiple: true,
+    })) as Outcome & { slot?: { multiple?: boolean } };
+    assert.strictEqual(slotRes.slot?.multiple, true, JSON.stringify(slotRes));
+    const wrongDefault = await call('ros2_set_property', {
+      package_path: hostPath,
+      target: 'host_bin.planner',
+      property: 'default',
+      value: 'plug_lib_pkg.GoalCritic',
+    });
+    assert.strictEqual(wrongDefault.success, false, 'A default of another base must fail validation');
+    await ok('ros2_set_property', {
+      package_path: hostPath,
+      target: 'host_bin.planner',
+      property: 'default',
+      value: 'plug_lib_pkg.StraightLine',
+    });
+    const hostText = fs.readFileSync(hostPath, 'utf-8');
+    assert.ok(hostText.includes('pluginslots:'), hostText);
+    assert.ok(hostText.includes('base: plug_core.Planner'), hostText);
+    assert.ok(hostText.includes('multiple: true'), hostText);
+    assert.ok(hostText.includes('default: plug_lib_pkg.StraightLine'), hostText);
+
+    // A system attaching plugins to each slot.
     const plugSysPath = path.join(dir, 'plug_sys.rossystem');
-    const hostSysRes = await ok('ros_add_node', {
+    const hostSysRes = (await ok('ros_add_node', {
       system_path: plugSysPath,
       node_name: 'host_inst',
       from: 'plug_host_pkg.host_node',
-      plugins: ['plug_lib_pkg.StraightLine'],
       from_file: 'plug_bringup/launch/plug.launch.py',
-    });
+    })) as Outcome & { node?: { slots?: { slot: string; plugins: string[] }[] } };
     assert.deepStrictEqual(
-      (hostSysRes.node as { plugins?: string[] }).plugins,
-      ['StraightLine']
+      hostSysRes.node?.slots?.map((sl) => sl.slot),
+      ['planner', 'critics'],
+      JSON.stringify(hostSysRes)
     );
-    const sysText = fs.readFileSync(plugSysPath, 'utf-8');
-    assert.ok(sysText.includes('plugins:'), sysText);
+    await ok('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'planner',
+      plugins: ['plug_lib_pkg.Smooth'],
+    });
+    const attachRes = (await ok('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'critics',
+      plugins: ['plug_lib_pkg.GoalCritic', 'plug_lib_pkg.AlignCritic'],
+    })) as Outcome & { node?: { slots?: { slot: string; plugins: string[] }[] } };
+    assert.deepStrictEqual(
+      attachRes.node?.slots?.find((sl) => sl.slot === 'critics')?.plugins,
+      ['plug_lib_pkg.GoalCritic', 'plug_lib_pkg.AlignCritic']
+    );
+    let sysText = fs.readFileSync(plugSysPath, 'utf-8');
+    assert.ok(sysText.includes('slots:'), sysText);
+    assert.ok(sysText.includes('planner: [plug_lib_pkg.Smooth]'), sysText);
+    assert.ok(sysText.includes('critics: [plug_lib_pkg.GoalCritic, plug_lib_pkg.AlignCritic]'), sysText);
+
+    // Two plugins on a single slot, or a plugin of another base, fail validation.
+    const tooMany = await call('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'planner',
+      plugins: ['plug_lib_pkg.Smooth', 'plug_lib_pkg.StraightLine'],
+    });
+    assert.strictEqual(tooMany.success, false, JSON.stringify(tooMany));
+    const wrongBase = await call('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'planner',
+      plugins: ['plug_lib_pkg.GoalCritic'],
+    });
+    assert.strictEqual(wrongBase.success, false, JSON.stringify(wrongBase));
+    const noSlot = await call('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'nope',
+      plugins: ['plug_lib_pkg.Smooth'],
+    });
+    assert.strictEqual(noSlot.success, false, JSON.stringify(noSlot));
+
+    // An empty list detaches the slot; the host falls back to its default.
+    await ok('ros_attach_plugins', {
+      system_path: plugSysPath,
+      node: 'host_inst',
+      slot: 'planner',
+      plugins: [],
+    });
+    sysText = fs.readFileSync(plugSysPath, 'utf-8');
+    assert.ok(!sysText.includes('planner: ['), sysText);
+    assert.ok(sysText.includes('critics: [plug_lib_pkg.GoalCritic, plug_lib_pkg.AlignCritic]'), sysText);
   });
 
   test('lists plugins, reads/writes @ extension blocks, and runs generate_plugin_outputs via MCP', async () => {
@@ -676,6 +781,21 @@ suite('Standalone external plugin JAR integration (--plugins-dir & VS Code setti
       };
       assert.ok(setProbeSchema.required?.includes('profile'));
       assert.strictEqual(setProbeSchema.properties?.interval_ms?.type, 'number');
+      // Schema hints: field order, label, help text and suggested values reach the typed tool.
+      const probeFields = Object.keys(setProbeSchema.properties || {});
+      assert.ok(probeFields.indexOf('profile') < probeFields.indexOf('interval_ms'), probeFields.join(', '));
+      const profileDesc = String(setProbeSchema.properties?.profile?.description || '');
+      assert.ok(profileDesc.includes('Profile.'), profileDesc);
+      assert.ok(profileDesc.includes('Which probe profile to generate.'), profileDesc);
+      assert.ok(profileDesc.includes('Suggested values: fast, thorough.'), profileDesc);
+      assert.strictEqual(setProbeSchema.properties?.profile?.enum, undefined, 'Suggestions are not enforced');
+
+      // The probe plugin's loader is listed.
+      const listedPlugins = await callJson('ros_list_plugins', { workspace_dir: wsDir });
+      const probeEntry = ((listedPlugins.body.plugins as { id: string; loaders?: { id: string }[] }[]) || []).find(
+        (pl) => pl.id === 'de.example.extprobe'
+      );
+      assert.deepStrictEqual(probeEntry?.loaders?.map((l) => l.id), ['probe'], JSON.stringify(listedPlugins.body));
 
       const listedResources = await client.listResources();
       const docsUri = 'rostooling://plugin/de.example.extprobe/docs';

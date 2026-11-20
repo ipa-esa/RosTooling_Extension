@@ -20,7 +20,9 @@ export const LIST_DISCOVERED_PLUGINS_CMD = 'rostooling.listDiscoveredPlugins';
 export const GET_PLUGIN_DOCUMENTATION_CMD = 'rostooling.getPluginDocumentation';
 export const PLUGIN_TRUST_WARNING =
   'This plugin will run with your permissions. Only enable plugins from sources you trust.';
-export const NO_METADATA_LOAD_ERROR = 'no plugin metadata; enable by id in settings';
+/** Core's load error for a JAR without META-INF/rostooling-plugin.properties; such JARs never load. */
+export const NO_METADATA_LOAD_ERROR =
+  'no plugin metadata (META-INF/rostooling-plugin.properties with id, version, summary and pluginApiVersionRange)';
 
 export interface PluginHostAdapter {
   isWorkspaceTrusted(): boolean;
@@ -545,7 +547,7 @@ export class PluginManagerController {
       const fileLabel = plugin.fileName || (plugin.sourceJarPath ? path.basename(plugin.sourceJarPath) : '');
 
       const untickReason = !plugin.id
-        ? `Unlabeled JAR '${fileLabel}' (${plugin.approvalState}). Use Approve JAR in the RosTooling Plugins view and configure its ID in settings.`
+        ? `JAR '${fileLabel}' has no META-INF/rostooling-plugin.properties declaring pluginApiVersionRange, so RosTooling cannot load it.`
         : hasBlockingError
           ? `Plugin '${plugin.id}' failed to load: ${plugin.loadError}`
           : isIncompatible
@@ -679,6 +681,13 @@ export class PluginManagerController {
   }
 
   public async approvePluginJarCommand(plugin: DiscoveredPlugin): Promise<void> {
+    if (!plugin.id) {
+      // Core cannot tell which plugin interface such a JAR was built for and never loads it.
+      await this.host.showWarning(
+        `JAR '${plugin.fileName || plugin.sourceJarPath}' has no ${NO_METADATA_LOAD_ERROR.replace(/^no /, '')} and cannot be loaded, so there is nothing to approve.`
+      );
+      return;
+    }
     const resp = await this.listDiscoveredPluginsResponse();
     if (!resp.trustStorePath) {
       await this.host.showError(
@@ -702,7 +711,8 @@ export class PluginManagerController {
     }
     if (!plugin.compatible) {
       await this.host.showWarning(
-        `Plugin '${plugin.id}' requires RosTooling core ${plugin.supportedCoreVersionRange} and cannot be enabled.`
+        plugin.loadError ||
+          `Plugin '${plugin.id}' requires RosTooling core ${plugin.supportedCoreVersionRange} and cannot be enabled.`
       );
       return;
     }

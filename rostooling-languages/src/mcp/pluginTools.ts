@@ -52,9 +52,29 @@ interface ListPluginsResponse {
   loadErrors?: string[];
 }
 
+/**
+ * Field description from the block's schema hints: label (`title`), help text (`description`)
+ * and suggested values (`x-choices`). Suggestions are not enforced: core accepts any value the
+ * schema type accepts.
+ */
+export function describeSchemaProp(prop: Record<string, unknown>): string | undefined {
+  const parts: string[] = [];
+  if (typeof prop.title === 'string' && prop.title.trim()) {
+    parts.push(`${prop.title.trim()}.`);
+  }
+  if (typeof prop.description === 'string' && prop.description.trim()) {
+    parts.push(prop.description.trim());
+  }
+  const choices = prop['x-choices'];
+  if (Array.isArray(choices) && choices.length > 0) {
+    parts.push(`Suggested values: ${choices.map(String).join(', ')}.`);
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
 function jsonSchemaPropToZod(prop: Record<string, unknown>): ZodTypeAny {
   const type = String(prop.type || 'string');
-  const desc = typeof prop.description === 'string' ? prop.description : undefined;
+  const desc = describeSchemaProp(prop);
   let schema: ZodTypeAny;
   if (type === 'boolean') {
     schema = z.boolean();
@@ -365,7 +385,7 @@ export function registerPluginTools(
 ): void {
   server.tool(
     'ros_list_plugins',
-    'Lists active RosTooling plugins, their @<block>: schemas, contributed MCP tools, documentation URIs, and any plugin load errors.',
+    'Lists active RosTooling plugins, their @<block>: schemas (fields in order, with labels, help text and suggested values), the plugin loaders they register (ids a plugin base can name in `loader:`), contributed MCP tools, documentation URIs, and any plugin load errors.',
     {
       workspace_dir: z
         .string()
@@ -444,7 +464,7 @@ export function registerPluginTools(
 
   server.tool(
     'ros_set_extension_block',
-    'Validates and writes, updates, or removes an @<block>: extension block on a .ros2 or .rossystem element.',
+    'Validates and writes, updates, or removes an @<block>: extension block on a .ros2 or .rossystem element. Prefer the typed <plugin>__set_<block> tool when one is listed. ros_list_plugins gives each block\'s fields in order, with their labels, help text and suggested values; the language server validates every write against the block schema.',
     {
       model_path: z.string().describe('Path to the .ros2 or .rossystem file.'),
       block_name: z.string().describe("Extension block name (e.g. 'audit' or '@audit')."),
