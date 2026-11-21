@@ -388,7 +388,7 @@ function SlotAttachments({ nodeId, slots, editable }) {
             </small>
           </div>
           <div className="rt-chip-row">
-            {sl.plugins.length === 0 && <small style={{ color: 'var(--rt-dim)' }}>No plugin attached (the slot default applies).</small>}
+            {sl.plugins.length === 0 && <small style={{ color: 'var(--rt-dim)' }}>No plugin attached in this system.</small>}
             {sl.plugins.map((ref) => (
               <span key={ref} className="rt-chip">
                 <code>{ref}</code>
