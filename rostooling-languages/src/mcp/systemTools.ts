@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { GGraph, GModelElement, GlspClientBridge, RosAutoConnectResult } from '../glsp/GlspClientBridge.js';
 import { renderDiagramSvg } from '../glsp/GGraphSvgRenderer.js';
+import { readViewData } from '../glsp/RosViewData.js';
 import {
   Bridge,
   ModelSession,
@@ -54,21 +55,9 @@ function portsOf(node: GModelElement): GModelElement[] {
   return walk(node, (e) => e.type in PORT_KIND);
 }
 
-interface NodeSlot {
-  slot: string;
-  base: string;
-  multiple: boolean;
-  plugins: string[];
-}
-
 /** The host's plugin slots with the plugins this system attaches to each. */
-function nodeSlots(node: GModelElement): NodeSlot[] {
-  try {
-    const parsed = JSON.parse(String(node.args?.slotsJson || '[]'));
-    return Array.isArray(parsed) ? (parsed as NodeSlot[]) : [];
-  } catch {
-    return [];
-  }
+function nodeSlots(node: GModelElement) {
+  return readViewData(node, 'rosNode')?.slots || [];
 }
 
 function describeNode(node: GModelElement): Record<string, unknown> {
@@ -80,12 +69,8 @@ function describeNode(node: GModelElement): Record<string, unknown> {
   } catch {
     parameters = {};
   }
-  const pluginsRaw = typeof node.args?.plugins === 'string' ? node.args.plugins : '';
-  const plugins = pluginsRaw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
   const slots = nodeSlots(node);
+  const plugins = slots.flatMap((sl) => sl.plugins);
   return {
     name: node.args?.nodeName,
     from: node.args?.from,

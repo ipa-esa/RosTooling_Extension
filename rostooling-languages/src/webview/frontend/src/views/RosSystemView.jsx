@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Download, RefreshCw, Trash2, FileCode2, ChevronsDownUp, ChevronsUpDown, Loader2, Cable, Wand2, X } from 'lucide-react';
+import { Maximize2, Download, RefreshCw, Trash2, FileCode2, ChevronsDownUp, ChevronsUpDown, Loader2, Cable, Wand2, X, Plug } from 'lucide-react';
 import {
   useStudio,
   setUIState,
@@ -17,6 +17,9 @@ import {
 import { rosDiagramApi } from '../glsp/rosDiagramApi';
 import { hostBridge } from '../state/vscodeBridge';
 import { CommitInput } from '../components/CommitInput';
+import { Contributions } from '../components/Contributions';
+import { BlockInspector } from '../components/BlockInspector';
+import { readViewData } from '../../../../glsp/RosViewData';
 import { layoutFromGGraph } from '../../../../glsp/GGraphSvgRenderer';
 import { mountRosDiagram } from '../glsp/rosDiagram';
 
@@ -352,8 +355,65 @@ function ProcessInspector({ node, layout, isReadOnly }) {
   );
 }
 
+function AttachInput({ placeholder, onAttach }) {
+  const [text, setText] = useState('');
+  const attach = () => {
+    const ref = text.trim();
+    if (!ref) return;
+    onAttach(ref);
+    setText('');
+  };
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <input className="rt-input" style={{ fontFamily: 'var(--rt-mono)' }} placeholder={placeholder} value={text}
+        onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') attach(); }} />
+      <button type="button" className="rt-btn" disabled={!text.trim()} onClick={attach}>Attach</button>
+    </div>
+  );
+}
+
+/** Host card section: the node's plugin slots, each with the plugins this system attaches. */
+function SlotAttachments({ nodeId, slots, editable }) {
+  if (!slots || slots.length === 0) return null;
+  const setSlot = (slot, refs) => editProperty(nodeId, 'slot', refs.join(', '), { key: slot });
+  return (
+    <>
+      <div className="rt-section-hdr"><h3><Plug size={13} /> Plugins by slot ({slots.length})</h3></div>
+      {slots.map((sl) => (
+        <div key={sl.slot} className="rt-slot-card" data-testid={`slot-${sl.slot}`}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 12 }}>{sl.slot}</strong>
+            <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
+              {sl.base}{sl.multiple ? ' · several' : ' · one'}
+            </small>
+          </div>
+          <div className="rt-chip-row">
+            {sl.plugins.length === 0 && <small style={{ color: 'var(--rt-dim)' }}>No plugin attached (the slot default applies).</small>}
+            {sl.plugins.map((ref) => (
+              <span key={ref} className="rt-chip">
+                <code>{ref}</code>
+                {editable && (
+                  <button type="button" className="rt-chip-x" title={`Detach ${ref}`}
+                    onClick={() => setSlot(sl.slot, sl.plugins.filter((r) => r !== ref))}>
+                    <X size={10} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          {editable && (
+            <AttachInput placeholder={sl.multiple || sl.plugins.length === 0 ? 'attach pkg.Plugin' : 'replace with pkg.Plugin'}
+              onAttach={(ref) => setSlot(sl.slot, sl.multiple ? [...sl.plugins.filter((r) => r !== ref), ref] : [ref])} />
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function SystemInspector({ node, edge, layout }) {
-  const { isReadOnly } = useStudio();
+  const { isReadOnly, gGraph } = useStudio();
+  const rootView = readViewData(gGraph, 'system');
   const [newParam, setNewParam] = useState({ key: '', value: '' });
 
   if (edge) {
@@ -379,11 +439,13 @@ function SystemInspector({ node, edge, layout }) {
   if (!node) {
     return (
       <aside className="rt-inspector-right rt-panel-pad">
-        <div className="rt-section-hdr"><h3>Inspector</h3></div>
+        <div className="rt-section-hdr"><h3>Inspector</h3><Contributions items={rootView?.contributions} /></div>
         <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>
           Select a node or wire. Drag from a port to another port to connect; layout is computed by the server (ELK).
           Dragging a node pins it (stored in the optional <code>.layout</code> sidecar).
         </p>
+        <BlockInspector elementId="root" blocks={rootView?.blocks} available={rootView?.availableBlocks}
+          location="SYSTEM" editable={!isReadOnly} />
       </aside>
     );
   }
@@ -422,9 +484,10 @@ function SystemInspector({ node, edge, layout }) {
   const a = node.el.args || {};
   const params = parseParams(node);
   const editable = !isReadOnly && node.depth === 0;
+  const view = readViewData(node.el, 'rosNode');
   return (
     <aside className="rt-inspector-right rt-panel-pad">
-      <div className="rt-section-hdr"><h3>ROS Node</h3></div>
+      <div className="rt-section-hdr"><h3>ROS Node</h3><Contributions items={view?.contributions} /></div>
       {node.depth > 0 && (
         <p style={{ fontSize: 11.5, color: 'var(--rt-muted)' }}>Member of a subsystem — open the subsystem model to edit it.</p>
       )}
@@ -478,6 +541,9 @@ function SystemInspector({ node, edge, layout }) {
           </button>
         </div>
       )}
+      <SlotAttachments nodeId={node.id} slots={view?.slots} editable={editable} />
+      <BlockInspector elementId={node.id} blocks={view?.blocks} available={rootView?.availableBlocks}
+        location="ROS_NODE" editable={editable} />
       <MarkerList ids={[node.id, ...node.ports.map((p) => p.id)]} />
       {editable && (
         <button type="button" className="rt-btn danger" style={{ marginTop: 10 }}

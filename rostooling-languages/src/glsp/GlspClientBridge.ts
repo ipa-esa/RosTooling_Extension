@@ -24,6 +24,7 @@ import {
   RosField,
   RosLifecycleState,
 } from '../model/RosModelTypes';
+import { readViewData } from './RosViewData';
 
 export interface GPoint {
   x: number;
@@ -954,6 +955,7 @@ export class GlspClientBridge {
         subRef,
         ifaces,
         params,
+        viewData: readViewData(child, 'rosNode'),
         x: child.position?.x,
         y: child.position?.y,
         w: child.size?.width,
@@ -1017,6 +1019,7 @@ export class GlspClientBridge {
       packages: {},
       types: {},
       diagnostics,
+      viewData: readViewData(gGraph, 'system'),
     };
   }
 
@@ -1049,6 +1052,7 @@ export class GlspClientBridge {
         id: pkgEl.id,
         name: pkgName,
         fromGitRepo: String(pkgEl.args?.fromGitRepo || '') || undefined,
+        viewData: readViewData(pkgEl, 'package'),
         artifacts: [],
       };
       packages[pkgName] = pkg;
@@ -1106,6 +1110,7 @@ export class GlspClientBridge {
           backing: 'local',
           ifaces,
           params,
+          viewData: readViewData(nodeEl, 'node') || readViewData(nodeEl, 'plugin'),
         });
         pkg.artifacts.push({ name: artifactName, node: nodeName, isLifecycle: Boolean(nodeEl.args?.isLifecycle), ifaces, params });
       }
@@ -1147,6 +1152,7 @@ export class GlspClientBridge {
       packages,
       types,
       diagnostics,
+      viewData: readViewData(gGraph, 'packageSet'),
     };
   }
 }

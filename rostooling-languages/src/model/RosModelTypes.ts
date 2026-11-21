@@ -1,3 +1,5 @@
+import type { NodeViewData, PackageViewData, PluginViewData, RootViewData, RosNodeViewData } from '../glsp/RosViewData';
+
 export type RosInteractionKind = 'pub' | 'sub' | 'ss' | 'sc' | 'as' | 'ac' | 'param';
 
 export type RosLifecycleState = 'Unconfigured' | 'Inactive' | 'Active' | 'Finalized';
@@ -79,6 +81,8 @@ export interface RosNode {
   diag?: string[];
   quoted?: boolean;
   fromQuoted?: boolean;
+  /** Plugin side of the element from the GLSP server (bases, slots, blocks, badges). */
+  viewData?: NodeViewData | PluginViewData | RosNodeViewData;
   fromComment?: string;
   lineComment?: string;
 }
@@ -159,6 +163,8 @@ export interface RosPackage {
   id?: string;
   name: string;
   fromGitRepo?: string;
+  /** Plugin bases and badges from the GLSP server. */
+  viewData?: PackageViewData;
   artifacts: {
     name: string;
     node?: string;
@@ -248,6 +254,8 @@ export interface RosProject {
   packages: Record<string, RosPackage>;
   types: Record<string, RosTypeSpec>;
   diagnostics?: RosModelDiagnostic[];
+  /** Root view data from the GLSP server (system blocks, blocks the active plugins offer). */
+  viewData?: RootViewData;
   view?: {
     tx?: number;
     ty?: number;

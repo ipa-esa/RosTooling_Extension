@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { GlspClientBridge, GGraph, GModelElement, RosTextEditsResult } from '../glsp/GlspClientBridge';
 import { layoutFromGGraph, renderDiagramSvg } from '../glsp/GGraphSvgRenderer';
+import { readViewData, VIEW_DATA_VERSION } from '../glsp/RosViewData';
 
 /**
  * Block 4 verification gate (headless, against the real Java GLSP/Xtext server):
@@ -201,5 +202,82 @@ suite('GLSP Integration (Block 4 gate)', function () {
     assert.ok((ros2?.packages?.[0].artifacts.length || 0) >= 3);
     assert.ok(ros?.packages?.[0].specs.some((s) => s.fullname === 'inspection_msgs/msg/DefectReport'));
     assert.strictEqual(sys?.system?.name, 'inspection_system');
+  });
+
+  test('view data: one versioned format carries bases, libraries, slots and blocks to the GUI', async () => {
+    const pkgFile = path.join(dir, 'view_pkg.ros2');
+    fs.writeFileSync(pkgFile, [
+      'view_pkg:',
+      '  pluginbases:',
+      '    Planner:',
+      '      class: "view_pkg::Planner"',
+      '      header: "view_pkg/planner.hpp"',
+      '      loader: pluginlib',
+      '  artifacts:',
+      '    planners:',
+      '      plugins:',
+      '        Straight:',
+      '          implements: view_pkg.Planner',
+      '        Smooth:',
+      '          implements: view_pkg.Planner',
+      '    server:',
+      '      node: server',
+      '      pluginslots:',
+      '        planners:',
+      '          base: view_pkg.Planner',
+      '          parameter: planner_plugins',
+      '          multiple: true',
+      '',
+    ].join('\n'));
+    const { graph } = await bridge.openSession('it_view_pkg', pkgFile);
+    const project = GlspClientBridge.gGraphToRosProject(graph, [], { fileName: pkgFile });
+    assert.strictEqual(project.viewData?.kind, 'packageSet');
+    const pkg = project.packages.view_pkg;
+    assert.deepStrictEqual(pkg.viewData?.pluginBases.map((b) => b.ref), ['view_pkg.Planner']);
+    const plugins = project.nodes.filter((n) => n.viewData?.kind === 'plugin');
+    assert.deepStrictEqual(plugins.map((n) => n.label), ['Straight', 'Smooth']);
+    assert.ok(plugins.every((n) => n.viewData?.kind === 'plugin' && n.viewData.artifact.name === 'planners'
+      && n.viewData.implements === 'view_pkg.Planner' && n.viewData.loader === 'pluginlib'));
+    const server = project.nodes.find((n) => n.label === 'server');
+    assert.strictEqual(server?.viewData?.kind, 'node');
+    assert.deepStrictEqual(server?.viewData?.kind === 'node' ? server.viewData.pluginSlots.map((sl) => [sl.name, sl.multiple]) : [],
+      [['planners', true]]);
+    assert.ok(findAll(graph, () => true).every((e) => e.args?.pluginSlotsJson === undefined && e.args?.extensionsJson === undefined),
+      'the loose plugin args are gone');
+    await bridge.disposeSession('it_view_pkg');
+
+    const sysFile = path.join(dir, 'view_sys.rossystem');
+    fs.writeFileSync(sysFile, 'view_sys:\n  nodes:\n    srv:\n      from: "view_pkg.server"\n');
+    await bridge.openSession('it_view_sys', sysFile);
+    // The inspector's edits: attach plugins to a slot, then add a block to the system root.
+    await bridge.dispatchAction('it_view_sys', {
+      kind: 'editRosProperty', isOperation: true, elementId: 'srv',
+      property: 'slot', key: 'planners', value: 'view_pkg.Straight, view_pkg.Smooth',
+    });
+    await bridge.dispatchAction('it_view_sys', {
+      kind: 'editRosProperty', isOperation: true, elementId: 'root',
+      property: 'setExtensionBlock', key: 'notes', value: '{"owner":"ops"}',
+    });
+    const edits = await bridge.requestTextEdits('it_view_sys');
+    assert.ok(edits.newText.includes('planners: [view_pkg.Straight, view_pkg.Smooth]'), edits.newText);
+    assert.ok(edits.newText.includes('@notes:'), edits.newText);
+    const sysGraph = await bridge.reloadModel('it_view_sys', sysFile, edits.newText);
+    const sysProject = GlspClientBridge.gGraphToRosProject(sysGraph, [], { fileName: sysFile });
+    const srv = sysProject.nodes.find((n) => n.label === 'srv');
+    assert.deepStrictEqual(srv?.viewData?.kind === 'rosNode' ? srv.viewData.slots : [],
+      [{ slot: 'planners', base: 'view_pkg.Planner', multiple: true, plugins: ['view_pkg.Straight', 'view_pkg.Smooth'] }]);
+    const root = readViewData(sysGraph, 'system');
+    assert.deepStrictEqual(root?.blocks.map((b) => [b.name, b.plugin, b.entries]), [['notes', '', { owner: 'ops' }]]);
+    assert.deepStrictEqual(root?.contributions, [], 'a block no plugin registers gets no badge');
+    await bridge.disposeSession('it_view_sys');
+  });
+
+  test('view data of an unknown version is ignored rather than misread', () => {
+    const el = (v: unknown) => ({ args: { viewData: JSON.stringify(v) } });
+    assert.strictEqual(readViewData(el({ version: VIEW_DATA_VERSION, kind: 'package', pluginBases: [] }), 'package')?.kind, 'package');
+    assert.strictEqual(readViewData(el({ version: VIEW_DATA_VERSION + 1, kind: 'package', pluginBases: [] })), undefined);
+    assert.strictEqual(readViewData(el({ version: VIEW_DATA_VERSION, kind: 'plugin' }), 'node'), undefined);
+    assert.strictEqual(readViewData({ args: { viewData: '{not json' } }), undefined);
+    assert.strictEqual(readViewData({ args: {} }), undefined);
   });
 });

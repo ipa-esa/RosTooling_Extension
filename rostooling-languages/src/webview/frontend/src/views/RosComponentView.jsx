@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Box, Plus, Trash2, Copy, Activity, Sliders, Settings2, Braces, FileCode2 } from 'lucide-react';
+import { Box, Plus, Trash2, Copy, Activity, Sliders, Settings2, Braces, FileCode2, Puzzle, Library, Plug } from 'lucide-react';
 import {
   useStudio,
   setUIState,
@@ -13,6 +13,8 @@ import {
 } from '../state/studioStore';
 import { hostBridge } from '../state/vscodeBridge';
 import { CommitInput } from '../components/CommitInput';
+import { Contributions } from '../components/Contributions';
+import { BlockInspector } from '../components/BlockInspector';
 
 // ============================================================================
 // .ros2 component contracts: React form over the server GGraph (node:ros-package).
@@ -45,13 +47,35 @@ function ErrorText({ ids }) {
   );
 }
 
+const isPlugin = (n) => n?.viewData?.kind === 'plugin';
+
+/** Plugins grouped by the library artifact that holds them, in model order. */
+function librariesOf(plugins) {
+  const libs = new Map();
+  for (const p of plugins) {
+    const lib = p.viewData?.artifact?.name || p.artifact || '';
+    if (!libs.has(lib)) libs.set(lib, { name: lib, id: p.viewData?.artifact?.id || p.artifactId, plugins: [] });
+    libs.get(lib).plugins.push(p);
+  }
+  return [...libs.values()];
+}
+
+/** "MyPlanner" -> "my_planner" */
+function snake(name) {
+  return String(name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
 export function RosComponentView() {
   const studio = useStudio();
-  const { project, isReadOnly, docFileName, selectedNodeId, interfaceFilter, typeIndex, pending } = studio;
+  const { project, isReadOnly, docFileName, selectedNodeId, selectedBaseId, interfaceFilter, typeIndex, pending } = studio;
 
-  const nodes = (project.nodes || []).filter((n) => n.backing !== 'type');
-  const activeNode = nodes.find((n) => n.id === selectedNodeId) || nodes[0] || null;
+  const artifacts = (project.nodes || []).filter((n) => n.backing !== 'type');
+  const nodes = artifacts.filter((n) => !isPlugin(n));
+  const libraries = librariesOf(artifacts.filter(isPlugin));
   const pkg = packageOf(project);
+  const bases = pkg?.viewData?.pluginBases || [];
+  const activeBase = bases.find((b) => b.id === selectedBaseId) || null;
+  const activeNode = activeBase ? null : artifacts.find((n) => n.id === selectedNodeId) || artifacts[0] || null;
   const pkgName = getDisplayModelName(project, 'component', docFileName);
   const busy = isReadOnly || pending > 0;
 
@@ -71,6 +95,19 @@ export function RosComponentView() {
     const name = uniqueName(nodes.map((n) => n.artifact || n.label), 'node');
     editProperty(pkg.id, 'addArtifact', name, { key: name });
   };
+  const addPlugin = (libName) => {
+    if (!pkg?.id) return;
+    const lib = libName || uniqueName(libraries.map((l) => l.name), 'plugins');
+    const existing = libraries.find((l) => l.name === lib)?.plugins.map((p) => p.label) || [];
+    editProperty(pkg.id, 'addPlugin', bases[0]?.ref || '', { key: `${lib}::${uniqueName(existing, 'Plugin')}` });
+  };
+  const addBase = () => {
+    if (!pkg?.id) return;
+    const name = uniqueName(bases.map((b) => b.name), 'Base');
+    editProperty(pkg.id, 'addPluginBase',
+      JSON.stringify({ class: `${pkgName}::${name}`, header: `${pkgName}/${snake(name)}.hpp`, loader: 'pluginlib' }), { key: name });
+  };
+  const selectArtifact = (id) => setUIState({ selectedNodeId: id, selectedBaseId: null });
 
   return (
     <div className="rt-comp-layout">
@@ -99,24 +136,91 @@ export function RosComponentView() {
             )}
           </div>
           {nodes.length === 0 ? (
-            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>No artifacts defined in this `.ros2` package yet.</p>
+            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>No nodes in this `.ros2` package yet.</p>
           ) : (
             nodes.map((n) => (
               <button key={n.id} type="button" className={`rt-node-list-item ${activeNode?.id === n.id ? 'active' : ''}`}
-                onClick={() => setUIState({ selectedNodeId: n.id })}>
+                onClick={() => selectArtifact(n.id)}>
                 <div style={{ minWidth: 0 }}>
                   <strong style={{ display: 'block', fontSize: 12.5 }}>{n.label}</strong>
                   <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>
                     exec: {n.artifact || n.label} · {(n.ifaces || []).length} ports
+                    {(n.viewData?.pluginSlots || []).length > 0 ? ` · ${n.viewData.pluginSlots.length} slots` : ''}
                   </small>
                 </div>
                 {n.isLifecycle && <span className="rt-badge lifecycle" title="LifecycleNode">LC</span>}
+                <Contributions items={n.viewData?.contributions} />
               </button>
             ))
           )}
-          {nodes.length > 0 && (
+
+          <div className="rt-section-hdr">
+            <h3><Library size={13} /> Plugin Libraries ({libraries.length})</h3>
+            {!isReadOnly && (
+              <button type="button" className="rt-btn" disabled={busy || !pkg?.id} title="New library artifact with one plugin"
+                onClick={() => addPlugin(null)}>
+                <Plus size={12} /> New
+              </button>
+            )}
+          </div>
+          {libraries.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>No plugin libraries in this package.</p>
+          ) : (
+            libraries.map((lib) => (
+              <div key={lib.name} className="rt-library-card" data-testid={`library-${lib.name}`}>
+                <div className="rt-library-hdr">
+                  <small style={{ fontFamily: 'var(--rt-mono)' }}>library: {lib.name}</small>
+                  {!isReadOnly && (
+                    <button type="button" className="rt-btn subtle icon-only" disabled={busy} title={`Add a plugin to ${lib.name}`}
+                      onClick={() => addPlugin(lib.name)}>
+                      <Plus size={12} />
+                    </button>
+                  )}
+                </div>
+                {lib.plugins.map((p) => (
+                  <button key={p.id} type="button" className={`rt-node-list-item ${activeNode?.id === p.id ? 'active' : ''}`}
+                    onClick={() => selectArtifact(p.id)}>
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ display: 'block', fontSize: 12.5 }}><Plug size={11} /> {p.label}</strong>
+                      <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>
+                        implements: {p.viewData?.implements || '—'}
+                      </small>
+                    </div>
+                    <Contributions items={p.viewData?.contributions} />
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+
+          <div className="rt-section-hdr">
+            <h3><Puzzle size={13} /> Plugin Bases ({bases.length})</h3>
+            {!isReadOnly && (
+              <button type="button" className="rt-btn" disabled={busy || !pkg?.id} onClick={addBase}>
+                <Plus size={12} /> New
+              </button>
+            )}
+          </div>
+          {bases.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--rt-muted)' }}>No plugin bases declared.</p>
+          ) : (
+            bases.map((b) => (
+              <button key={b.id} type="button" className={`rt-node-list-item ${activeBase?.id === b.id ? 'active' : ''}`}
+                data-testid={`base-${b.name}`} onClick={() => setUIState({ selectedBaseId: b.id })}>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block', fontSize: 12.5 }}>{b.name}</strong>
+                  <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>
+                    {b.class} · {b.loader}
+                  </small>
+                </div>
+                <Contributions items={b.contributions} />
+              </button>
+            ))
+          )}
+
+          {artifacts.length > 0 && (
             <button type="button" className="rt-btn" style={{ width: '100%', marginTop: 12 }}
-              onClick={() => hostBridge.generateWrappers(nodes.map((n) => n.label))}>
+              onClick={() => hostBridge.generateWrappers(artifacts.map((n) => n.label))}>
               <FileCode2 size={14} /> Generate ROS 2 Wrappers
             </button>
           )}
@@ -125,7 +229,9 @@ export function RosComponentView() {
 
       <main className="rt-comp-main">
         <div className="rt-comp-container">
-          {!activeNode ? (
+          {activeBase ? (
+            <BaseEditor base={activeBase} pkg={pkg} artifacts={artifacts} busy={busy} isReadOnly={isReadOnly} />
+          ) : !activeNode ? (
             <div className="rt-empty-state">
               <Box size={32} style={{ color: '#34d399', marginBottom: 10 }} />
               <h2 style={{ margin: '0 0 8px', fontSize: 17 }}>Author a ROS 2 Node Contract</h2>
@@ -140,7 +246,7 @@ export function RosComponentView() {
             </div>
           ) : (
             <NodeEditor node={activeNode} pkg={pkg} busy={busy} isReadOnly={isReadOnly} interfaceFilter={interfaceFilter}
-              typesByFamily={typesByFamily} />
+              typesByFamily={typesByFamily} baseRefs={bases.map((b) => b.ref)} />
           )}
         </div>
       </main>
@@ -148,24 +254,34 @@ export function RosComponentView() {
   );
 }
 
-function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamily }) {
-  const { vocabulary } = useStudio();
+function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamily, baseRefs }) {
+  const { vocabulary, project } = useStudio();
   const ifaces = node.ifaces || [];
   const params = node.params || [];
   const artifactId = node.artifactId || node.id;
+  const plugin = isPlugin(node) ? node.viewData : null;
 
   return (
     <>
       <div className="rt-card">
         <div className="rt-section-hdr">
           <div>
-            <h2 style={{ margin: 0, fontSize: 16 }}>{node.label}</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>{plugin && <Plug size={14} />} {node.label}</h2>
             <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>
-              {node.pkg}.{node.label} · executable `{node.artifact}`
+              {plugin
+                ? `${node.pkg}.${node.label} · plugin in library \`${node.artifact}\``
+                : `${node.pkg}.${node.label} · executable \`${node.artifact}\``}
             </small>
           </div>
           {node.isLifecycle && <span className="rt-badge lifecycle"><Activity size={11} /> LifecycleNode</span>}
-          {!isReadOnly && (
+          <Contributions items={node.viewData?.contributions} />
+          {plugin && !isReadOnly && (
+            <button type="button" className="rt-btn danger" disabled={busy} title="Delete Plugin"
+              onClick={() => { deleteElements([node.id]); setUIState({ selectedNodeId: null }); }}>
+              <Trash2 size={13} /> Delete Plugin
+            </button>
+          )}
+          {!plugin && !isReadOnly && (
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" className="rt-btn" disabled={busy || !pkg?.id} title="Duplicate Node Contract"
                 onClick={() => editProperty(pkg.id, 'duplicateArtifact', `${node.artifact}_copy`, { key: artifactId })}>
@@ -207,6 +323,34 @@ function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamil
         </div>
       </div>
 
+      {plugin && (
+        <div className="rt-card">
+          <div className="rt-section-hdr"><h3>Plugin Identity</h3></div>
+          <div className="rt-grid-2">
+            <div className="rt-field">
+              <label>Plugin Name</label>
+              <CommitInput value={node.label} disabled={busy} onCommit={(v) => v.trim() && editProperty(node.id, 'name', v.trim())} />
+            </div>
+            <div className="rt-field">
+              <label>Library (`artifacts`)</label>
+              <CommitInput value={node.artifact || ''} disabled={busy}
+                onCommit={(v) => v.trim() && editProperty(artifactId, 'artifactName', v.trim())} />
+            </div>
+            <div className="rt-field">
+              <label>Implements (`package.Base`)</label>
+              <CommitInput value={plugin.implements || ''} disabled={busy} list="rt-base-refs" placeholder="pkg.Base"
+                onCommit={(v) => v.trim() && editProperty(node.id, 'implements', v.trim())} />
+            </div>
+            <div className="rt-field">
+              <label>Loader (from the base)</label>
+              <code className="rt-sys-code">{plugin.loader || '—'}</code>
+            </div>
+          </div>
+          <BaseRefList baseRefs={baseRefs} />
+        </div>
+      )}
+
+      {!plugin && (
       <div className="rt-card">
         <div className="rt-section-hdr"><h3>Node Identity & Lifecycle</h3></div>
         <div className="rt-grid-2">
@@ -227,6 +371,11 @@ function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamil
           <span>Managed ROS 2 `LifecycleNode` (`lifecycle: true`)</span>
         </label>
       </div>
+      )}
+
+      {!plugin && node.viewData?.kind === 'node' && (
+        <SlotsCard node={node} busy={busy} isReadOnly={isReadOnly} baseRefs={baseRefs} />
+      )}
 
       <div className="rt-card">
         <div className="rt-section-hdr">
@@ -306,7 +455,138 @@ function NodeEditor({ node, pkg, busy, isReadOnly, interfaceFilter, typesByFamil
           ))
         )}
       </div>
+
+      <BlockInspector className="rt-card" elementId={node.id} blocks={node.viewData?.blocks}
+        available={project.viewData?.availableBlocks} location={plugin ? 'PLUGIN' : 'NODE'} editable={!busy} />
     </>
+  );
+}
+
+/** Known base references, offered (not enforced) in `implements` and slot `base` fields. */
+function BaseRefList({ baseRefs }) {
+  return (
+    <datalist id="rt-base-refs">
+      {(baseRefs || []).map((r) => <option key={r} value={r} />)}
+    </datalist>
+  );
+}
+
+function SlotsCard({ node, busy, isReadOnly, baseRefs }) {
+  const slots = node.viewData?.pluginSlots || [];
+  const addSlot = () => {
+    const name = uniqueName(slots.map((s) => s.name), 'slot');
+    editProperty(node.id, 'addPluginSlot', JSON.stringify({ base: baseRefs?.[0] || '', parameter: `${name}_plugin` }), { key: name });
+  };
+  return (
+    <div className="rt-card" data-testid="plugin-slots">
+      <div className="rt-section-hdr">
+        <h3><Plug size={14} /> Plugin Slots ({slots.length})</h3>
+        {!isReadOnly && (
+          <button type="button" className="rt-btn" disabled={busy} onClick={addSlot}>
+            <Plus size={12} /> Add Slot
+          </button>
+        )}
+      </div>
+      <BaseRefList baseRefs={baseRefs} />
+      {slots.length === 0 ? (
+        <small style={{ color: 'var(--rt-dim)' }}>No plugin slots. A slot lets a system attach plugins of one base to this node.</small>
+      ) : (
+        slots.map((sl) => (
+          <div key={sl.id} className="rt-slot-card">
+            <div className="rt-grid-2">
+              <div className="rt-field">
+                <label>Slot</label>
+                <CommitInput value={sl.name} disabled={busy} onCommit={(v) => v.trim() && editProperty(sl.id, 'name', v.trim())} />
+              </div>
+              <div className="rt-field">
+                <label>Base (`package.Base`)</label>
+                <CommitInput value={sl.base} disabled={busy} list="rt-base-refs"
+                  onCommit={(v) => v.trim() && editProperty(sl.id, 'base', v.trim())} />
+              </div>
+              <div className="rt-field">
+                <label>Parameter</label>
+                <CommitInput value={sl.parameter} disabled={busy} style={{ fontFamily: 'var(--rt-mono)' }}
+                  onCommit={(v) => v.trim() && editProperty(sl.id, 'parameter', v.trim())} />
+              </div>
+              <div className="rt-field">
+                <label>Default plugin (`package.Plugin`)</label>
+                <CommitInput value={sl.default} disabled={busy} placeholder="— none —"
+                  onCommit={(v) => editProperty(sl.id, 'default', v.trim())} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <label className="rt-checkbox-row">
+                <input type="checkbox" disabled={busy} checked={Boolean(sl.multiple)}
+                  onChange={(e) => editProperty(sl.id, 'multiple', e.target.checked)} />
+                <span>Takes several plugins (`multiple`)</span>
+              </label>
+              <select className="rt-select" disabled={busy} value={sl.format} title="Value format of the parameter"
+                onChange={(e) => editProperty(sl.id, 'format', e.target.value)}>
+                <option value="class">class names</option>
+                <option value="library">library names</option>
+              </select>
+              {!isReadOnly && (
+                <button type="button" className="rt-btn danger icon-only" disabled={busy} title="Delete slot"
+                  onClick={() => deleteElements([sl.id])}>
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+            <ErrorText ids={[sl.id]} />
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function BaseEditor({ base, pkg, artifacts, busy, isReadOnly }) {
+  const { project } = useStudio();
+  const loaders = ['pluginlib', ...((project.viewData?.loaders || []).map((l) => l.id))];
+  const implementers = artifacts.filter((n) => isPlugin(n) && n.viewData.implements === base.ref);
+  const field = (label, prop, value, opts = {}) => (
+    <div className="rt-field">
+      <label>{label}</label>
+      <CommitInput value={value} disabled={busy} list={opts.list} style={{ fontFamily: 'var(--rt-mono)' }}
+        onCommit={(v) => v.trim() && editProperty(base.id, prop, v.trim())} />
+    </div>
+  );
+  return (
+    <div className="rt-card" data-testid="base-editor">
+      <div className="rt-section-hdr">
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16 }}><Puzzle size={14} /> {base.name}</h2>
+          <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)' }}>plugin base {base.ref}</small>
+        </div>
+        <Contributions items={base.contributions} />
+        {!isReadOnly && (
+          <button type="button" className="rt-btn danger" disabled={busy || !pkg?.id} title="Delete Plugin Base"
+            onClick={() => { deleteElements([base.id]); setUIState({ selectedBaseId: null }); }}>
+            <Trash2 size={13} /> Delete Base
+          </button>
+        )}
+      </div>
+      <ErrorText ids={[base.id]} />
+      <div className="rt-grid-2">
+        {field('Name', 'name', base.name)}
+        {field('C++ class (`class`)', 'class', base.class)}
+        {field('Header (`header`)', 'header', base.header)}
+        {field('Loader (`loader`)', 'loader', base.loader, { list: 'rt-loaders' })}
+      </div>
+      <datalist id="rt-loaders">{loaders.map((l) => <option key={l} value={l} />)}</datalist>
+      <div className="rt-section-hdr"><h3>Implemented in this package ({implementers.length})</h3></div>
+      {implementers.length === 0 ? (
+        <small style={{ color: 'var(--rt-dim)' }}>No plugin of this package implements {base.ref}.</small>
+      ) : (
+        implementers.map((p) => (
+          <button key={p.id} type="button" className="rt-node-list-item"
+            onClick={() => setUIState({ selectedNodeId: p.id, selectedBaseId: null })}>
+            <strong style={{ fontSize: 12.5 }}><Plug size={11} /> {p.label}</strong>
+            <small style={{ color: 'var(--rt-muted)', fontFamily: 'var(--rt-mono)', fontSize: 10.5 }}>library: {p.artifact}</small>
+          </button>
+        ))
+      )}
+    </div>
   );
 }
 

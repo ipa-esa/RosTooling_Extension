@@ -94,6 +94,8 @@ const state = {
   typeIndex: init.typeIndex,
 
   selectedNodeId: init.mode === 'component' ? init.project.nodes?.[0]?.id || null : null,
+  /** Package view: the selected plugin base (its element id), shown instead of a node. */
+  selectedBaseId: null,
   selectedEdgeId: null,
   selectedSubsystemRef: null,
   selectedProcessName: null,
@@ -139,6 +141,10 @@ function reconcileSelection() {
     nodes.some((n) => n.id === id) || (state.mode === 'system' && collectElementIds(state.gGraph).has(id));
   if (state.selectedNodeId && !exists(state.selectedNodeId)) {
     state.selectedNodeId = state.mode === 'component' ? nodes[0]?.id || null : null;
+  }
+  if (state.selectedBaseId) {
+    const bases = Object.values(state.project.packages || {}).flatMap((p) => p.viewData?.pluginBases || []);
+    if (!bases.some((b) => b.id === state.selectedBaseId)) state.selectedBaseId = null;
   }
   if (state.selectedEdgeId && !(state.project.connections || []).some((c) => c.id === state.selectedEdgeId)) {
     state.selectedEdgeId = null;

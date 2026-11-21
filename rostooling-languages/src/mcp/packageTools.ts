@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { GGraph, GModelElement, GlspClientBridge } from '../glsp/GlspClientBridge.js';
+import { readViewData } from '../glsp/RosViewData.js';
 import {
   Bridge,
   ModelSession,
@@ -96,13 +97,17 @@ function artifactElements(graph: GGraph): GModelElement[] {
 function findArtifactElement(graph: GGraph, name: string): GModelElement | undefined {
   const els = artifactElements(graph);
   return (
-    els.find((n) => n.args?.nodeName === name || (!n.args?.isPlugin && n.args?.artifactName === name)) ||
+    els.find((n) => n.args?.nodeName === name || (!isPluginElement(n) && n.args?.artifactName === name)) ||
     els.find((n) => n.args?.artifactName === name)
   );
 }
 
+function isPluginElement(el: GModelElement): boolean {
+  return readViewData(el, 'plugin') !== undefined;
+}
+
 function artifactKey(el: GModelElement): string {
-  if (el.args?.isPlugin) {
+  if (isPluginElement(el)) {
     return String(el.args?.nodeName || el.args?.artifactName || '');
   }
   return String(el.args?.artifactName || el.args?.nodeName || '');
@@ -117,17 +122,23 @@ function parseParameters(artEl: GModelElement): ParsedParameter[] {
 }
 
 function describeArtifact(artEl: GModelElement): Record<string, unknown> {
-  const pluginSlots = parseJsonArray<{ name: string; base?: string; parameter?: string; default?: string }>(
-    artEl.args?.pluginSlotsJson
-  );
+  const pluginSlots = (readViewData(artEl, 'node')?.pluginSlots || []).map((sl) => ({
+    name: sl.name,
+    base: sl.base,
+    parameter: sl.parameter,
+    format: sl.format,
+    multiple: sl.multiple,
+    ...(sl.default ? { default: sl.default } : {}),
+  }));
+  const plugin = readViewData(artEl, 'plugin');
   return {
     artifact: artEl.args?.artifactName,
     node: artEl.args?.nodeName,
     package: artEl.args?.packageName,
     lifecycle: Boolean(artEl.args?.isLifecycle),
-    ...(artEl.args?.isPlugin ? { isPlugin: true } : {}),
-    ...(artEl.args?.implements ? { implements: String(artEl.args.implements) } : {}),
-    ...(artEl.args?.loader ? { loader: String(artEl.args.loader) } : {}),
+    ...(plugin ? { isPlugin: true } : {}),
+    ...(plugin?.implements ? { implements: plugin.implements } : {}),
+    ...(plugin?.loader ? { loader: plugin.loader } : {}),
     ...(pluginSlots.length ? { pluginSlots } : {}),
     interfaces: parseInterfaces(artEl).map((i) => ({
       name: i.name,
@@ -158,7 +169,7 @@ interface ParsedPluginBase {
 
 function pluginBases(graph: GGraph): Omit<ParsedPluginBase, 'id'>[] {
   const pkg = packageElements(graph)[0];
-  return parseJsonArray<ParsedPluginBase>(pkg?.args?.pluginBasesJson).map((b) => ({
+  return (readViewData(pkg, 'package')?.pluginBases || []).map((b) => ({
     name: b.name,
     ref: b.ref,
     class: b.class,
@@ -296,7 +307,7 @@ export async function addPlugin(
 ): Promise<ToolOutcome> {
   return withPackage(bridge, p.package_path, false, async (s) => {
     const existingPlugin = artifactElements(s.graph).find(
-      (n) => n.args?.isPlugin && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
+      (n) => isPluginElement(n) && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
     );
     if (existingPlugin) {
       return failOutcome(
@@ -333,7 +344,7 @@ export async function addPlugin(
     const { changed, graph, markers } = await commitModel(bridge, s);
     const createdPlugin =
       artifactElements(graph).find(
-        (n) => n.args?.isPlugin && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
+        (n) => isPluginElement(n) && n.args?.artifactName === p.artifact_name && n.args?.nodeName === p.plugin_name
       ) || findArtifactElement(graph, p.plugin_name);
     const m = summarizeMarkers(markers);
     if (!createdPlugin) {
@@ -425,7 +436,7 @@ export async function addPluginSlot(
       });
     }
     const artName = artifactKey(art);
-    const existingSlots = parseJsonArray<{ name: string }>(art.args?.pluginSlotsJson);
+    const existingSlots = readViewData(art, 'node')?.pluginSlots || [];
     if (existingSlots.some((sl) => sl.name === p.name)) {
       return failOutcome(s, `PluginSlot '${p.name}' already exists on '${artName}'.`, {
         artifact: describeArtifact(art),
@@ -447,9 +458,7 @@ export async function addPluginSlot(
     const { changed, graph, markers } = await commitModel(bridge, s);
     const afterArt = findArtifactElement(graph, artName);
     const createdSlot = afterArt
-      ? parseJsonArray<{ name: string; base?: string; parameter?: string; format?: string; default?: string }>(
-          afterArt.args?.pluginSlotsJson
-        ).find((sl) => sl.name === p.name)
+      ? (readViewData(afterArt, 'node')?.pluginSlots || []).find((sl) => sl.name === p.name)
       : undefined;
     const m = summarizeMarkers(markers);
     if (!afterArt || !createdSlot) {

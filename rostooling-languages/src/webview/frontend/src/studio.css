@@ -1347,3 +1347,84 @@ details.qos-details > summary {
 /* Canvas highlight of hovered auto-connect ports / cards */
 .sprotty-graph .ros-ac-highlight .ros-port-box { stroke: var(--rt-border-strong); stroke-width: 3; }
 .sprotty-graph .ros-ac-highlight > rect:first-child { stroke: var(--rt-border-strong); stroke-width: 2.5; }
+
+/* ---- Plugin view data (Phase 4 step 6): badges, libraries, slots, @ blocks ---- */
+.rt-contributions {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.rt-badge.plugin {
+  background: rgba(168, 85, 247, 0.14);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.rt-library-card {
+  margin-bottom: 8px;
+  padding: 6px;
+  border: 1px dashed var(--rt-border);
+  border-radius: var(--rt-radius-sm);
+}
+
+.rt-library-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  color: var(--rt-muted);
+}
+
+.rt-slot-card,
+.rt-block-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border);
+  background: var(--rt-surface);
+}
+
+.rt-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+}
+
+.rt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--rt-surface-2);
+  border: 1px solid var(--rt-border);
+  font-size: 11px;
+}
+
+.rt-chip-x {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: var(--rt-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.rt-block-name {
+  font-weight: 700;
+}
+
+.rt-block-title,
+.rt-block-key {
+  color: var(--rt-muted);
+  font-weight: 400;
+}
+
+.rt-block-help {
+  display: block;
+  margin: 2px 0 6px;
+  font-size: 11px;
+  color: var(--rt-muted);
+}
