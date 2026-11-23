@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       rostooling_version:
-        description: 'RosTooling version from GitHub Packages, e.g. 3.7.0-SNAPSHOT for the latest beta (empty = the stable version in build.gradle)'
+        description: 'RosTooling version from GitHub Packages, e.g. 3.7.0-SNAPSHOT for the latest RosTooling devel build (empty = the stable version in build.gradle)'
         required: false
         type: string
         default: ''
