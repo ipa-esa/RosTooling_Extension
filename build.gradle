@@ -15,7 +15,8 @@ apply plugin: 'net.researchgate.release'
 ext {
     xtextVersion = '2.42.0'
     group = 'de.fraunhofer.ipa.ros'
-    version = '3.6.0'
+    // RosTooling version to build against; -ProstoolingVersion=3.7.0-SNAPSHOT picks the beta channel.
+    version = project.findProperty('rostoolingVersion') ?: '3.6.0'
 }
 
 java {

@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: false
+      rostooling_version:
+        description: 'RosTooling version from GitHub Packages, e.g. 3.7.0-SNAPSHOT for the latest beta (empty = the stable version in build.gradle)'
+        required: false
+        type: string
+        default: ''
       rostooling_ref:
         description: 'Build RosTooling from this branch/tag/SHA of ipa-esa/RosTooling instead of the published packages (empty = published)'
         required: false
@@ -88,6 +93,18 @@ jobs:
         working-directory: rostooling-src
         run: ./mvnw -B install -DskipTests -f plugins/de.fraunhofer.ipa.ros.parent/pom.xml
 
+      # A SNAPSHOT is re-published under the same version, so never take it from a cache.
+      - name: RosTooling version arguments
+        id: rostooling
+        run: |
+          args=""
+          if [ -n "${{ inputs.rostooling_version }}" ]; then
+            args="-ProstoolingVersion=${{ inputs.rostooling_version }}"
+            case "${{ inputs.rostooling_version }}" in *-SNAPSHOT) args="$args --refresh-dependencies";; esac
+            echo "RosTooling ${{ inputs.rostooling_version }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
       # Pre-release versions: <major>.<smallest odd minor above package.json's>.<run number>,
       # e.g. 2.7.42 while package.json says 2.5.x. Unique per run, never a semver suffix
       # (marketplaces reject those), and above every stable 2.5.x/2.6.x, so testers keep
@@ -104,7 +121,7 @@ jobs:
           echo "Pre-release version $version (from $base)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build VS-Code extension (.vsix)
-        run: ./gradlew vscodeExtension ${{ inputs.pre_release && '-PpreRelease' || '' }}
+        run: ./gradlew vscodeExtension ${{ inputs.pre_release && '-PpreRelease' || '' }} ${{ steps.rostooling.outputs.args }}
         env:
           USERNAME: ${{ github.actor }}
           TOKEN: ${{ secrets.GPR_KEY }}
