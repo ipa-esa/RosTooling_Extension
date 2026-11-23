@@ -186,6 +186,16 @@ Or via Gradle:
 
 ---
 
+## Beta / Pre-Release Channel
+
+Pre-release builds let testers try unreleased `RosTooling` (`devel`) and extension changes from Open VSX without affecting stable users:
+
+1. **Deploy a `RosTooling` SNAPSHOT**: Pushing to `ipa-esa/RosTooling` `devel` publishes the next `<major>.<minor+1>.0-SNAPSHOT` artifact to GitHub Packages.
+2. **Build & publish the extension pre-release**: In GitHub Actions, run the **Gradle Package** workflow manually (`workflow_dispatch`) with **`pre_release`** checked (and **`publish_openvsx`** checked to upload to Open VSX). When `rostooling_version` is left empty with `pre_release` enabled, the workflow automatically resolves `"devel"` (the newest `RosTooling` `-SNAPSHOT` newer than the latest release).
+3. **Opt in as a tester**: In VS Code's Extensions view, open **RosTooling Languages** and click **Switch to Pre-Release Version**. Switch back anytime with **Switch to Release Version**.
+
+---
+
 ## Contributing
 
 1. Fork the repository.

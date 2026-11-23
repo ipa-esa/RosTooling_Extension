@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       rostooling_version:
-        description: 'RosTooling from GitHub Packages: "devel" = newest devel SNAPSHOT, or an exact version (empty = the version in build.gradle)'
+        description: 'RosTooling from GitHub Packages: "devel" = newest devel SNAPSHOT, or an exact version (empty = "devel" for pre_release, else build.gradle version)'
         required: false
         type: string
         default: ''
@@ -101,26 +101,13 @@ jobs:
         id: rostooling
         env:
           TOKEN: ${{ secrets.GPR_KEY }}
-          REQUESTED: ${{ inputs.rostooling_version }}
+          REQUESTED: ${{ inputs.rostooling_version || (inputs.pre_release && inputs.rostooling_ref == '' && 'devel') || '' }}
         run: |
-          version="$REQUESTED"
-          if [ "$version" = "devel" ]; then
-            versions=$(curl -sf -u "x:$TOKEN" \
-              https://maven.pkg.github.com/ipa-esa/RosTooling/de/fraunhofer/ipa/ros/de.fraunhofer.ipa.ros/maven-metadata.xml \
-              | grep -o '<version>[^<]*</version>' | sed 's:</\?version>::g')
-            snapshot=$(echo "$versions" | grep -- '-SNAPSHOT$' | sort -V | tail -1)
-            release=$(echo "$versions" | grep -v -- '-SNAPSHOT$' | sort -V | tail -1)
-            if [ -z "$snapshot" ] || [ "$(printf '%s\n%s\n' "${snapshot%-SNAPSHOT}" "$release" | sort -V | tail -1)" = "$release" ]; then
-              echo "::error::No RosTooling devel SNAPSHOT newer than release $release (newest SNAPSHOT: ${snapshot:-none}). Push to RosTooling devel first."
-              exit 1
-            fi
-            version="$snapshot"
-          fi
-          args=""
-          if [ -n "$version" ]; then
-            args="-ProstoolingVersion=$version"
-            case "$version" in *-SNAPSHOT) args="$args --refresh-dependencies";; esac
-            echo "RosTooling $version${REQUESTED:+ (requested: $REQUESTED)}" >> "$GITHUB_STEP_SUMMARY"
+          args="$(.github/scripts/rostooling-version.sh "$REQUESTED")"
+          if [ -n "$args" ]; then
+            resolved="${args#-ProstoolingVersion=}"
+            resolved="${resolved%% *}"
+            echo "RosTooling $resolved${REQUESTED:+ (requested: $REQUESTED)}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "args=$args" >> "$GITHUB_OUTPUT"
 

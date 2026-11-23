@@ -59,11 +59,19 @@ jobs:
           npm --prefix src/webview/frontend ci
           npm install --no-save @microsoft/eslint-formatter-sarif@3.1.0
 
+      - name: RosTooling version arguments
+        id: rostooling
+        env:
+          TOKEN: ${{ secrets.GPR_KEY }}
+        run: |
+          args="$(.github/scripts/rostooling-version.sh --ci)"
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
       - name: Build Language Server JAR and Copy Backend
-        run: ./gradlew :rostooling-languages:copyFatJar :rostooling-languages:copyStudioBackend
+        run: ./gradlew :rostooling-languages:copyFatJar :rostooling-languages:copyStudioBackend ${{ steps.rostooling.outputs.args }}
         env:
           USERNAME: ${{ github.actor }}
-          TOKEN: ${{ secrets.GPR_KEY || secrets.GITHUB_TOKEN }}
+          TOKEN: ${{ secrets.GPR_KEY }}
 
       - name: Compile TypeScript
         working-directory: rostooling-languages
