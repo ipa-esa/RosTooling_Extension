@@ -22,7 +22,7 @@ on:
         type: boolean
         default: false
       rostooling_version:
-        description: 'RosTooling version from GitHub Packages, e.g. 3.7.0-SNAPSHOT for the latest RosTooling devel build (empty = the stable version in build.gradle)'
+        description: 'RosTooling from GitHub Packages: "devel" = newest devel SNAPSHOT, or an exact version (empty = the version in build.gradle)'
         required: false
         type: string
         default: ''
@@ -94,14 +94,33 @@ jobs:
         run: ./mvnw -B install -DskipTests -f plugins/de.fraunhofer.ipa.ros.parent/pom.xml
 
       # A SNAPSHOT is re-published under the same version, so never take it from a cache.
+      # "devel" reads the registry's version list once, so every RosTooling artifact gets the same
+      # version. Old SNAPSHOTs stay listed (3.3.x-SNAPSHOT), so a SNAPSHOT not newer than the
+      # newest release is refused rather than silently used.
       - name: RosTooling version arguments
         id: rostooling
+        env:
+          TOKEN: ${{ secrets.GPR_KEY }}
+          REQUESTED: ${{ inputs.rostooling_version }}
         run: |
+          version="$REQUESTED"
+          if [ "$version" = "devel" ]; then
+            versions=$(curl -sf -u "x:$TOKEN" \
+              https://maven.pkg.github.com/ipa-esa/RosTooling/de/fraunhofer/ipa/ros/de.fraunhofer.ipa.ros/maven-metadata.xml \
+              | grep -o '<version>[^<]*</version>' | sed 's:</\?version>::g')
+            snapshot=$(echo "$versions" | grep -- '-SNAPSHOT$' | sort -V | tail -1)
+            release=$(echo "$versions" | grep -v -- '-SNAPSHOT$' | sort -V | tail -1)
+            if [ -z "$snapshot" ] || [ "$(printf '%s\n%s\n' "${snapshot%-SNAPSHOT}" "$release" | sort -V | tail -1)" = "$release" ]; then
+              echo "::error::No RosTooling devel SNAPSHOT newer than release $release (newest SNAPSHOT: ${snapshot:-none}). Push to RosTooling devel first."
+              exit 1
+            fi
+            version="$snapshot"
+          fi
           args=""
-          if [ -n "${{ inputs.rostooling_version }}" ]; then
-            args="-ProstoolingVersion=${{ inputs.rostooling_version }}"
-            case "${{ inputs.rostooling_version }}" in *-SNAPSHOT) args="$args --refresh-dependencies";; esac
-            echo "RosTooling ${{ inputs.rostooling_version }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$version" ]; then
+            args="-ProstoolingVersion=$version"
+            case "$version" in *-SNAPSHOT) args="$args --refresh-dependencies";; esac
+            echo "RosTooling $version${REQUESTED:+ (requested: $REQUESTED)}" >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
