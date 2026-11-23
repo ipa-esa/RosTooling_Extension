@@ -12,10 +12,25 @@ on:
         type: boolean
         default: false
       publish_npm:
-        description: 'Publish the headless MCP server to npm as rostooling-mcp'
+        description: 'Publish the headless MCP server to npm as rostooling-mcp (not with pre_release)'
         required: true
         type: boolean
         default: false
+      pre_release:
+        description: 'Publish a pre-release to Open VSX (version <major>.<odd minor>.<run number>; users opt in with "Switch to Pre-Release Version")'
+        required: false
+        type: boolean
+        default: false
+      rostooling_ref:
+        description: 'Build RosTooling from this branch/tag/SHA of ipa-esa/RosTooling instead of the published packages (empty = published)'
+        required: false
+        type: string
+        default: ''
+      studio_ref:
+        description: 'Branch/tag/SHA of ipa-esa/ipa-rostooling-studio to bundle (empty = default branch)'
+        required: false
+        type: string
+        default: ''
 
 # Never publish the same version twice in parallel.
 concurrency:
@@ -33,11 +48,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Refuse npm publish of a pre-release
+        if: inputs.pre_release && inputs.publish_npm
+        run: |
+          echo "::error::A pre-release goes to Open VSX only; npm has no opt-in channel and would make it 'latest'."
+          exit 1
+
       - name: Checkout Studio Backend
         uses: actions/checkout@v4
         with:
           repository: 'ipa-esa/ipa-rostooling-studio'
           path: 'ipa-rostooling-studio'
+          ref: ${{ inputs.studio_ref }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -50,8 +72,39 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
 
+      # Unreleased core work: build RosTooling from source into ~/.m2. The extension's build
+      # resolves mavenLocal() before GitHub Packages, so these artifacts win.
+      - name: Checkout RosTooling
+        if: inputs.rostooling_ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: 'ipa-esa/RosTooling'
+          path: 'rostooling-src'
+          ref: ${{ inputs.rostooling_ref }}
+          token: ${{ secrets.GPR_KEY || github.token }}
+
+      - name: Build RosTooling into the local Maven repository
+        if: inputs.rostooling_ref != ''
+        working-directory: rostooling-src
+        run: ./mvnw -B install -DskipTests -f plugins/de.fraunhofer.ipa.ros.parent/pom.xml
+
+      # Pre-release versions: <major>.<smallest odd minor above package.json's>.<run number>,
+      # e.g. 2.7.42 while package.json says 2.5.x. Unique per run, never a semver suffix
+      # (marketplaces reject those), and above every stable 2.5.x/2.6.x, so testers keep
+      # getting pre-releases until a stable release overtakes them.
+      - name: Set pre-release version
+        if: inputs.pre_release
+        working-directory: rostooling-languages
+        run: |
+          base=$(node -p "require('./package.json').version")
+          major=${base%%.*}; rest=${base#*.}; minor=${rest%%.*}
+          pre_minor=$(( minor % 2 == 1 ? minor + 2 : minor + 1 ))
+          version="${major}.${pre_minor}.${{ github.run_number }}"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          echo "Pre-release version $version (from $base)" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build VS-Code extension (.vsix)
-        run: ./gradlew vscodeExtension
+        run: ./gradlew vscodeExtension ${{ inputs.pre_release && '-PpreRelease' || '' }}
         env:
           USERNAME: ${{ github.actor }}
           TOKEN: ${{ secrets.GPR_KEY }}
@@ -79,8 +132,12 @@ jobs:
       # Runs automatically on releases, or manually when the checkbox is selected.
       # The only Open VSX publish; an already published version is skipped instead of failing.
       - name: Publish to Open VSX
-        if: github.event_name == 'release' || inputs.publish_openvsx
+        if: (github.event_name == 'release' || inputs.publish_openvsx) && !inputs.pre_release
         run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --trusted-publishing --skip-duplicate
+
+      - name: Publish pre-release to Open VSX
+        if: inputs.pre_release
+        run: npx ovsx@latest publish rostooling-languages/build/vscode/*.vsix --pre-release --trusted-publishing
 
       # The headless MCP server as its own small package (npm/build-mcp-package.mjs): only its
       # runtime files, the server JAR, and its three dependencies; not the extension's package.json.

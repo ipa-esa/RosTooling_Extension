@@ -174,7 +174,8 @@ configure(subprojects.findAll {it.name.startsWith('rostooling')}) {
             })
         }
         script = file("node_modules/.bin/vsce")
-        args = [ 'package', '--out', destPath ]
+        // -PpreRelease marks the package as a pre-release (Open VSX / Marketplace pre-release channel).
+        args = [ 'package', '--out', destPath ] + (project.hasProperty('preRelease') ? [ '--pre-release' ] : [])
         execOverrides {
             workingDir = projectDir
         }
