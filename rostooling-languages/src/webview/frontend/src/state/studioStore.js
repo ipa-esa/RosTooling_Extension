@@ -151,6 +151,22 @@ function reconcileSelection() {
   }
 }
 
+/** The createNode request awaiting its model update ({ name, from }); the server drops it silently when `from` does not resolve. */
+let pendingNodeCreate = null;
+
+function verifyPendingNodeCreate() {
+  const req = pendingNodeCreate;
+  pendingNodeCreate = null;
+  if (!req) return;
+  if (!(state.project.nodes || []).some((n) => n.label === req.name)) {
+    showToast(
+      `Could not add node "${req.name}": "${req.from}" does not name a .ros2 model the server can find ` +
+        `(workspace or catalogue).`,
+      true,
+    );
+  }
+}
+
 registerHostMessageListener({
   onUpdateGlspModel(gGraph, markers, project) {
     state.gGraph = gGraph;
@@ -158,6 +174,7 @@ registerHostMessageListener({
     state.markers = markers || [];
     if (project) state.project = project;
     state.pending = 0;
+    verifyPendingNodeCreate();
     reconcileSelection();
     emitChange();
     autoConnectOnModelUpdate();
@@ -397,6 +414,8 @@ export function deleteElements(elementIds) {
 }
 
 export function createRosNode({ nodeName, from, namespace }) {
+  // Only a node with a `from` can be rejected by the server; remember it to report a rejection.
+  pendingNodeCreate = from && nodeName ? { name: nodeName, from } : null;
   return dispatchOperation({
     kind: 'createNode',
     elementTypeId: 'node:ros-node',
