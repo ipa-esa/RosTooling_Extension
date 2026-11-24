@@ -24,16 +24,19 @@ const COMPARTMENTS = {
 
 const BASE_NAMES = { msg: 'CustomMessage', srv: 'CustomService', action: 'CustomAction' };
 
+/** A field type split into its base, whether it is an array, and a size ("3" or "<=3"; empty for any length). */
 function splitType(raw = '') {
   const t = String(raw || '').trim();
-  const array = t.endsWith('[]');
-  const base = (array ? t.slice(0, -2) : t).replace(/^['"]|['"]$/g, '');
-  return { base, array };
+  const match = /^(.*?)\s*\[\s*((?:<=\s*)?\d*)\s*\]$/.exec(t);
+  const array = Boolean(match);
+  const size = match ? match[2].replace(/\s+/g, '') : '';
+  const base = (match ? match[1] : t).replace(/^['"]|['"]$/g, '');
+  return { base, array, size };
 }
 
-function joinType(base, array) {
+function joinType(base, array, size = '') {
   const clean = String(base || 'string').trim().replace(/^['"]|['"]$/g, '') || 'string';
-  return array ? `${clean}[]` : clean;
+  return array ? `${clean}[${size}]` : clean;
 }
 
 function specsOf(project) {
@@ -72,7 +75,7 @@ export function RosCommObjectsView() {
 
   const availableFieldTypes = useMemo(() => {
     // Base (non-array) field types from PrimitivesTypes.ecore, as sent by the server; [] is a checkbox.
-    const set = new Set((vocabulary.messageFieldTypes || []).filter((t) => !t.endsWith('[]')));
+    const set = new Set((vocabulary.messageFieldTypes || []).filter((t) => !/\[[^\]]*\]$/.test(t)));
     for (const s of specs) if (s.category === 'msg' && s.name) set.add(`${s.pkg}/msg/${s.name}`);
     for (const [k, info] of Object.entries(typeIndex?.types || {})) {
       const cat = info?.category || (k.includes('/srv/') ? 'srv' : k.includes('/action/') ? 'action' : 'msg');
@@ -216,14 +219,14 @@ export function RosCommObjectsView() {
                           <div style={{ fontSize: 11.5, color: 'var(--rt-dim)', padding: '4px 0' }}>Empty `{comp}` payload</div>
                         ) : (
                           fields.map((field) => {
-                            const { base, array } = splitType(field.type);
+                            const { base, array, size } = splitType(field.type);
                             const errs = markersFor(field.id).filter((m) => m.kind === 'error');
                             return (
                               <div key={field.id} className="rt-field-row" title={errs.map((m) => m.description).join('\n')}>
                                 <CommitInput value={base} list="rt-comm-field-types" disabled={busy}
                                   className={`rt-input ${errs.length ? 'invalid' : ''}`}
                                   placeholder="Type (e.g. float64, geometry_msgs/msg/Pose)" style={{ fontFamily: 'var(--rt-mono)' }}
-                                  onCommit={(v) => editProperty(field.id, 'type', joinType(v, array))} />
+                                  onCommit={(v) => editProperty(field.id, 'type', joinType(v, array, size))} />
                                 <CommitInput value={field.name} disabled={busy} placeholder="field_name"
                                   style={{ fontFamily: 'var(--rt-mono)' }}
                                   onCommit={(v) => v.trim() && editProperty(field.id, 'name', v.trim())} />
@@ -232,6 +235,10 @@ export function RosCommObjectsView() {
                                     onChange={(e) => editProperty(field.id, 'type', joinType(base, e.target.checked))} />
                                   <span>[]</span>
                                 </label>
+                                <CommitInput value={size} disabled={busy || !array} placeholder="size"
+                                  title="Array size: N for exactly N elements, <=N for at most N; empty for any length"
+                                  style={{ fontFamily: 'var(--rt-mono)', width: 64 }}
+                                  onCommit={(v) => editProperty(field.id, 'type', joinType(base, true, v.trim()))} />
                                 {!isReadOnly && (
                                   <button type="button" className="rt-btn danger icon-only" disabled={busy} title="Delete field"
                                     onClick={() => deleteElements([field.id])}>

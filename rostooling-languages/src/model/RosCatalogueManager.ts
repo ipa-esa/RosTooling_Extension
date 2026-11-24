@@ -350,7 +350,7 @@ export class RosCatalogueManager {
             fields: Object.fromEntries(
               Object.entries(spec.sections || {}).map(([section, fields]) => [
                 section,
-                fields.map((f) => ({ type: f.type, name: f.name, array: f.type.endsWith('[]') })),
+                fields.map((f) => ({ type: f.type, name: f.name, array: /\[[^\]]*\]$/.test(f.type) })),
               ])
             ),
           };

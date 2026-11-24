@@ -1128,7 +1128,7 @@ export class GlspClientBridge {
             id: f.id,
             type: f.type,
             name: f.name,
-            array: f.type.endsWith('[]'),
+            array: /\[[^\]]*\]$/.test(f.type),
           }));
         }
         types[spec.fullname || `${pkgName}/${spec.category}/${spec.name}`] = {
