@@ -128,6 +128,7 @@ export class AgentSkillInstaller {
       'ros_plot.py',
       'extract_ros2_interfaces.py',
       'extract_rossystem.py',
+      'extract_docker.py',
       'collect_deps.py',
       'build_node_index.py',
       'build_type_index.py',
