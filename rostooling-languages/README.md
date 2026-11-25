@@ -206,7 +206,7 @@ RosTooling supports third-party `RosToolingPlugin` JAR extensions without hardco
    * **SHA-256 approval file (`~/.rostooling/trusted-plugins.json`)**: RosTooling core enforces JAR SHA-256 verification before loading any external JAR into its isolated per-JAR cache. Before a plugin JAR is activated for the first time (or after its JAR file changes on disk), VS Code shows the file name and SHA-256 fingerprint for confirmation and records the approval atomically in `~/.rostooling/trusted-plugins.json`. Unlabeled JARs can be approved individually via the **Approve JAR** action in the **RosTooling Plugins** view. The `rostooling-mcp` server launches core directly and therefore receives the exact same core approval check.
 4. **Documentation & Diagnostics**:
    * Use **Open Documentation** in the **RosTooling Plugins** view context menu to view plugin-supplied Markdown documentation inside VS Code's standard Markdown preview.
-   * Plugins missing `META-INF/rostooling-plugin.properties` appear with `no plugin metadata; enable by id in settings` and can still be enabled manually by entering their ID in `rostooling-languages.plugins.enabled` and confirming the checksum.
+   * A JAR without `META-INF/rostooling-plugin.properties` (with `id`, `version`, `summary` and `pluginApiVersionRange`) is shown in the **RosTooling Plugins** view as `Cannot load: no plugin metadata` and is never loaded, so it cannot be enabled by entering its ID. **Show Load Error** gives the reason.
 
 ---
 

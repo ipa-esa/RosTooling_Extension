@@ -1,5 +1,10 @@
 test_system:
   fromGitRepo: "https://github.com/jane-doe/project_example.git:branch"
+  pluginbases:
+    TreeNode:
+      class: "BT::TreeNode"
+      header: "behaviortree_cpp/tree_node.h"
+      loader: pluginlib
   artifacts:
     image_filter:
       node: image_filter
@@ -40,3 +45,7 @@ test_system:
             reliability: reliable
         description_in:
           type: 'std_msgs/msg/String'
+    bt_nodes:
+      plugins:
+        DockerPlugin:
+          implements: test_system.TreeNode

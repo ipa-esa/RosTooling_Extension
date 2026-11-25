@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "rostooling": {
+      "command": "node",
+      "args": [
+        "/home/adm-esa/coresense-ws/src/RosTooling_Extension/rostooling-languages/bin/rostooling-mcp.js",
+        "--plugins-dir",
+        "/home/adm-esa/coresense-ws/src/rostooling-bt-plugin/target/rostooling-bt-plugin-3.6.0.jar",
+        "--enable-plugins",
+        "de.fraunhofer.ipa.ros.plugin.bt"
+      ]
+    }
+  }
+}
