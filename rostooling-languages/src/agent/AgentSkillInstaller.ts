@@ -129,6 +129,9 @@ export class AgentSkillInstaller {
       'extract_ros2_interfaces.py',
       'extract_rossystem.py',
       'extract_docker.py',
+      'catalogue_query.py',
+      'add_provenance.py',
+      'ros_catalog_sources.py',
       'collect_deps.py',
       'build_node_index.py',
       'build_type_index.py',
@@ -137,7 +140,7 @@ export class AgentSkillInstaller {
 
     let result = content;
     for (const name of scriptNames) {
-      const pattern = new RegExp(`(?<=["'\\s]|^)scripts/${name}`, 'g');
+      const pattern = new RegExp(`(?<=["'\`\\s]|^)scripts/${name}`, 'g');
       result = result.replace(pattern, `"${escapedScriptsDir}/${name}"`);
     }
 
