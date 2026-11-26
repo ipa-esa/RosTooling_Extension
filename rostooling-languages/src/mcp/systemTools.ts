@@ -305,10 +305,20 @@ export async function connectInterfaces(
   });
 }
 
+/** The server prints a list as `[a, b]`, so lists are compared without quotes and spacing. */
+function sameParameterValue(shown: string, wanted: string): boolean {
+  if (shown === wanted) return true;
+  if (!wanted.trim().startsWith('[')) return false;
+  const bare = (text: string) => text.replace(/["'\s]/g, '');
+  return bare(shown) === bare(wanted);
+}
+
 export async function setParameter(
   bridge: Bridge,
-  p: { system_path: string; node: string; parameter: string; value: string; type_hint?: string }
+  p: { system_path: string; node: string; parameter: string; value: string | unknown[]; type_hint?: string }
 ): Promise<ToolOutcome> {
+  // The server reads a list from its text form; JSON keeps commas and quotes inside items intact.
+  const value = Array.isArray(p.value) ? JSON.stringify(p.value) : p.value;
   return withSystem(bridge, p.system_path, true, async (s) => {
     const node = findNode(s.graph, p.node);
     if (!node) return fail(s, `Unknown node '${p.node}'.`, { nodes: systemNodes(s.graph).map((n) => n.args?.nodeName) });
@@ -317,7 +327,7 @@ export async function setParameter(
       return fail(s, `Parameter '${p.parameter}' is not declared by the node type of '${p.node}'.`, { parameters: declared });
     }
     await runOperation(bridge, s, {
-      kind: 'editRosProperty', elementId: p.node, property: 'parameter', key: p.parameter, value: p.value,
+      kind: 'editRosProperty', elementId: p.node, property: 'parameter', key: p.parameter, value,
       ...(p.type_hint ? { valueType: p.type_hint } : {}),
     });
     const { changed, graph, markers } = await commit(bridge, s);
@@ -327,7 +337,7 @@ export async function setParameter(
     if (!(p.parameter in params)) {
       return fail(s, `Parameter '${p.parameter}' is not declared by the node type of '${p.node}'.`, { parameters: params, ...m });
     }
-    if (!changed && params[p.parameter] !== p.value) {
+    if (!changed && !sameParameterValue(params[p.parameter], value)) {
       return fail(s, `The server did not set '${p.node}.${p.parameter}'.`, { parameters: params, ...m });
     }
     return { success: m.errors.length === 0, file: s.file, changed, parameter: { node: p.node, name: p.parameter, value: params[p.parameter] }, ...m };
@@ -580,7 +590,9 @@ export function registerSystemTools(server: McpServer, getBridge: () => Bridge =
       system_path: systemPath,
       node: z.string().describe('Node instance name, e.g. "lidar".'),
       parameter: z.string().describe('Parameter name as declared in the .ros2 model, e.g. "frame_id".'),
-      value: z.string().describe('Value literal, e.g. "laser_link", "10", "0.5", "true".'),
+      value: z
+        .union([z.string(), z.array(z.union([z.string(), z.number(), z.boolean()]))])
+        .describe('Value literal, e.g. "laser_link", "10", "0.5", "true". For an array parameter pass a list, e.g. ["a", "b"].'),
       type_hint: z.enum(['string', 'integer', 'double', 'boolean']).optional().describe('Optional literal type hint.'),
     },
     async (p) => asResult(await setParameter(getBridge(), p))
