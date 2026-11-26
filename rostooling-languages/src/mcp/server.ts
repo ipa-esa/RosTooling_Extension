@@ -131,7 +131,7 @@ export function createMcpServer(): McpServer {
 export function createConfiguredMcpServer(): CreatedMcpServer {
   const server = new McpServer({
     name: 'rostooling-mcp-server',
-    version: '2.5.0',
+    version: '2.5.1',
   });
   const registeredPluginTools = new Set<string>();
   const registeredPluginResources = new Set<string>();

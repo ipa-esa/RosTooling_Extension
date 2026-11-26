@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unified prune-before-write file ordering across extension and MCP generation commands and restricted `deletePrunedFiles` strictly to `config/<plugin-folder>/`, `launch/<plugin-folder>/`, and `plugins/<plugin-folder>/`.
   - Propagated plugin generation warnings (including preserved user-owned `setup.py` warnings) through MCP and extension outputs.
   - Updated the bundled Java language/GLSP server to RosTooling 3.6.0 (including plugin SPI support and Xtext `STRING` escaping in GLSP parameter serialization).
+## [2.5.1] - 2026-11-18
+
+### Fixed
+- **Catalogue Cross-Reference Resolution in GLSP (`RosTooling` `3.5.1`)**:
+  - Updated the RosTooling dependency to `3.5.1` (`RosCatalogueResolver`) so multi-package `.ros` `PackageSet` catalogue files (such as `common_msgs.ros` containing `actionlib_msgs`, `geometry_msgs`, `sensor_msgs`, etc.) are indexed under all declared root packages, eliminating spurious unresolved-reference errors in the GUI editor for catalogue types like `geometry_msgs/msg/Point`.
+- **AI Agent Skills & MCP Installer (`AgentSkillInstaller`)**:
+  - Fixed Antigravity registration: installs `mcpServers.rostooling` into `~/.gemini/config/mcp_config.json`, and in global scope installs Antigravity skills and hooks under `~/.gemini/config/{skills,hooks.json}` instead of `~/.agents/`.
+  - Fixed Claude Code global MCP target (`~/.claude.json` vs workspace `.mcp.json`), added Cursor MCP registration (`.cursor/mcp.json`), and added first-class support for OpenAI Codex CLI (`.agents/skills` + `[mcp_servers.rostooling]` in `.codex/config.toml`) and Gemini CLI (`.agents/skills` + `.gemini/settings.json`).
+  - Automatically refreshes pre-existing `rostooling-mcp.js` paths in configured MCP files on extension activation so version upgrades keep working without re-running the installer.
 
 ## [2.5.0] - 2026-11-16
 

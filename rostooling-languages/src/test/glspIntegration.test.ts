@@ -17,7 +17,7 @@ import { readViewData, VIEW_DATA_VERSION } from '../glsp/RosViewData';
 
 const EXT_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE = path.resolve(EXT_ROOT, '..', 'demo', 'test_ws', 'src', 'mock_robot_system');
-const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.5.0.jar');
+const JAR = path.join(EXT_ROOT, 'server', 'rostooling_extension-2.5.1.jar');
 
 function applyEdits(base: string, result: RosTextEditsResult): string {
   let out = '';
