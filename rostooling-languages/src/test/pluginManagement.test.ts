@@ -30,7 +30,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
   const EXT_ROOT = path.resolve(__dirname, '..', '..');
   const TEST_PLUGINS_DIR = path.resolve(EXT_ROOT, '..', 'build', 'test-plugins');
   const TEST_PROBE_JAR = path.join(TEST_PLUGINS_DIR, 'rostooling-test-plugins.jar');
-  const SERVER_JAR = path.resolve(EXT_ROOT, 'server', 'rostooling_extension-2.5.0.jar');
+  const SERVER_JAR = HeadlessLspClient.findJarPath(EXT_ROOT);
 
   function makeDummyPlugin(overrides: Partial<DiscoveredPlugin> = {}): DiscoveredPlugin {
     return {
@@ -571,7 +571,7 @@ suite('Plugin Discovery, Core Approval Store, Migration & UI Suite', function ()
       )) as DiscoveredPluginsResponse;
       assert.ok(
         typeof resp.trustStorePath === 'string' &&
-          resp.trustStorePath.endsWith(path.join('.rostooling', 'trusted-plugins.json')),
+        resp.trustStorePath.endsWith(path.join('.rostooling', 'trusted-plugins.json')),
         `Expected fixed trustStorePath, got ${JSON.stringify(resp)}`
       );
       assert.ok(Array.isArray(resp.plugins));
